@@ -10,8 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/copilot-omni/sidecar/internal/artifact"
 	"github.com/copilot-omni/sidecar/internal/config"
 	"github.com/copilot-omni/sidecar/internal/doctor"
+	runpkg "github.com/copilot-omni/sidecar/internal/run"
+	"github.com/copilot-omni/sidecar/internal/schema"
 	"github.com/copilot-omni/sidecar/internal/version"
 )
 
@@ -140,6 +143,50 @@ func NewRegistry(startedAt time.Time, resolver ConfigResolver) *Registry {
 			},
 		},
 		registry.omniArtifactWrite,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_run_status",
+			Description: "Return the authoritative run-state snapshot including status, current phase, next safe action, blockers, and artifact paths.",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"run_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Run ID to look up",
+					},
+				},
+				Required: []string{"repo_root", "run_id"},
+			},
+		},
+		registry.omniRunStatus,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_resume_context",
+			Description: "Build a deterministic resume bundle from artifacts so the wrapper can restart at the correct phase with bounded context.",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"run_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Run ID to resume",
+					},
+				},
+				Required: []string{"repo_root", "run_id"},
+			},
+		},
+		registry.omniResumeContext,
 	)
 
 	return registry
@@ -298,14 +345,38 @@ func (r *Registry) omniArtifactRead(ctx context.Context, arguments map[string]in
 	runID, _ := arguments["run_id"].(string)
 	filename, _ := arguments["filename"].(string)
 
-	artifactPath, err := validateArtifactPath(repoRoot, runID, filename)
-	if err != nil {
-		return ToolCallResult{}, err
-	}
-
-	data, err := os.ReadFile(artifactPath)
-	if err != nil {
-		return ToolCallResult{}, fmt.Errorf("read artifact %s/%s: %w", runID, filename, err)
+	var data []byte
+	switch filename {
+	case "spec.md":
+		store := artifact.NewStore(repoRoot)
+		content, err := store.ReadSpec(runID)
+		if err != nil {
+			return ToolCallResult{}, fmt.Errorf("read spec %s: %w", runID, err)
+		}
+		data = []byte(content)
+	case "plan.json":
+		store := artifact.NewStore(repoRoot)
+		plan, err := store.ReadPlan(runID)
+		if err != nil {
+			return ToolCallResult{}, fmt.Errorf("read plan %s: %w", runID, err)
+		}
+		data, _ = json.Marshal(plan)
+	case "decisions.md":
+		store := artifact.NewStore(repoRoot)
+		content, err := store.ReadDecisions(runID)
+		if err != nil {
+			return ToolCallResult{}, fmt.Errorf("read decisions %s: %w", runID, err)
+		}
+		data = []byte(content)
+	default:
+		artifactPath, err := validateArtifactPath(repoRoot, runID, filename)
+		if err != nil {
+			return ToolCallResult{}, err
+		}
+		data, err = os.ReadFile(artifactPath)
+		if err != nil {
+			return ToolCallResult{}, fmt.Errorf("read artifact %s/%s: %w", runID, filename, err)
+		}
 	}
 
 	return ToolCallResult{
@@ -314,6 +385,201 @@ func (r *Registry) omniArtifactRead(ctx context.Context, arguments map[string]in
 			Text: string(data),
 		}},
 	}, nil
+}
+
+func runCanonicalFallback(repoRoot, runID string, artifactPaths map[string]string) {
+	fallbacks := map[string]string{
+		"spec":     filepath.Join(repoRoot, ".omni", "runs", runID, "spec.md"),
+		"plan":     filepath.Join(repoRoot, ".omni", "runs", runID, "plan.json"),
+		"decision": filepath.Join(repoRoot, ".omni", "runs", runID, "decisions.md"),
+	}
+	for key, path := range fallbacks {
+		if _, ok := artifactPaths[key]; !ok {
+			if _, err := os.Stat(path); err == nil {
+				artifactPaths[key] = path
+			}
+		}
+	}
+}
+
+func (r *Registry) omniRunStatus(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, _ := arguments["repo_root"].(string)
+	runID, _ := arguments["run_id"].(string)
+
+	if repoRoot == "" || runID == "" {
+		return ToolCallResult{}, fmt.Errorf("repo_root and run_id are required")
+	}
+
+	store := artifact.NewStore(repoRoot)
+	runObj, err := store.ReadRun(runID)
+	if err != nil {
+		return ToolCallResult{}, fmt.Errorf("read run %s: %w", runID, err)
+	}
+
+	artifactPaths, _ := store.ListRunArtifacts(runID)
+	if artifactPaths == nil {
+		artifactPaths = make(map[string]string)
+	}
+
+	runCanonicalFallback(repoRoot, runID, artifactPaths)
+
+	summary := runpkg.Summarize(runObj)
+	if summary == nil {
+		return ToolCallResult{}, fmt.Errorf("run %s: failed to generate summary", runID)
+	}
+
+	response := map[string]interface{}{
+		"run_id":                summary.RunID,
+		"status":                summary.Status,
+		"current_phase":         summary.CurrentPhase,
+		"last_completed_action": summary.LastCompletedAction,
+		"next_safe_action":      summary.NextSafeAction,
+		"blockers":              summary.Blockers,
+		"artifact_paths":        artifactPaths,
+	}
+
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return ToolCallResult{}, fmt.Errorf("marshal omni_run_status response: %w", err)
+	}
+
+	return ToolCallResult{
+		Content: []ToolContent{{
+			Type: "text",
+			Text: string(payload),
+		}},
+	}, nil
+}
+
+func (r *Registry) omniResumeContext(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, _ := arguments["repo_root"].(string)
+	runID, _ := arguments["run_id"].(string)
+
+	if repoRoot == "" || runID == "" {
+		return ToolCallResult{}, fmt.Errorf("repo_root and run_id are required")
+	}
+
+	store := artifact.NewStore(repoRoot)
+	runObj, err := store.ReadRun(runID)
+	if err != nil {
+		return ToolCallResult{}, fmt.Errorf("read run %s: %w", runID, err)
+	}
+
+	hydrateFrom := make(map[string]interface{})
+	artifactPaths, _ := store.ListRunArtifacts(runID)
+
+	if spec, err := store.ReadSpec(runID); err == nil {
+		hydrateFrom["spec"] = spec
+	} else if data, err := os.ReadFile(filepath.Join(repoRoot, ".omni", "runs", runID, "spec.md")); err == nil {
+		hydrateFrom["spec"] = string(data)
+		if artifactPaths == nil {
+			artifactPaths = make(map[string]string)
+		}
+		artifactPaths["spec"] = filepath.Join(repoRoot, ".omni", "runs", runID, "spec.md")
+	}
+
+	if plan, err := store.ReadPlan(runID); err == nil {
+		hydrateFrom["plan"] = plan
+	} else if data, err := os.ReadFile(filepath.Join(repoRoot, ".omni", "runs", runID, "plan.json")); err == nil {
+		var planObj map[string]interface{}
+		if json.Unmarshal(data, &planObj) == nil {
+			hydrateFrom["plan"] = planObj
+		} else {
+			hydrateFrom["plan"] = string(data)
+		}
+		if artifactPaths == nil {
+			artifactPaths = make(map[string]string)
+		}
+		artifactPaths["plan"] = filepath.Join(repoRoot, ".omni", "runs", runID, "plan.json")
+	}
+
+	if decisions, err := store.ReadDecisions(runID); err == nil {
+		hydrateFrom["decisions"] = decisions
+	} else if data, err := os.ReadFile(filepath.Join(repoRoot, ".omni", "runs", runID, "decisions.md")); err == nil {
+		hydrateFrom["decisions"] = string(data)
+		if artifactPaths == nil {
+			artifactPaths = make(map[string]string)
+		}
+		artifactPaths["decision"] = filepath.Join(repoRoot, ".omni", "runs", runID, "decisions.md")
+	}
+
+	transcripts := make(map[string]string)
+	for key, path := range artifactPaths {
+		if strings.HasPrefix(key, "transcript:") {
+			phase := strings.TrimPrefix(key, "transcript:")
+			data, err := os.ReadFile(path)
+			if err == nil {
+				transcripts[phase] = string(data)
+			}
+		}
+	}
+	if len(transcripts) > 0 {
+		hydrateFrom["transcripts"] = transcripts
+	}
+
+	hydrateFrom["run"] = runObj
+
+	summary := runpkg.Summarize(runObj)
+	if summary == nil {
+		summary = &runpkg.RunSummary{}
+	}
+
+	response := map[string]interface{}{
+		"run_id":             runObj.ID,
+		"status":             string(runObj.Status),
+		"hydrate_from":       hydrateFrom,
+		"artifact_paths":     artifactPaths,
+		"summary":            summary.NextSafeAction,
+		"recommended_prompt": r.buildResumePrompt(runObj),
+		"next_safe_action":   runpkg.NextSafeAction(runObj),
+	}
+
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return ToolCallResult{}, fmt.Errorf("marshal omni_resume_context response: %w", err)
+	}
+
+	return ToolCallResult{
+		Content: []ToolContent{{
+			Type: "text",
+			Text: string(payload),
+		}},
+	}, nil
+}
+
+func (r *Registry) buildResumePrompt(runObj *runpkg.Run) string {
+	switch runObj.Status {
+	case runpkg.StatusDraft:
+		return "Continue the discuss/spec phase to generate a specification from the original prompt."
+	case runpkg.StatusSpecReady:
+		return "A specification exists. Continue with the plan phase to create an implementation plan."
+	case runpkg.StatusPlanReady:
+		return "A plan exists. Continue with the review phase to validate spec/plan alignment."
+	case runpkg.StatusExecuting:
+		return "Execution is in progress. Continue from the last completed task."
+	case runpkg.StatusVerifying:
+		return "Verification is in progress. Continue running verification commands."
+	case runpkg.StatusBlocked:
+		return "The run is blocked. Resolve blockers before continuing."
+	case runpkg.StatusAborted:
+		return "The run was aborted. Start a new run if needed."
+	case runpkg.StatusDone:
+		return "The run is complete. No further action needed."
+	default:
+		return "Resume the workflow from the current state."
+	}
 }
 
 func (r *Registry) omniArtifactWrite(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
@@ -332,23 +598,56 @@ func (r *Registry) omniArtifactWrite(ctx context.Context, arguments map[string]i
 		return ToolCallResult{}, fmt.Errorf("content is required")
 	}
 
-	artifactPath, err := validateArtifactPath(repoRoot, runID, filename)
-	if err != nil {
-		return ToolCallResult{}, err
-	}
+	store := artifact.NewStore(repoRoot)
+	var writePath string
 
-	runDir := filepath.Dir(artifactPath)
-	if err := os.MkdirAll(runDir, 0o755); err != nil {
-		return ToolCallResult{}, fmt.Errorf("create run directory: %w", err)
-	}
-
-	if err := os.WriteFile(artifactPath, []byte(content), 0o644); err != nil {
-		return ToolCallResult{}, fmt.Errorf("write artifact: %w", err)
+	switch filename {
+	case "spec.md":
+		if _, err := schema.ValidateSpec(content); err != nil {
+			return ToolCallResult{}, fmt.Errorf("spec validation failed: %s", err)
+		}
+		if err := store.WriteSpec(runID, content); err != nil {
+			return ToolCallResult{}, fmt.Errorf("write spec: %w", err)
+		}
+		writePath = artifact.SpecPath(repoRoot, runID)
+	case "plan.json":
+		var planObj map[string]interface{}
+		if err := json.Unmarshal([]byte(content), &planObj); err != nil {
+			return ToolCallResult{}, fmt.Errorf("plan must be valid JSON: %w", err)
+		}
+		if _, err := schema.ValidatePlan(planObj); err != nil {
+			return ToolCallResult{}, fmt.Errorf("plan validation failed: %s", err)
+		}
+		if err := store.WritePlan(runID, planObj); err != nil {
+			return ToolCallResult{}, fmt.Errorf("write plan: %w", err)
+		}
+		writePath = artifact.PlanPath(repoRoot, runID)
+	case "decisions.md":
+		if _, err := schema.ValidateDecisions(content); err != nil {
+			return ToolCallResult{}, fmt.Errorf("decisions validation failed: %s", err)
+		}
+		if err := store.WriteDecisions(runID, content); err != nil {
+			return ToolCallResult{}, fmt.Errorf("write decisions: %w", err)
+		}
+		writePath = artifact.DecisionsPath(repoRoot, runID)
+	default:
+		artifactPath, err := validateArtifactPath(repoRoot, runID, filename)
+		if err != nil {
+			return ToolCallResult{}, err
+		}
+		runDir := filepath.Dir(artifactPath)
+		if err := os.MkdirAll(runDir, 0o755); err != nil {
+			return ToolCallResult{}, fmt.Errorf("create run directory: %w", err)
+		}
+		if err := os.WriteFile(artifactPath, []byte(content), 0o644); err != nil {
+			return ToolCallResult{}, fmt.Errorf("write artifact: %w", err)
+		}
+		writePath = artifactPath
 	}
 
 	result := map[string]interface{}{
 		"status":  "ok",
-		"path":    artifactPath,
+		"path":    writePath,
 		"run_id":  runID,
 		"written": len(content),
 	}

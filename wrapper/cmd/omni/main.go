@@ -15,6 +15,7 @@ import (
 	"github.com/copilot-omni/wrapper/internal/copilot"
 	"github.com/copilot-omni/wrapper/internal/sidecar"
 	"github.com/copilot-omni/wrapper/internal/version"
+	"github.com/copilot-omni/wrapper/internal/workflow"
 )
 
 const usage = "Usage: omni <command> [options] [arguments]\n\nCommands:\n  init      Bootstrap repository for Omni\n  doctor    Run diagnostics\n  run       Start a full workflow\n  plan      Plan only (no execution)\n  resume    Resume an interrupted run\n  version   Print version\n"
@@ -167,27 +168,27 @@ func runWorkflow(args []string) {
 		os.Exit(1)
 	}
 
-	root := repoRoot()
-	runDir, runID, err := createRunDir(root)
+	sidecarPath, err := sidecar.FindSidecar()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "create run directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Sidecar binary: not found (%v)\n", err)
 		os.Exit(1)
 	}
 
-	output, err := copilot.Run(context.Background(), prompt, copilot.RunOptions{
-		Agent:     "omni-conductor",
-		SharePath: filepath.Join(runDir, "transcript.md"),
-		Silent:    true,
-		NoAskUser: true,
-		AddDirs:   []string{filepath.Join(root, "plugin")},
-	})
-	if output != "" {
-		fmt.Print(output)
-	}
+	mgr := sidecar.NewManager(sidecarPath)
+	defer stopManager(mgr)
+
+	runner := workflow.NewRunner(repoRoot(), mgr, workflow.StandardCopilotRunner{})
+	result, err := runner.Run(context.Background(), prompt)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "workflow %s failed: %v\n", runID, err)
+		fmt.Fprintf(os.Stderr, "workflow failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Remediation: inspect the latest .omni/runs/<run-id>/ artifacts and retry with 'omni resume <run-id>'.")
+		if result != nil {
+			printRunResult("Workflow result", result)
+		}
 		os.Exit(1)
 	}
+
+	printRunResult("Workflow result", result)
 }
 
 func runPlan(args []string) {
@@ -201,50 +202,33 @@ func runPlan(args []string) {
 		os.Exit(1)
 	}
 
-	root := repoRoot()
-	runDir, runID, err := createRunDir(root)
+	sidecarPath, err := sidecar.FindSidecar()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "create run directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Sidecar binary: not found (%v)\n", err)
 		os.Exit(1)
 	}
 
-	output, err := copilot.Run(context.Background(), prompt, copilot.RunOptions{
-		Agent:     "omni-planner",
-		SharePath: filepath.Join(runDir, "transcript.md"),
-		Silent:    true,
-		NoAskUser: true,
-		AddDirs:   []string{filepath.Join(root, "plugin")},
-	})
-	if output != "" {
-		fmt.Print(output)
-	}
+	mgr := sidecar.NewManager(sidecarPath)
+	defer stopManager(mgr)
+
+	runner := workflow.NewRunner(repoRoot(), mgr, workflow.StandardCopilotRunner{})
+	result, err := runner.Plan(context.Background(), prompt)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "plan %s failed: %v\n", runID, err)
+		fmt.Fprintf(os.Stderr, "plan failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Remediation: inspect the latest .omni/runs/<run-id>/ artifacts and retry with 'omni resume <run-id>'.")
+		if result != nil {
+			printRunResult("Plan result", result)
+		}
 		os.Exit(1)
 	}
+
+	printRunResult("Plan result", result)
 }
 
 func runResume(args []string) {
-	root := repoRoot()
-	runsDir := filepath.Join(root, ".omni", "runs")
 	runID := ""
 	if len(args) > 0 {
 		runID = strings.TrimSpace(args[0])
-	}
-
-	if runID == "" {
-		latestRunID, err := findLatestRunID(runsDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "find latest run: %v\n", err)
-			os.Exit(1)
-		}
-		runID = latestRunID
-	}
-
-	runDir := filepath.Join(runsDir, runID)
-	transcriptPath := filepath.Join(runDir, "transcript.md")
-	if data, err := os.ReadFile(transcriptPath); err == nil && len(data) > 0 {
-		fmt.Printf("Loaded transcript from %s\n", transcriptPath)
 	}
 
 	if _, err := copilot.FindCopilot(); err != nil {
@@ -252,20 +236,62 @@ func runResume(args []string) {
 		os.Exit(1)
 	}
 
-	prompt := fmt.Sprintf("Resume run %s. Load context from the transcript and continue the workflow.", runID)
-	output, err := copilot.Run(context.Background(), prompt, copilot.RunOptions{
-		Agent:     "omni-conductor",
-		SharePath: transcriptPath,
-		Silent:    true,
-		NoAskUser: true,
-		AddDirs:   []string{filepath.Join(root, "plugin")},
-	})
-	if output != "" {
-		fmt.Print(output)
-	}
+	sidecarPath, err := sidecar.FindSidecar()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "resume %s failed: %v\n", runID, err)
+		fmt.Fprintf(os.Stderr, "Sidecar binary: not found (%v)\n", err)
 		os.Exit(1)
+	}
+
+	mgr := sidecar.NewManager(sidecarPath)
+	defer stopManager(mgr)
+
+	runner := workflow.NewRunner(repoRoot(), mgr, workflow.StandardCopilotRunner{})
+	result, err := runner.Resume(context.Background(), runID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "resume failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Remediation: inspect run.json, transcripts, and generated artifacts under .omni/runs/<run-id>/ before retrying.")
+		if result != nil {
+			printRunResult("Resume result", result)
+		}
+		os.Exit(1)
+	}
+
+	printRunResult("Resume result", result)
+}
+
+func printRunResult(label string, result *workflow.RunResult) {
+	if result == nil {
+		return
+	}
+
+	fmt.Println(label + ":")
+	fmt.Printf("  Run ID: %s\n", result.RunID)
+	fmt.Printf("  Status: %s\n", result.Status)
+	fmt.Printf("  Summary: %s\n", result.Summary)
+
+	artifactKeys := make([]string, 0, len(result.ArtifactPaths))
+	for key := range result.ArtifactPaths {
+		artifactKeys = append(artifactKeys, key)
+	}
+	sort.Strings(artifactKeys)
+	if len(artifactKeys) > 0 {
+		fmt.Println("  Artifacts:")
+		for _, key := range artifactKeys {
+			fmt.Printf("    %s: %s\n", key, result.ArtifactPaths[key])
+		}
+	}
+
+	fmt.Printf("  Next action: %s\n", nextActionForStatus(result.Status))
+}
+
+func nextActionForStatus(status string) string {
+	switch status {
+	case "blocked":
+		return "Review decisions.md and resolve blocking findings before continuing."
+	case "done":
+		return "Review the generated artifacts, then proceed to guarded execution when ready."
+	default:
+		return "Inspect run.json for the last completed phase, then resume if more work remains."
 	}
 }
 
