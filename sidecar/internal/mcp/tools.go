@@ -360,7 +360,11 @@ func (r *Registry) omniArtifactRead(ctx context.Context, arguments map[string]in
 		if err != nil {
 			return ToolCallResult{}, fmt.Errorf("read plan %s: %w", runID, err)
 		}
-		data, _ = json.Marshal(plan)
+		var marshalErr error
+		data, marshalErr = json.Marshal(plan)
+		if marshalErr != nil {
+			return ToolCallResult{}, fmt.Errorf("marshal plan for read: %w", marshalErr)
+		}
 	case "decisions.md":
 		store := artifact.NewStore(repoRoot)
 		content, err := store.ReadDecisions(runID)

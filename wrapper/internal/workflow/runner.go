@@ -287,8 +287,6 @@ func (r *Runner) executeRemainingPhases(ctx context.Context, state *runState, mo
 			return transErr
 		}
 		state.Blockers = extractBlockers(decisionContent)
-	} else if transErr := r.transitionState(state, "plan_ready", "review_passed"); transErr != nil {
-		return transErr
 	}
 
 	return r.persistRunState(ctx, state)
@@ -442,8 +440,6 @@ func (r *Runner) runReviewPhase(ctx context.Context, state *runState, specConten
 
 	if strings.Contains(strings.ToUpper(content), "BLOCKING:") {
 		_ = r.transitionState(state, "blocked", "review_blocking")
-	} else {
-		_ = r.transitionState(state, "plan_ready", "review_passed")
 	}
 	state.ArtifactPaths["transcript_review"] = transcriptPath(r.repoRoot, state.ID, PhaseReview)
 	r.upsertPhaseResult(state, result)
