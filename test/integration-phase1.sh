@@ -119,6 +119,64 @@ print('  PASS: omni_resume_context returns full hydration bundle')
 rm -rf "$ARTIFACT_DIR"
 
 echo ""
+echo "--- Unified Schema Round-Trip ---"
+
+SCHEMA_DIR=$(mktemp -d)
+SCHEMA_RUN_ID="run-1700000000"
+
+SCHEMA_RESULT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"omni_artifact_write","arguments":{"repo_root":"'"$SCHEMA_DIR"'","run_id":"'"$SCHEMA_RUN_ID"'","filename":"run.json","content":"{\"id\":\"'"$SCHEMA_RUN_ID"'\",\"status\":\"spec_ready\",\"current_phase\":\"spec\",\"prompt\":\"test feature\",\"created_at\":\"2024-01-01T00:00:00Z\",\"updated_at\":\"2024-01-01T00:00:00Z\",\"artifact_paths\":{},\"version\":\"1\"}"}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"omni_run_status","arguments":{"repo_root":"'"$SCHEMA_DIR"'","run_id":"'"$SCHEMA_RUN_ID"'"}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"omni_artifact_read","arguments":{"repo_root":"'"$SCHEMA_DIR"'","run_id":"'"$SCHEMA_RUN_ID"'","filename":"run.json"}}}' | "$REPO_ROOT/sidecar/omni-sidecar" serve 2>/dev/null)
+
+printf '%s\n' "$SCHEMA_RESULT" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+assert len(lines) == 4, f'Expected 4 responses, got {len(lines)}'
+r = json.loads(lines[0])
+assert r['result']['serverInfo']['name'] == 'copilot-omni-sidecar'
+print('  PASS: unified schema initialize')
+" || fail "unified schema initialize"
+
+printf '%s\n' "$SCHEMA_RESULT" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+r = json.loads(lines[1])
+text = json.loads(r['result']['content'][0]['text'])
+assert text['status'] == 'ok'
+assert text['run_id'] == '$SCHEMA_RUN_ID'
+print('  PASS: unified schema write run.json')
+" || fail "unified schema write run.json"
+
+printf '%s\n' "$SCHEMA_RESULT" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+r = json.loads(lines[2])
+assert 'error' not in r, f'omni_run_status error: {r}'
+text = json.loads(r['result']['content'][0]['text'])
+assert text['run_id'] == '$SCHEMA_RUN_ID', f'Wrong run_id: {text.get(\"run_id\")}'
+assert text['status'] == 'spec_ready', f'Wrong status: {text.get(\"status\")}'
+assert text['current_phase'] == 'spec', f'Wrong phase: {text.get(\"current_phase\")}'
+print('  PASS: unified schema run_status reads wrapper format')
+" || fail "unified schema run_status"
+
+printf '%s\n' "$SCHEMA_RESULT" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+r = json.loads(lines[3])
+assert 'error' not in r, f'artifact_read error: {r}'
+text = r['result']['content'][0]['text']
+parsed = json.loads(text)
+assert parsed['id'] == '$SCHEMA_RUN_ID', f'Wrong id: {parsed.get(\"id\")}'
+assert parsed['status'] == 'spec_ready', f'Wrong status: {parsed.get(\"status\")}'
+assert parsed['prompt'] == 'test feature', f'Wrong prompt: {parsed.get(\"prompt\")}'
+print('  PASS: unified schema read back run.json')
+" || fail "unified schema read back"
+
+rm -rf "$SCHEMA_DIR"
+
+echo ""
 echo "--- Artifact Store Canonical Paths ---"
 
 cd "$REPO_ROOT/sidecar" && go test ./internal/artifact/ -run TestLayout -v 2>&1 | grep -q "PASS" && pass "artifact layout tests pass" || echo "  INFO: no layout test (expected)"

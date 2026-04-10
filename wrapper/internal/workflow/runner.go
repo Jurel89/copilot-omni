@@ -20,6 +20,7 @@ type Runner struct {
 	repoRoot      string
 	sidecarMgr    sidecarManager
 	copilotRunner copilotRunner
+	journal       []journalEntry
 }
 
 type sidecarManager interface {
@@ -36,15 +37,27 @@ type copilotRunner interface {
 
 type StandardCopilotRunner struct{}
 
+type journalEntry struct {
+	Timestamp string `json:"timestamp"`
+	Action    string `json:"action"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Message   string `json:"message,omitempty"`
+}
+
 type runState struct {
-	RunID         string            `json:"run_id"`
-	Version       string            `json:"version"`
-	Status        string            `json:"status"`
-	UserPrompt    string            `json:"user_prompt,omitempty"`
-	UpdatedAt     string            `json:"updated_at"`
-	Phases        []PhaseResult     `json:"phases"`
-	ArtifactPaths map[string]string `json:"artifact_paths,omitempty"`
-	Summary       string            `json:"summary,omitempty"`
+	ID                  string            `json:"id"`
+	Status              string            `json:"status"`
+	CurrentPhase        string            `json:"current_phase"`
+	Prompt              string            `json:"prompt"`
+	CreatedAt           string            `json:"created_at"`
+	UpdatedAt           string            `json:"updated_at"`
+	Profile             string            `json:"profile,omitempty"`
+	LastCompletedAction string            `json:"last_completed_action,omitempty"`
+	Blockers            []string          `json:"blockers,omitempty"`
+	ArtifactPaths       map[string]string `json:"artifact_paths,omitempty"`
+	Version             string            `json:"version,omitempty"`
+	Phases              []PhaseResult     `json:"phases"`
 }
 
 type planDocument struct {
@@ -69,6 +82,13 @@ type toolWriteResult struct {
 	RunID  string `json:"run_id"`
 }
 
+type toolReadResult struct {
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
+}
+
 type resumeContext struct {
 	RunID         string            `json:"run_id"`
 	Status        string            `json:"status"`
@@ -76,12 +96,23 @@ type resumeContext struct {
 	Summary       string            `json:"summary"`
 }
 
+var validStatuses = map[string][]string{
+	"draft":      {"spec_ready", "aborted"},
+	"spec_ready": {"plan_ready", "blocked", "aborted"},
+	"plan_ready": {"executing", "blocked", "aborted"},
+	"executing":  {"verifying", "blocked", "aborted"},
+	"verifying":  {"done", "blocked", "aborted"},
+	"blocked":    {"spec_ready", "plan_ready", "executing", "verifying", "aborted"},
+	"done":       {},
+	"aborted":    {},
+}
+
 func (StandardCopilotRunner) Run(ctx context.Context, prompt string, opts copilot.RunOptions) (string, error) {
 	return copilot.Run(ctx, prompt, opts)
 }
 
 func NewRunner(repoRoot string, mgr sidecarManager, cr copilotRunner) *Runner {
-	return &Runner{repoRoot: repoRoot, sidecarMgr: mgr, copilotRunner: cr}
+	return &Runner{repoRoot: repoRoot, sidecarMgr: mgr, copilotRunner: cr, journal: make([]journalEntry, 0)}
 }
 
 func (r *Runner) Run(ctx context.Context, userPrompt string) (*RunResult, error) {
@@ -106,8 +137,8 @@ func (r *Runner) Resume(ctx context.Context, runID string) (*RunResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if state.UserPrompt == "" {
-		return nil, fmt.Errorf("resume %s: run.json is missing user_prompt", resolvedRunID)
+	if state.Prompt == "" {
+		return nil, fmt.Errorf("resume %s: run.json is missing prompt", resolvedRunID)
 	}
 
 	if err := r.executeRemainingPhases(ctx, state, "resume"); err != nil {
@@ -115,6 +146,62 @@ func (r *Runner) Resume(ctx context.Context, runID string) (*RunResult, error) {
 	}
 
 	return r.resultFromState(state), nil
+}
+
+func (r *Runner) transitionState(state *runState, to string, action string) error {
+	from := state.Status
+	allowed, ok := validStatuses[from]
+	if !ok {
+		return fmt.Errorf("invalid current status %q", from)
+	}
+
+	validTarget := false
+	for _, candidate := range allowed {
+		if candidate == to {
+			validTarget = true
+			break
+		}
+	}
+	if !validTarget {
+		return fmt.Errorf("cannot transition from %q to %q", from, to)
+	}
+
+	state.Status = to
+	state.CurrentPhase = derivePhase(to)
+	state.LastCompletedAction = action
+	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+
+	r.journal = append(r.journal, journalEntry{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Action:    action,
+		From:      from,
+		To:        to,
+	})
+
+	return nil
+}
+
+func derivePhase(status string) string {
+	switch status {
+	case "draft":
+		return "draft"
+	case "spec_ready":
+		return "spec"
+	case "plan_ready":
+		return "plan"
+	case "executing":
+		return "executing"
+	case "verifying":
+		return "verifying"
+	case "done":
+		return "done"
+	case "blocked":
+		return "blocked"
+	case "aborted":
+		return "aborted"
+	default:
+		return ""
+	}
 }
 
 func (r *Runner) runWorkflow(ctx context.Context, userPrompt, mode string) (*RunResult, error) {
@@ -125,16 +212,18 @@ func (r *Runner) runWorkflow(ctx context.Context, userPrompt, mode string) (*Run
 		return nil, err
 	}
 
+	now := time.Now().UTC().Format(time.RFC3339)
 	runID := newRunID()
 	state := &runState{
-		RunID:         runID,
+		ID:            runID,
 		Version:       runStateVersion,
 		Status:        "draft",
-		UserPrompt:    strings.TrimSpace(userPrompt),
-		UpdatedAt:     time.Now().UTC().Format(time.RFC3339),
+		CurrentPhase:  "draft",
+		Prompt:        strings.TrimSpace(userPrompt),
+		CreatedAt:     now,
+		UpdatedAt:     now,
 		Phases:        []PhaseResult{},
-		ArtifactPaths: map[string]string{"run": artifactPath(r.repoRoot, runID, "run.json")},
-		Summary:       "Run created. Discuss phase pending.",
+		ArtifactPaths: map[string]string{},
 	}
 
 	if err := r.persistRunState(ctx, state); err != nil {
@@ -160,82 +249,72 @@ func (r *Runner) executeRemainingPhases(ctx context.Context, state *runState, mo
 		return err
 	}
 
-	if !r.hasArtifactFile(state, "spec") {
+	if !r.hasCanonicalArtifact(state, "spec") {
 		if _, err := r.runSpecPhase(ctx, state, discussOutput); err != nil {
 			return err
 		}
 	}
 
-	specContent, err := r.readArtifactContent(state.RunID, "spec.md")
+	specContent, err := r.readCanonicalArtifact(ctx, state.ID, "spec.md")
 	if err != nil {
 		return err
 	}
 
-	if !r.hasArtifactFile(state, "plan") {
+	if !r.hasCanonicalArtifact(state, "plan") {
 		if _, err := r.runPlanPhase(ctx, state, specContent); err != nil {
 			return err
 		}
 	}
 
-	planContent, err := r.readArtifactContent(state.RunID, "plan.json")
+	planContent, err := r.readCanonicalArtifact(ctx, state.ID, "plan.json")
 	if err != nil {
 		return err
 	}
 
-	if !r.hasArtifactFile(state, "decisions") {
+	if !r.hasCanonicalArtifact(state, "decisions") {
 		if _, err := r.runReviewPhase(ctx, state, specContent, planContent); err != nil {
 			return err
 		}
 	}
 
-	decisionContent, err := r.readArtifactContent(state.RunID, "decisions.md")
+	decisionContent, err := r.readCanonicalArtifact(ctx, state.ID, "decisions.md")
 	if err != nil {
 		return err
 	}
 
-	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	if strings.Contains(strings.ToUpper(decisionContent), "BLOCKING:") {
-		state.Status = "blocked"
-		state.Summary = "Workflow paused. Review produced blocking findings in decisions.md."
-	} else if mode == "plan" {
-		state.Status = "plan_ready"
-		state.Summary = "Plan workflow completed. Review passed and artifacts are ready for execution."
-	} else if mode == "resume" {
-		state.Status = "plan_ready"
-		state.Summary = "Resume completed. Remaining planning phases finished without duplicating existing artifacts."
-	} else {
-		state.Status = "plan_ready"
-		state.Summary = "Review completed. Plan is approved and ready for the execute phase (Phase 2)."
+		if transErr := r.transitionState(state, "blocked", "review_produced_blocking"); transErr != nil {
+			return transErr
+		}
+		state.Blockers = extractBlockers(decisionContent)
+	} else if transErr := r.transitionState(state, "plan_ready", "review_passed"); transErr != nil {
+		return transErr
 	}
 
 	return r.persistRunState(ctx, state)
 }
 
 func (r *Runner) runDiscussPhase(ctx context.Context, state *runState) (string, error) {
-	output, err := r.invokePhase(ctx, state.RunID, PhaseDiscuss, DiscussPrompt(state.UserPrompt))
+	output, err := r.invokePhase(ctx, state.ID, PhaseDiscuss, DiscussPrompt(state.Prompt))
 	transcriptContent := strings.TrimSpace(output)
 	if transcriptContent == "" {
 		transcriptContent = "No output captured from Copilot discuss phase."
 	}
-	if writeErr := WriteTranscript(r.repoRoot, state.RunID, PhaseDiscuss, transcriptContent); writeErr != nil && err == nil {
+	if writeErr := WriteTranscript(r.repoRoot, state.ID, PhaseDiscuss, transcriptContent); writeErr != nil && err == nil {
 		err = writeErr
 	}
 
-	result := PhaseResult{Phase: PhaseDiscuss, RunID: state.RunID, Status: "completed", Output: transcriptContent}
+	result := PhaseResult{Phase: PhaseDiscuss, RunID: state.ID, Status: "completed", Output: transcriptContent}
 	if err != nil {
 		result.Status = "failed"
 		result.Error = err.Error()
-		state.Status = "blocked"
-		state.Summary = "Discuss phase failed. Check the discuss transcript and retry resume."
+		_ = r.transitionState(state, "blocked", "discuss_failed")
 		r.upsertPhaseResult(state, result)
 		_ = r.persistRunState(ctx, state)
 		return transcriptContent, fmt.Errorf("discuss phase: %w", err)
 	}
 
-	state.Status = "draft"
-	state.Summary = "Discuss phase completed. Spec phase pending."
-	state.ArtifactPaths["transcript_discuss"] = transcriptPath(r.repoRoot, state.RunID, PhaseDiscuss)
-	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	state.ArtifactPaths["transcript_discuss"] = transcriptPath(r.repoRoot, state.ID, PhaseDiscuss)
 	r.upsertPhaseResult(state, result)
 	if persistErr := r.persistRunState(ctx, state); persistErr != nil {
 		return transcriptContent, persistErr
@@ -245,18 +324,18 @@ func (r *Runner) runDiscussPhase(ctx context.Context, state *runState) (string, 
 }
 
 func (r *Runner) runSpecPhase(ctx context.Context, state *runState, discussOutput string) (string, error) {
-	output, err := r.invokePhase(ctx, state.RunID, PhaseSpec, SpecPrompt(state.UserPrompt, discussOutput))
+	output, err := r.invokePhase(ctx, state.ID, PhaseSpec, SpecPrompt(state.Prompt, discussOutput))
 	content := strings.TrimSpace(output)
 	if content == "" && err == nil {
 		err = fmt.Errorf("spec output was empty")
 	}
-	if writeErr := WriteTranscript(r.repoRoot, state.RunID, PhaseSpec, content); writeErr != nil && err == nil {
+	if writeErr := WriteTranscript(r.repoRoot, state.ID, PhaseSpec, content); writeErr != nil && err == nil {
 		err = writeErr
 	}
 
-	result := PhaseResult{Phase: PhaseSpec, RunID: state.RunID, Status: "completed", Output: content}
+	result := PhaseResult{Phase: PhaseSpec, RunID: state.ID, Status: "completed", Output: content}
 	if err == nil {
-		path, writeArtifactErr := r.writeArtifact(ctx, state.RunID, "spec.md", content)
+		path, writeArtifactErr := r.writeArtifact(ctx, state.ID, "spec.md", content)
 		if writeArtifactErr != nil {
 			err = writeArtifactErr
 		} else {
@@ -267,17 +346,17 @@ func (r *Runner) runSpecPhase(ctx context.Context, state *runState, discussOutpu
 	if err != nil {
 		result.Status = "failed"
 		result.Error = err.Error()
-		state.Status = "blocked"
-		state.Summary = "Spec phase failed. Check spec transcript and resume when ready."
+		_ = r.transitionState(state, "blocked", "spec_failed")
 		r.upsertPhaseResult(state, result)
 		_ = r.persistRunState(ctx, state)
 		return content, fmt.Errorf("spec phase: %w", err)
 	}
 
-	state.Status = "spec_ready"
-	state.Summary = "Spec written. Plan phase pending."
-	state.ArtifactPaths["transcript_spec"] = transcriptPath(r.repoRoot, state.RunID, PhaseSpec)
-	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if transErr := r.transitionState(state, "spec_ready", "spec_written"); transErr != nil {
+		r.upsertPhaseResult(state, result)
+		return content, transErr
+	}
+	state.ArtifactPaths["transcript_spec"] = transcriptPath(r.repoRoot, state.ID, PhaseSpec)
 	r.upsertPhaseResult(state, result)
 	if persistErr := r.persistRunState(ctx, state); persistErr != nil {
 		return content, persistErr
@@ -287,8 +366,8 @@ func (r *Runner) runSpecPhase(ctx context.Context, state *runState, discussOutpu
 }
 
 func (r *Runner) runPlanPhase(ctx context.Context, state *runState, specContent string) (string, error) {
-	output, err := r.invokePhase(ctx, state.RunID, PhasePlan, PlanPrompt(specContent)+"\nCurrent run ID: "+state.RunID+"\n")
-	content, normalizeErr := normalizePlanContent(output, state.RunID)
+	output, err := r.invokePhase(ctx, state.ID, PhasePlan, PlanPrompt(specContent)+"\nCurrent run ID: "+state.ID+"\n")
+	content, normalizeErr := normalizePlanContent(output, state.ID)
 	if normalizeErr != nil && err == nil {
 		err = normalizeErr
 	}
@@ -296,13 +375,13 @@ func (r *Runner) runPlanPhase(ctx context.Context, state *runState, specContent 
 	if transcriptContent == "" {
 		transcriptContent = content
 	}
-	if writeErr := WriteTranscript(r.repoRoot, state.RunID, PhasePlan, transcriptContent); writeErr != nil && err == nil {
+	if writeErr := WriteTranscript(r.repoRoot, state.ID, PhasePlan, transcriptContent); writeErr != nil && err == nil {
 		err = writeErr
 	}
 
-	result := PhaseResult{Phase: PhasePlan, RunID: state.RunID, Status: "completed", Output: content}
+	result := PhaseResult{Phase: PhasePlan, RunID: state.ID, Status: "completed", Output: content}
 	if err == nil {
-		path, writeArtifactErr := r.writeArtifact(ctx, state.RunID, "plan.json", content)
+		path, writeArtifactErr := r.writeArtifact(ctx, state.ID, "plan.json", content)
 		if writeArtifactErr != nil {
 			err = writeArtifactErr
 		} else {
@@ -313,17 +392,17 @@ func (r *Runner) runPlanPhase(ctx context.Context, state *runState, specContent 
 	if err != nil {
 		result.Status = "failed"
 		result.Error = err.Error()
-		state.Status = "blocked"
-		state.Summary = "Plan phase failed. Fix the plan prompt or artifact and resume."
+		_ = r.transitionState(state, "blocked", "plan_failed")
 		r.upsertPhaseResult(state, result)
 		_ = r.persistRunState(ctx, state)
 		return content, fmt.Errorf("plan phase: %w", err)
 	}
 
-	state.Status = "plan_ready"
-	state.Summary = "Plan written. Review phase pending."
-	state.ArtifactPaths["transcript_plan"] = transcriptPath(r.repoRoot, state.RunID, PhasePlan)
-	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if transErr := r.transitionState(state, "plan_ready", "plan_written"); transErr != nil {
+		r.upsertPhaseResult(state, result)
+		return content, transErr
+	}
+	state.ArtifactPaths["transcript_plan"] = transcriptPath(r.repoRoot, state.ID, PhasePlan)
 	r.upsertPhaseResult(state, result)
 	if persistErr := r.persistRunState(ctx, state); persistErr != nil {
 		return content, persistErr
@@ -333,18 +412,18 @@ func (r *Runner) runPlanPhase(ctx context.Context, state *runState, specContent 
 }
 
 func (r *Runner) runReviewPhase(ctx context.Context, state *runState, specContent, planContent string) (string, error) {
-	output, err := r.invokePhase(ctx, state.RunID, PhaseReview, ReviewPrompt(specContent, planContent))
+	output, err := r.invokePhase(ctx, state.ID, PhaseReview, ReviewPrompt(specContent, planContent))
 	content := strings.TrimSpace(output)
 	if content == "" && err == nil {
 		err = fmt.Errorf("review output was empty")
 	}
-	if writeErr := WriteTranscript(r.repoRoot, state.RunID, PhaseReview, content); writeErr != nil && err == nil {
+	if writeErr := WriteTranscript(r.repoRoot, state.ID, PhaseReview, content); writeErr != nil && err == nil {
 		err = writeErr
 	}
 
-	result := PhaseResult{Phase: PhaseReview, RunID: state.RunID, Status: "completed", Output: content}
+	result := PhaseResult{Phase: PhaseReview, RunID: state.ID, Status: "completed", Output: content}
 	if err == nil {
-		path, writeArtifactErr := r.writeArtifact(ctx, state.RunID, "decisions.md", content)
+		path, writeArtifactErr := r.writeArtifact(ctx, state.ID, "decisions.md", content)
 		if writeArtifactErr != nil {
 			err = writeArtifactErr
 		} else {
@@ -355,22 +434,18 @@ func (r *Runner) runReviewPhase(ctx context.Context, state *runState, specConten
 	if err != nil {
 		result.Status = "failed"
 		result.Error = err.Error()
-		state.Status = "blocked"
-		state.Summary = "Review phase failed. Inspect decisions transcript and resume."
+		_ = r.transitionState(state, "blocked", "review_failed")
 		r.upsertPhaseResult(state, result)
 		_ = r.persistRunState(ctx, state)
 		return content, fmt.Errorf("review phase: %w", err)
 	}
 
 	if strings.Contains(strings.ToUpper(content), "BLOCKING:") {
-		state.Status = "blocked"
-		state.Summary = "Review completed with blocking findings. Resolve decisions.md before execution."
+		_ = r.transitionState(state, "blocked", "review_blocking")
 	} else {
-		state.Status = "plan_ready"
-		state.Summary = "Review completed without blocking findings."
+		_ = r.transitionState(state, "plan_ready", "review_passed")
 	}
-	state.ArtifactPaths["transcript_review"] = transcriptPath(r.repoRoot, state.RunID, PhaseReview)
-	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	state.ArtifactPaths["transcript_review"] = transcriptPath(r.repoRoot, state.ID, PhaseReview)
 	r.upsertPhaseResult(state, result)
 	if persistErr := r.persistRunState(ctx, state); persistErr != nil {
 		return content, persistErr
@@ -425,20 +500,19 @@ func (r *Runner) persistRunState(ctx context.Context, state *runState) error {
 		state.ArtifactPaths = map[string]string{}
 	}
 	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if state.CurrentPhase == "" {
+		state.CurrentPhase = derivePhase(state.Status)
+	}
 	content, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal run state: %w", err)
 	}
-	path, err := r.writeRunState(ctx, state.RunID, string(content))
+	path, err := r.writeArtifact(ctx, state.ID, "run.json", string(content))
 	if err != nil {
 		return err
 	}
 	state.ArtifactPaths["run"] = path
 	return nil
-}
-
-func (r *Runner) writeRunState(ctx context.Context, runID, content string) (string, error) {
-	return r.writeArtifact(ctx, runID, "run.json", content)
 }
 
 func (r *Runner) writeArtifact(ctx context.Context, runID, filename, content string) (string, error) {
@@ -457,20 +531,74 @@ func (r *Runner) writeArtifact(ctx context.Context, runID, filename, content str
 		return parsed.Path, nil
 	}
 
-	return artifactPath(r.repoRoot, runID, filename), nil
+	return runFilePath(r.repoRoot, runID, filename), nil
+}
+
+func (r *Runner) readCanonicalArtifact(ctx context.Context, runID, filename string) (string, error) {
+	result, err := r.sidecarMgr.CallTool(ctx, "omni_artifact_read", map[string]any{
+		"repo_root": r.repoRoot,
+		"run_id":    runID,
+		"filename":  filename,
+	})
+	if err != nil {
+		if isUnknownToolError(err) {
+			return r.readArtifactFallback(runID, filename)
+		}
+		return "", fmt.Errorf("read %s via sidecar: %w", filename, err)
+	}
+
+	var parsed toolReadResult
+	if err := json.Unmarshal([]byte(result), &parsed); err == nil && len(parsed.Content) > 0 {
+		return parsed.Content[0].Text, nil
+	}
+
+	return result, nil
+}
+
+func (r *Runner) readArtifactFallback(runID, filename string) (string, error) {
+	switch filename {
+	case "spec.md":
+		path := filepath.Join(r.repoRoot, ".omni", "specs", runID+".md")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read spec %s: %w", runID, err)
+		}
+		return string(data), nil
+	case "plan.json":
+		path := filepath.Join(r.repoRoot, ".omni", "plans", runID+".json")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read plan %s: %w", runID, err)
+		}
+		return string(data), nil
+	case "decisions.md":
+		path := filepath.Join(r.repoRoot, ".omni", "decisions", runID+".md")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read decisions %s: %w", runID, err)
+		}
+		return string(data), nil
+	default:
+		path := runFilePath(r.repoRoot, runID, filename)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read %s/%s: %w", runID, filename, err)
+		}
+		return string(data), nil
+	}
 }
 
 func (r *Runner) loadResumeState(ctx context.Context, runID string) (*runState, error) {
 	if resumeState, err := r.loadResumeContext(ctx, runID); err == nil {
-		resumeState.UserPrompt = strings.TrimSpace(resumeState.UserPrompt)
+		resumeState.Prompt = strings.TrimSpace(resumeState.Prompt)
 		if resumeState.ArtifactPaths == nil {
 			resumeState.ArtifactPaths = map[string]string{}
 		}
-		resumeState.ArtifactPaths["run"] = artifactPath(r.repoRoot, runID, "run.json")
+		resumeState.ArtifactPaths["run"] = runFilePath(r.repoRoot, runID, "run.json")
 		return resumeState, nil
 	}
 
-	content, err := r.readArtifactContent(runID, "run.json")
+	content, err := r.readCanonicalArtifact(ctx, runID, "run.json")
 	if err != nil {
 		return nil, fmt.Errorf("load run state %s: %w", runID, err)
 	}
@@ -479,8 +607,8 @@ func (r *Runner) loadResumeState(ctx context.Context, runID string) (*runState, 
 	if err := json.Unmarshal([]byte(content), &state); err != nil {
 		return nil, fmt.Errorf("decode run.json for %s: %w", runID, err)
 	}
-	if state.RunID == "" {
-		state.RunID = runID
+	if state.ID == "" {
+		state.ID = runID
 	}
 	if state.Version == "" {
 		state.Version = runStateVersion
@@ -488,7 +616,7 @@ func (r *Runner) loadResumeState(ctx context.Context, runID string) (*runState, 
 	if state.ArtifactPaths == nil {
 		state.ArtifactPaths = map[string]string{}
 	}
-	state.ArtifactPaths["run"] = artifactPath(r.repoRoot, runID, "run.json")
+	state.ArtifactPaths["run"] = runFilePath(r.repoRoot, runID, "run.json")
 	r.populateExistingArtifacts(&state)
 	return &state, nil
 }
@@ -508,23 +636,28 @@ func (r *Runner) loadResumeContext(ctx context.Context, runID string) (*runState
 	}
 
 	state := &runState{
-		RunID:         runID,
+		ID:            runID,
 		Version:       runStateVersion,
 		Status:        ctxResult.Status,
+		CurrentPhase:  derivePhase(ctxResult.Status),
 		UpdatedAt:     time.Now().UTC().Format(time.RFC3339),
 		Phases:        []PhaseResult{},
 		ArtifactPaths: ctxResult.ArtifactPaths,
-		Summary:       ctxResult.Summary,
 	}
 	if state.ArtifactPaths == nil {
 		state.ArtifactPaths = map[string]string{}
 	}
-	content, readErr := r.readArtifactContent(runID, "run.json")
+
+	content, readErr := r.readCanonicalArtifact(ctx, runID, "run.json")
 	if readErr == nil {
 		var persisted runState
 		if unmarshalErr := json.Unmarshal([]byte(content), &persisted); unmarshalErr == nil {
-			state.UserPrompt = persisted.UserPrompt
+			state.Prompt = persisted.Prompt
+			state.CreatedAt = persisted.CreatedAt
 			state.Phases = persisted.Phases
+			if persisted.Version != "" {
+				state.Version = persisted.Version
+			}
 		}
 	}
 	r.populateExistingArtifacts(state)
@@ -532,22 +665,13 @@ func (r *Runner) loadResumeContext(ctx context.Context, runID string) (*runState
 }
 
 func (r *Runner) readDiscussOutput(state *runState) (string, error) {
-	if output, err := ReadTranscript(r.repoRoot, state.RunID, PhaseDiscuss); err == nil && strings.TrimSpace(output) != "" {
+	if output, err := ReadTranscript(r.repoRoot, state.ID, PhaseDiscuss); err == nil && strings.TrimSpace(output) != "" {
 		return output, nil
 	}
 	if phase := r.findPhaseResult(state, PhaseDiscuss); phase != nil && strings.TrimSpace(phase.Output) != "" {
 		return phase.Output, nil
 	}
-	return "", fmt.Errorf("run %s has no discuss transcript to continue from", state.RunID)
-}
-
-func (r *Runner) readArtifactContent(runID, filename string) (string, error) {
-	path := artifactPath(r.repoRoot, runID, filename)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read %s: %w", filename, err)
-	}
-	return string(data), nil
+	return "", fmt.Errorf("run %s has no discuss transcript to continue from", state.ID)
 }
 
 func (r *Runner) populateExistingArtifacts(state *runState) {
@@ -556,13 +680,13 @@ func (r *Runner) populateExistingArtifacts(state *runState) {
 		"plan":      "plan.json",
 		"decisions": "decisions.md",
 	} {
-		path := artifactPath(r.repoRoot, state.RunID, filename)
+		path := canonicalArtifactPath(r.repoRoot, state.ID, filename)
 		if _, err := os.Stat(path); err == nil {
 			state.ArtifactPaths[key] = path
 		}
 	}
 	for _, phase := range []string{PhaseDiscuss, PhaseSpec, PhasePlan, PhaseReview} {
-		path := transcriptPath(r.repoRoot, state.RunID, phase)
+		path := transcriptPath(r.repoRoot, state.ID, phase)
 		if _, err := os.Stat(path); err == nil {
 			state.ArtifactPaths["transcript_"+phase] = path
 		}
@@ -570,7 +694,7 @@ func (r *Runner) populateExistingArtifacts(state *runState) {
 }
 
 func (r *Runner) hasPhaseArtifact(state *runState, phase string) bool {
-	path := transcriptPath(r.repoRoot, state.RunID, phase)
+	path := transcriptPath(r.repoRoot, state.ID, phase)
 	if _, err := os.Stat(path); err == nil {
 		return true
 	}
@@ -578,21 +702,27 @@ func (r *Runner) hasPhaseArtifact(state *runState, phase string) bool {
 	return phaseResult != nil && phaseResult.Status == "completed"
 }
 
-func (r *Runner) hasArtifactFile(state *runState, key string) bool {
-	path := state.ArtifactPaths[key]
-	if path == "" {
-		switch key {
-		case "spec":
-			path = artifactPath(r.repoRoot, state.RunID, "spec.md")
-		case "plan":
-			path = artifactPath(r.repoRoot, state.RunID, "plan.json")
-		case "decisions":
-			path = artifactPath(r.repoRoot, state.RunID, "decisions.md")
+func (r *Runner) hasCanonicalArtifact(state *runState, key string) bool {
+	if path, ok := state.ArtifactPaths[key]; ok && path != "" {
+		if _, err := os.Stat(path); err == nil {
+			return true
 		}
 	}
-	if path == "" {
+
+	filename := ""
+	switch key {
+	case "spec":
+		filename = "spec.md"
+	case "plan":
+		filename = "plan.json"
+	case "decisions":
+		filename = "decisions.md"
+	}
+	if filename == "" {
 		return false
 	}
+
+	path := canonicalArtifactPath(r.repoRoot, state.ID, filename)
 	_, err := os.Stat(path)
 	return err == nil
 }
@@ -625,11 +755,11 @@ func (r *Runner) resultFromState(state *runState) *RunResult {
 		paths[k] = v
 	}
 	return &RunResult{
-		RunID:         state.RunID,
+		RunID:         state.ID,
 		Status:        state.Status,
 		Phases:        append([]PhaseResult(nil), state.Phases...),
 		ArtifactPaths: paths,
-		Summary:       state.Summary,
+		Summary:       nextActionSummary(state.Status),
 	}
 }
 
@@ -703,12 +833,62 @@ func normalizePlanContent(raw string, runID string) (string, error) {
 	return string(normalized), nil
 }
 
+func extractBlockers(content string) []string {
+	var blockers []string
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToUpper(trimmed), "BLOCKING:") {
+			blockers = append(blockers, strings.TrimSpace(strings.TrimPrefix(trimmed, "BLOCKING:")))
+		}
+	}
+	if len(blockers) == 0 {
+		blockers = []string{"Review produced blocking findings"}
+	}
+	return blockers
+}
+
+func nextActionSummary(status string) string {
+	switch status {
+	case "draft":
+		return "Run created. Discuss phase pending."
+	case "spec_ready":
+		return "Spec written. Plan phase pending."
+	case "plan_ready":
+		return "Review completed. Plan is approved and ready for the execute phase (Phase 2)."
+	case "blocked":
+		return "Workflow paused. Review produced blocking findings."
+	case "executing":
+		return "Execution is in progress."
+	case "verifying":
+		return "Verification is in progress."
+	case "done":
+		return "Run is complete."
+	case "aborted":
+		return "Run was aborted."
+	default:
+		return "Run state is unknown."
+	}
+}
+
 func newRunID() string {
 	return "run-" + time.Now().UTC().Format("20060102-150405-000000000")
 }
 
-func artifactPath(repoRoot, runID, filename string) string {
+func runFilePath(repoRoot, runID, filename string) string {
 	return filepath.Join(repoRoot, ".omni", "runs", runID, filename)
+}
+
+func canonicalArtifactPath(repoRoot, runID, filename string) string {
+	switch filename {
+	case "spec.md":
+		return filepath.Join(repoRoot, ".omni", "specs", runID+".md")
+	case "plan.json":
+		return filepath.Join(repoRoot, ".omni", "plans", runID+".json")
+	case "decisions.md":
+		return filepath.Join(repoRoot, ".omni", "decisions", runID+".md")
+	default:
+		return runFilePath(repoRoot, runID, filename)
+	}
 }
 
 func isUnknownToolError(err error) bool {
