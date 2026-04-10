@@ -1,0 +1,7 @@
+sidecar/omni-sidecar
+wrapper/omni
+*.exe
+*.dll
+*.so
+*.dylib
+.omni/

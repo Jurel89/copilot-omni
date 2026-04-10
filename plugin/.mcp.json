@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "copilot-omni-sidecar": {
+      "type": "local",
+      "command": "omni-sidecar",
+      "args": ["serve"],
+      "tools": ["*"]
+    }
+  }
+}

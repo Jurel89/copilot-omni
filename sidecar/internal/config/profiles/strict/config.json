@@ -1,0 +1,17 @@
+{
+  "version": "1",
+  "profile": "strict",
+  "policy": {
+    "strict_mode": true,
+    "protected_paths": ["src/", "lib/", ".github/"],
+    "denied_commands": ["sudo", "rm -rf", "mkfs", "dd", "format", "curl.*|.*sh", "wget.*|.*sh"],
+    "max_autopilot_turns": 5
+  },
+  "memory": {
+    "enabled": true,
+    "max_size_mb": 100
+  },
+  "sidecar": {
+    "debug": false
+  }
+}
