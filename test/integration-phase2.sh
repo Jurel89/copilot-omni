@@ -164,7 +164,7 @@ r = json.loads(lines[1])
 assert 'error' not in r, f'Error: {r}'
 text = json.loads(r['result']['content'][0]['text'])
 assert text['status'] == 'passed', f'Expected passed, got: {text}'
-assert len(text['commands']) == 2, f'Expected 2 command results'
+assert len(text['results']) == 2, f'Expected 2 result entries'
 print('  PASS: verification run passes for successful commands')
 " || fail "verification run pass"
 

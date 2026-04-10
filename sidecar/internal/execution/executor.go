@@ -3,6 +3,7 @@ package execution
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -110,7 +111,7 @@ func NewExecutor(store *artifact.Store, configResolver func(string) (*config.Con
 }
 
 func (e *Executor) SelectNextTask(runID string) (*TaskInfo, error) {
-	_, runObj, tasks, _, err := e.loadExecutionContext(runID)
+	_, _, tasks, _, err := e.loadExecutionContext(runID)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +120,7 @@ func (e *Executor) SelectNextTask(runID string) (*TaskInfo, error) {
 		return nil, err
 	}
 
-	resolvedConfig, err := validateResolvedConfig(e.configResolver, runObj)
+	resolvedConfig, err := validateResolvedConfig(e.configResolver, e.store)
 	if err != nil {
 		return nil, err
 	}
@@ -483,12 +484,40 @@ func buildBlockerMessage(taskID string, result TaskResult) string {
 	return fmt.Sprintf("task %s failed", taskID)
 }
 
-func validateResolvedConfig(resolver func(string) (*config.Config, error), runObj *runpkg.Run) (*config.Config, error) {
-	if resolver == nil || runObj == nil {
+func validateResolvedConfig(resolver func(string) (*config.Config, error), store *artifact.Store) (*config.Config, error) {
+	if resolver == nil || store == nil {
 		return nil, nil
 	}
 
-	return resolver(runObj.Profile)
+	repoRoot := repoRootFromStore(store)
+	if repoRoot == "" {
+		return nil, nil
+	}
+
+	return resolver(repoRoot)
+}
+
+func repoRootFromStore(store *artifact.Store) string {
+	if store == nil {
+		return ""
+	}
+
+	storeValue := reflect.ValueOf(store)
+	if !storeValue.IsValid() || storeValue.IsNil() {
+		return ""
+	}
+
+	storeValue = storeValue.Elem()
+	if !storeValue.IsValid() {
+		return ""
+	}
+
+	repoRootField := storeValue.FieldByName("repoRoot")
+	if !repoRootField.IsValid() || repoRootField.Kind() != reflect.String {
+		return ""
+	}
+
+	return strings.TrimSpace(repoRootField.String())
 }
 
 func validateTaskPolicy(task TaskInfo, cfg *config.Config) error {

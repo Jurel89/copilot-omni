@@ -920,7 +920,8 @@ func (r *Registry) omniVerificationRun(ctx context.Context, arguments map[string
 	if mode != "task" && mode != "run" {
 		return ToolCallResult{}, fmt.Errorf("mode must be \"task\" or \"run\"")
 	}
-	if _, err := optionalStringArg(arguments, "task_id"); err != nil {
+	taskID, err := optionalStringArg(arguments, "task_id")
+	if err != nil {
 		return ToolCallResult{}, err
 	}
 
@@ -932,14 +933,91 @@ func (r *Registry) omniVerificationRun(ctx context.Context, arguments map[string
 		return ToolCallResult{}, fmt.Errorf("commands must contain at least one command")
 	}
 
+	var taskInfo *execution.TaskInfo
+	if mode == "task" {
+		if taskID == "" {
+			return ToolCallResult{}, fmt.Errorf("task_id is required in task mode")
+		}
+		taskInfo, err = r.loadTaskInfo(repoRoot, runID, taskID)
+		if err != nil {
+			return ToolCallResult{}, err
+		}
+		commands = []string{taskInfo.VerificationCmd}
+	}
+
+	resolvedConfig, err := resolveConfig(r.configResolver, repoRoot)
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	policyEngine := policy.NewEngine(&resolvedConfig.Policy)
+
 	verificationDir := filepath.Join(repoRoot, ".omni", "runs", runID, "verification")
-	commandResults := make([]map[string]interface{}, 0, len(commands))
-	status := "passed"
+	reportPath := filepath.Join(repoRoot, ".omni", "runs", runID, "verification-report.json")
+	commandResults := make([]execution.VerificationResult, 0, len(commands))
+	journal := execution.NewExecutionJournal()
 
 	for index, command := range commands {
 		command = strings.TrimSpace(command)
 		if command == "" {
 			return ToolCallResult{}, fmt.Errorf("commands[%d] must be a non-empty string", index)
+		}
+
+		policyDecision := policy.Decision{
+			Operation: policy.OpCommand,
+			Value:     command,
+			RunID:     runID,
+			TaskID:    taskID,
+			Metadata: map[string]string{
+				"repo_root":        repoRoot,
+				"allowed_commands": command,
+			},
+		}
+		if taskInfo != nil {
+			policyDecision.FileTargets = append([]string(nil), taskInfo.FileTargets...)
+		}
+		policyResult := policyEngine.Evaluate(policyDecision)
+		if policyResult.Profile == "" {
+			policyResult.Profile = resolvedConfig.Profile
+		}
+		if !policyResult.Allowed {
+			report := execution.GenerateVerificationReport(runID, commandResults, mode)
+			report.Status = "error"
+
+			reportPayload, marshalErr := json.Marshal(report)
+			if marshalErr != nil {
+				return ToolCallResult{}, fmt.Errorf("marshal verification report: %w", marshalErr)
+			}
+
+			var reportMap map[string]interface{}
+			if unmarshalErr := json.Unmarshal(reportPayload, &reportMap); unmarshalErr != nil {
+				return ToolCallResult{}, fmt.Errorf("decode verification report payload: %w", unmarshalErr)
+			}
+			if _, validationErr := schema.ValidateVerificationReport(reportMap); validationErr != nil {
+				return ToolCallResult{}, fmt.Errorf("verification report validation failed: %w", validationErr)
+			}
+
+			prettyReportPayload, marshalIndentErr := json.MarshalIndent(reportMap, "", "  ")
+			if marshalIndentErr != nil {
+				return ToolCallResult{}, fmt.Errorf("marshal verification report: %w", marshalIndentErr)
+			}
+			if writeErr := artifact.WriteFile(reportPath, prettyReportPayload); writeErr != nil {
+				return ToolCallResult{}, fmt.Errorf("write verification report: %w", writeErr)
+			}
+
+			response := map[string]interface{}{
+				"run_id":      report.RunID,
+				"timestamp":   report.Timestamp,
+				"mode":        report.Mode,
+				"status":      report.Status,
+				"results":     report.Results,
+				"summary":     report.Summary,
+				"report_path": reportPath,
+				"policy":      policyResult,
+			}
+			if taskInfo != nil {
+				response["task_id"] = taskID
+			}
+			return jsonToolResult(response)
 		}
 
 		stdoutPath := filepath.Join(verificationDir, fmt.Sprintf("command-%02d.stdout.log", index+1))
@@ -960,37 +1038,74 @@ func (r *Registry) omniVerificationRun(ctx context.Context, arguments map[string
 		}
 
 		exitCode := 0
+		resultStatus := "pass"
 		if runErr != nil {
-			status = "failed"
 			exitCode = exitCodeForError(runErr)
+			resultStatus = "fail"
 		}
+		durationMs := time.Since(start).Milliseconds()
 
-		commandResults = append(commandResults, map[string]interface{}{
-			"command":     command,
-			"exit_code":   exitCode,
-			"stdout_path": stdoutPath,
-			"stderr_path": stderrPath,
-			"duration_ms": time.Since(start).Milliseconds(),
+		commandResults = append(commandResults, execution.VerificationResult{
+			TaskID:     taskID,
+			Command:    command,
+			ExitCode:   exitCode,
+			StdoutPath: stdoutPath,
+			StderrPath: stderrPath,
+			DurationMs: durationMs,
+			Status:     resultStatus,
+		})
+		journal.Record(execution.JournalEntry{
+			RunID:     runID,
+			TaskID:    taskID,
+			Timestamp: time.Now().UTC(),
+			Action:    "verification_command",
+			CommandsRun: []execution.CommandRecord{{
+				Command:    command,
+				ExitCode:   exitCode,
+				DurationMs: durationMs,
+			}},
+			DurationMs: durationMs,
+			Error:      strings.TrimSpace(string(stderrBytes)),
 		})
 	}
 
-	reportPath := filepath.Join(repoRoot, ".omni", "runs", runID, "verification-report.json")
-	report := map[string]interface{}{
-		"status":      status,
-		"mode":        mode,
-		"commands":    commandResults,
-		"report_path": reportPath,
-	}
+	report := execution.GenerateVerificationReport(runID, commandResults, mode)
 
-	reportPayload, err := json.MarshalIndent(report, "", "  ")
+	reportPayload, err := json.Marshal(report)
 	if err != nil {
 		return ToolCallResult{}, fmt.Errorf("marshal verification report: %w", err)
 	}
-	if err := artifact.WriteFile(reportPath, reportPayload); err != nil {
+
+	var reportMap map[string]interface{}
+	if err := json.Unmarshal(reportPayload, &reportMap); err != nil {
+		return ToolCallResult{}, fmt.Errorf("decode verification report payload: %w", err)
+	}
+	if _, err := schema.ValidateVerificationReport(reportMap); err != nil {
+		return ToolCallResult{}, fmt.Errorf("verification report validation failed: %w", err)
+	}
+
+	prettyReportPayload, err := json.MarshalIndent(reportMap, "", "  ")
+	if err != nil {
+		return ToolCallResult{}, fmt.Errorf("marshal verification report: %w", err)
+	}
+	if err := artifact.WriteFile(reportPath, prettyReportPayload); err != nil {
 		return ToolCallResult{}, fmt.Errorf("write verification report: %w", err)
 	}
 
-	return jsonToolResult(report)
+	response := map[string]interface{}{
+		"run_id":      report.RunID,
+		"timestamp":   report.Timestamp,
+		"mode":        report.Mode,
+		"status":      report.Status,
+		"results":     report.Results,
+		"summary":     report.Summary,
+		"report_path": reportPath,
+	}
+	if taskInfo != nil && report.Status != "passed" {
+		response["rollback"] = execution.RecommendRollback(*taskInfo, journal)
+	}
+
+	return jsonToolResult(response)
 }
 
 func (r *Registry) omniRepoMap(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,6 +30,22 @@ type executeTaskRecord struct {
 	EndedAtRFC3339   string   `json:"ended_at,omitempty"`
 }
 
+type policyCheckResult struct {
+	Allowed    bool   `json:"allowed"`
+	ReasonCode string `json:"reason_code,omitempty"`
+	Message    string `json:"message,omitempty"`
+	Profile    string `json:"profile,omitempty"`
+}
+
+type repoMapResult struct {
+	Files    []repoMapFile `json:"files"`
+	Warnings []string      `json:"warnings,omitempty"`
+}
+
+type repoMapFile struct {
+	Path string `json:"path"`
+}
+
 func (r *Runner) ExecutePhase(ctx context.Context, state *runState) error {
 	if err := r.transitionState(state, "executing", "execute_started"); err != nil {
 		return err
@@ -50,19 +67,28 @@ func (r *Runner) ExecutePhase(ctx context.Context, state *runState) error {
 		return r.failExecutePhase(ctx, state, nil, fmt.Errorf("plan.json does not contain any tasks"))
 	}
 
+	policyResult, err := r.callPolicyCheck(ctx, map[string]any{
+		"repo_root": r.repoRoot,
+		"operation": "command",
+		"value":     "execute plan",
+	})
+	if err != nil {
+		return r.failExecutePhase(ctx, state, nil, fmt.Errorf("check execute policy: %w", err))
+	}
+	if !policyResult.Allowed {
+		return r.failExecutePhase(ctx, state, nil, fmt.Errorf("execute policy denied: %s", policyDenyMessage(policyResult, "execute plan is not allowed")))
+	}
+
+	orderedTasks, err := orderedExecutableTasks(plan.Tasks)
+	if err != nil {
+		return r.failExecutePhase(ctx, state, nil, fmt.Errorf("order plan tasks: %w", err))
+	}
+
 	report := executePhaseReport{Tasks: make([]executeTaskRecord, 0, len(plan.Tasks))}
 	completed := make(map[string]bool, len(plan.Tasks))
 
 	for len(completed) < len(plan.Tasks) {
-		var nextTask *planTask
-		for i := range plan.Tasks {
-			task := &plan.Tasks[i]
-			if completed[task.ID] || !dependenciesSatisfied(task.Dependencies, completed) {
-				continue
-			}
-			nextTask = task
-			break
-		}
+		nextTask := nextReadyTask(orderedTasks, completed)
 
 		if nextTask == nil {
 			return r.failExecutePhase(ctx, state, report.Tasks, fmt.Errorf("no ready tasks remain; unresolved dependency chain in plan"))
@@ -119,9 +145,48 @@ func (r *Runner) ExecutePhase(ctx context.Context, state *runState) error {
 }
 
 func (r *Runner) executeTask(ctx context.Context, state *runState, taskID string, taskInfo map[string]any) error {
+	taskFileTargets := stringSliceValue(taskInfo["file_targets"])
+	allowedTargets := make([]string, 0, len(taskFileTargets))
+	skippedTargets := make([]string, 0)
+	for _, target := range taskFileTargets {
+		check, err := r.callPolicyCheck(ctx, map[string]any{
+			"repo_root": r.repoRoot,
+			"run_id":    state.ID,
+			"task_id":   taskID,
+			"operation": "path",
+			"value":     target,
+		})
+		if err != nil {
+			return fmt.Errorf("check task target policy for %s: %w", target, err)
+		}
+		if !check.Allowed {
+			skippedTargets = append(skippedTargets, fmt.Sprintf("%s (%s)", target, policyDenyMessage(check, "denied by policy")))
+			continue
+		}
+		allowedTargets = append(allowedTargets, target)
+	}
+	taskInfo["file_targets"] = allowedTargets
+	if len(skippedTargets) > 0 {
+		taskInfo["policy_skipped_targets"] = append([]string(nil), skippedTargets...)
+	}
+
 	transcriptEntry := buildExecuteTranscriptEntry(taskID, taskInfo)
+	if len(skippedTargets) > 0 {
+		var builder strings.Builder
+		builder.WriteString(transcriptEntry)
+		builder.WriteString("\nSkipped by policy:\n")
+		for _, skippedTarget := range skippedTargets {
+			builder.WriteString("- ")
+			builder.WriteString(skippedTarget)
+			builder.WriteString("\n")
+		}
+		transcriptEntry = builder.String()
+	}
 	if err := appendPhaseTranscript(r.repoRoot, state.ID, PhaseExecute, transcriptEntry); err != nil {
 		return err
+	}
+	if len(allowedTargets) == 0 {
+		return nil
 	}
 
 	prompt := buildExecutePrompt(state, taskID, taskInfo)
@@ -142,6 +207,20 @@ func (r *Runner) executeTask(ctx context.Context, state *runState, taskID string
 	}
 	if err != nil {
 		return err
+	}
+
+	repoMap, err := r.readTaskRepoMap(ctx, state.ID, taskID)
+	if err != nil {
+		return fmt.Errorf("read repo map for task %s: %w", taskID, err)
+	}
+	if err := verifyRepoMapScope(repoMap, allowedTargets); err != nil {
+		return fmt.Errorf("verify repo map scope for task %s: %w", taskID, err)
+	}
+	if len(repoMap.Warnings) > 0 {
+		warningText := "## Repo map warnings for " + taskID + "\n\n- " + strings.Join(repoMap.Warnings, "\n- ")
+		if err := appendPhaseTranscript(r.repoRoot, state.ID, PhaseExecute, warningText); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -178,6 +257,113 @@ func dependenciesSatisfied(dependencies []string, completed map[string]bool) boo
 	return true
 }
 
+func orderedExecutableTasks(tasks []planTask) ([]*planTask, error) {
+	byID := make(map[string]*planTask, len(tasks))
+	graph := make(map[string][]string, len(tasks))
+	for i := range tasks {
+		task := &tasks[i]
+		if strings.TrimSpace(task.ID) == "" {
+			return nil, fmt.Errorf("task id must not be empty")
+		}
+		if _, exists := byID[task.ID]; exists {
+			return nil, fmt.Errorf("duplicate task id %q", task.ID)
+		}
+		byID[task.ID] = task
+		graph[task.ID] = append([]string(nil), task.Dependencies...)
+	}
+
+	for taskID, dependencies := range graph {
+		seen := make(map[string]bool, len(dependencies))
+		for _, dependencyID := range dependencies {
+			if dependencyID == "" {
+				return nil, fmt.Errorf("task %s has an empty dependency", taskID)
+			}
+			if _, ok := byID[dependencyID]; !ok {
+				return nil, fmt.Errorf("task %s depends on unknown task %s", taskID, dependencyID)
+			}
+			if seen[dependencyID] {
+				continue
+			}
+			seen[dependencyID] = true
+		}
+	}
+
+	orderedIDs, err := topologicalSortTasks(graph)
+	if err != nil {
+		return nil, err
+	}
+
+	orderedTasks := make([]*planTask, 0, len(orderedIDs))
+	for _, taskID := range orderedIDs {
+		orderedTasks = append(orderedTasks, byID[taskID])
+	}
+	return orderedTasks, nil
+}
+
+func nextReadyTask(tasks []*planTask, completed map[string]bool) *planTask {
+	for _, task := range tasks {
+		if completed[task.ID] || !dependenciesSatisfied(task.Dependencies, completed) {
+			continue
+		}
+		return task
+	}
+	return nil
+}
+
+func topologicalSortTasks(graph map[string][]string) ([]string, error) {
+	indegree := make(map[string]int, len(graph))
+	dependents := make(map[string][]string, len(graph))
+
+	for taskID := range graph {
+		indegree[taskID] = 0
+	}
+	for taskID, dependencies := range graph {
+		seen := make(map[string]bool, len(dependencies))
+		for _, dependencyID := range dependencies {
+			if _, ok := graph[dependencyID]; !ok {
+				return nil, fmt.Errorf("task %s depends on unknown task %s", taskID, dependencyID)
+			}
+			if seen[dependencyID] {
+				continue
+			}
+			seen[dependencyID] = true
+			indegree[taskID]++
+			dependents[dependencyID] = append(dependents[dependencyID], taskID)
+		}
+	}
+
+	queue := make([]string, 0)
+	for taskID, degree := range indegree {
+		if degree == 0 {
+			queue = append(queue, taskID)
+		}
+	}
+	sort.Strings(queue)
+
+	ordered := make([]string, 0, len(graph))
+	for len(queue) > 0 {
+		node := queue[0]
+		queue = queue[1:]
+		ordered = append(ordered, node)
+
+		nextDependents := append([]string(nil), dependents[node]...)
+		sort.Strings(nextDependents)
+		for _, dependentID := range nextDependents {
+			indegree[dependentID]--
+			if indegree[dependentID] == 0 {
+				queue = append(queue, dependentID)
+				sort.Strings(queue)
+			}
+		}
+	}
+
+	if len(ordered) != len(graph) {
+		return nil, fmt.Errorf("dependency graph contains a cycle or unreachable task")
+	}
+
+	return ordered, nil
+}
+
 func planTaskToMap(task planTask) map[string]any {
 	return map[string]any{
 		"id":               task.ID,
@@ -188,6 +374,96 @@ func planTaskToMap(task planTask) map[string]any {
 		"verification_cmd": task.VerificationCmd,
 		"rollback_note":    task.RollbackNote,
 	}
+}
+
+func (r *Runner) callPolicyCheck(ctx context.Context, args map[string]any) (policyCheckResult, error) {
+	result, err := r.sidecarMgr.CallTool(ctx, "omni_policy_check", args)
+	if err != nil {
+		return policyCheckResult{}, err
+	}
+
+	var parsed policyCheckResult
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		return policyCheckResult{}, fmt.Errorf("decode policy check result: %w", err)
+	}
+
+	return parsed, nil
+}
+
+func (r *Runner) readTaskRepoMap(ctx context.Context, runID, taskID string) (repoMapResult, error) {
+	result, err := r.sidecarMgr.CallTool(ctx, "omni_repo_map", map[string]any{
+		"repo_root": r.repoRoot,
+		"run_id":    runID,
+		"task_id":   taskID,
+	})
+	if err != nil {
+		return repoMapResult{}, err
+	}
+
+	var parsed repoMapResult
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		return repoMapResult{}, fmt.Errorf("decode repo map result: %w", err)
+	}
+
+	return parsed, nil
+}
+
+func policyDenyMessage(result policyCheckResult, fallback string) string {
+	message := strings.TrimSpace(result.Message)
+	if message != "" {
+		return message
+	}
+	if reason := strings.TrimSpace(result.ReasonCode); reason != "" {
+		return reason
+	}
+	return fallback
+}
+
+func verifyRepoMapScope(repoMap repoMapResult, allowedTargets []string) error {
+	if len(allowedTargets) == 0 {
+		return nil
+	}
+	for _, file := range repoMap.Files {
+		if pathWithinTargets(file.Path, allowedTargets) {
+			continue
+		}
+		return fmt.Errorf("repo map returned out-of-scope file %q", file.Path)
+	}
+	return nil
+}
+
+func pathWithinTargets(filePath string, targets []string) bool {
+	normalizedPath := normalizeTaskPath(filePath)
+	for _, target := range targets {
+		normalizedTarget := normalizeTaskPath(target)
+		if normalizedTarget == "" {
+			continue
+		}
+		if normalizedPath == normalizedTarget {
+			return true
+		}
+		if strings.HasSuffix(normalizedTarget, "/") && strings.HasPrefix(normalizedPath, normalizedTarget) {
+			return true
+		}
+		if strings.ContainsAny(normalizedTarget, "*?") {
+			matched, err := filepath.Match(normalizedTarget, normalizedPath)
+			if err == nil && matched {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func normalizeTaskPath(value string) string {
+	normalized := filepath.ToSlash(filepath.Clean(strings.TrimSpace(value)))
+	if normalized == "." {
+		return ""
+	}
+	if strings.HasSuffix(strings.TrimSpace(value), "/") && !strings.HasSuffix(normalized, "/") {
+		return normalized + "/"
+	}
+	return normalized
 }
 
 func buildExecutePrompt(state *runState, taskID string, taskInfo map[string]any) string {
@@ -225,8 +501,15 @@ func buildExecuteTranscriptEntry(taskID string, taskInfo map[string]any) string 
 
 func taskExecutionSummary(taskInfo map[string]any) string {
 	fileTargets := stringSliceValue(taskInfo["file_targets"])
+	skippedTargets := stringSliceValue(taskInfo["policy_skipped_targets"])
 	if len(fileTargets) == 0 {
+		if len(skippedTargets) > 0 {
+			return "Task skipped because policy denied all declared file targets."
+		}
 		return "Task completed without declared file targets."
+	}
+	if len(skippedTargets) > 0 {
+		return fmt.Sprintf("Completed approved work for %s while policy skipped %d target(s).", strings.Join(fileTargets, ", "), len(skippedTargets))
 	}
 	return fmt.Sprintf("Completed approved work for %s.", strings.Join(fileTargets, ", "))
 }
