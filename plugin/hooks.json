@@ -4,14 +4,14 @@
     "sessionStart": [
       {
         "type": "command",
-        "bash": "echo 'Copilot Omni plugin active'",
+        "bash": "echo 'Copilot Omni plugin active - Phase 2 guarded execution enabled'",
         "timeoutSec": 5
       }
     ],
     "preToolUse": [
       {
         "type": "command",
-        "bash": "case \"$COPILOT_TOOL_NAME\" in shell) ARGS=$(echo \"$COPILOT_TOOL_ARGS\" | tr '[:upper:]' '[:lower:]'); for CMD in sudo 'rm -rf /' mkfs dd 'curl.*|.*sh' 'wget.*|.*sh'; do echo \"$ARGS\" | grep -qE \"$CMD\" && echo '{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Omni policy: blocked dangerous command\"}' && exit 0; done;; esac; echo '{\"permissionDecision\":\"allow\"}'",
+        "bash": "case \"$COPILOT_TOOL_NAME\" in shell) ARGS=$(echo \"$COPILOT_TOOL_ARGS\" | tr '[:upper:]' '[:lower:]'); for CMD in sudo 'rm -rf /' mkfs dd 'curl.*|.*sh' 'wget.*|.*sh' format; do echo \"$ARGS\" | grep -qE \"$CMD\" && echo '{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Omni policy: blocked dangerous command: $CMD\"}' && exit 0; done;; edit|write) if [ -f .omni/config.json ]; then ARGS=$(echo \"$COPILOT_TOOL_ARGS\" | grep -oE '\"file_path\":\"[^\"]+\"' | head -1 | sed 's/\"file_path\":\"//;s/\"//'); for PROTECTED in .github/copilot-instructions.md .github/instructions/ AGENTS.md .omni/config.json; do echo \"$ARGS\" | grep -q \"$PROTECTED\" && echo '{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Omni policy: protected path - use omni init to update managed files\"}' && exit 0; done; fi;; esac; echo '{\"permissionDecision\":\"allow\"}'",
         "timeoutSec": 10
       }
     ]
