@@ -49,8 +49,8 @@ RESULT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocol
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"omni_health","arguments":{}}}
 {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"omni_config_resolve","arguments":{"repo_root":"/tmp"}}}
 {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"omni_doctor","arguments":{"repo_root":"/tmp"}}}
-{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"omni_artifact_write","arguments":{"repo_root":"'"$ARTIFACT_DIR"'","run_id":"test-run-001","filename":"spec.md","content":"# Test Spec\nHello world"}}}
-{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"omni_artifact_read","arguments":{"repo_root":"'"$ARTIFACT_DIR"'","run_id":"test-run-001","filename":"spec.md"}}}' | "$REPO_ROOT/sidecar/omni-sidecar" serve 2>/dev/null)
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"omni_artifact_write","arguments":{"repo_root":"'"$ARTIFACT_DIR"'","run_id":"test-run-001","filename":"notes.md","content":"# Test Notes\nHello world"}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"omni_artifact_read","arguments":{"repo_root":"'"$ARTIFACT_DIR"'","run_id":"test-run-001","filename":"notes.md"}}}' | "$REPO_ROOT/sidecar/omni-sidecar" serve 2>/dev/null)
 
 # Verify initialize
 printf '%s\n' "$RESULT" | python3 -c "
@@ -62,15 +62,15 @@ assert r['result']['serverInfo']['name'] == 'copilot-omni-sidecar'
 print('  PASS: MCP initialize handshake')
 " || fail "MCP initialize"
 
-# Verify tools/list has all 5 tools
+# Verify tools/list has all 7 tools
 printf '%s\n' "$RESULT" | python3 -c "
 import sys, json
 lines = sys.stdin.read().strip().split('\n')
 tools = json.loads(lines[1])
 names = sorted([t['name'] for t in tools['result']['tools']])
-expected = ['omni_artifact_read', 'omni_artifact_write', 'omni_config_resolve', 'omni_doctor', 'omni_health']
+expected = ['omni_artifact_read', 'omni_artifact_write', 'omni_config_resolve', 'omni_doctor', 'omni_health', 'omni_resume_context', 'omni_run_status']
 assert names == expected, f'Wrong tools: {names}'
-print('  PASS: All 5 MCP tools registered')
+print('  PASS: All 7 MCP tools registered')
 " || fail "tools/list"
 
 # Verify omni_health
@@ -124,13 +124,13 @@ import sys, json
 lines = sys.stdin.read().strip().split('\n')
 r = json.loads(lines[6])
 text = r['result']['content'][0]['text']
-assert 'Test Spec' in text
+assert 'Test Notes' in text
 assert 'Hello world' in text
 print('  PASS: omni_artifact_read returns content')
 " || fail "omni_artifact_read"
 
 # Verify artifact file exists on disk
-[ -f "$ARTIFACT_DIR/.omni/runs/test-run-001/spec.md" ] && pass "artifact file exists on disk" || fail "artifact file missing on disk"
+[ -f "$ARTIFACT_DIR/.omni/runs/test-run-001/notes.md" ] && pass "artifact file exists on disk" || fail "artifact file missing on disk"
 
 # Verify path traversal is rejected
 TRAVERSAL_RESULT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}

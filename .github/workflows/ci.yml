@@ -74,6 +74,15 @@ jobs:
       - name: Integration test
         run: bash test/integration-test.sh
 
+      - name: Phase 1 integration test
+        run: bash test/integration-phase1.sh
+
+      - name: Go test sidecar
+        run: cd sidecar && go test ./...
+
+      - name: Go test wrapper
+        run: cd wrapper && go test ./...
+
   cross-compile:
     runs-on: ubuntu-latest
     needs: build
