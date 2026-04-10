@@ -15,5 +15,10 @@
   },
   "sidecar": {
     "debug": false
+  },
+  "research": {
+    "max_subtasks": 4,
+    "parallel_read": true,
+    "parallel_write": false
   }
 }

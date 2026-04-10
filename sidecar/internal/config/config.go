@@ -3,11 +3,12 @@ package config
 import "encoding/json"
 
 type Config struct {
-	Version string        `json:"version"`
-	Profile string        `json:"profile,omitempty"`
-	Policy  PolicyConfig  `json:"policy"`
-	Memory  MemoryConfig  `json:"memory"`
-	Sidecar SidecarConfig `json:"sidecar"`
+	Version  string         `json:"version"`
+	Profile  string         `json:"profile,omitempty"`
+	Policy   PolicyConfig   `json:"policy"`
+	Memory   MemoryConfig   `json:"memory"`
+	Sidecar  SidecarConfig  `json:"sidecar"`
+	Research ResearchConfig `json:"research"`
 
 	versionSet bool
 	profileSet bool
@@ -47,12 +48,23 @@ type SidecarConfig struct {
 	debugSet   bool
 }
 
+type ResearchConfig struct {
+	MaxSubtasks   int  `json:"max_subtasks"`
+	ParallelRead  bool `json:"parallel_read"`
+	ParallelWrite bool `json:"parallel_write"`
+
+	maxSubtasksSet   bool
+	parallelReadSet  bool
+	parallelWriteSet bool
+}
+
 type configJSON struct {
-	Version *string            `json:"version"`
-	Profile *string            `json:"profile"`
-	Policy  *policyConfigJSON  `json:"policy"`
-	Memory  *memoryConfigJSON  `json:"memory"`
-	Sidecar *sidecarConfigJSON `json:"sidecar"`
+	Version  *string             `json:"version"`
+	Profile  *string             `json:"profile"`
+	Policy   *policyConfigJSON   `json:"policy"`
+	Memory   *memoryConfigJSON   `json:"memory"`
+	Sidecar  *sidecarConfigJSON  `json:"sidecar"`
+	Research *researchConfigJSON `json:"research"`
 }
 
 type policyConfigJSON struct {
@@ -73,6 +85,12 @@ type memoryConfigJSON struct {
 type sidecarConfigJSON struct {
 	LogPath *string `json:"log_path"`
 	Debug   *bool   `json:"debug"`
+}
+
+type researchConfigJSON struct {
+	MaxSubtasks   *int  `json:"max_subtasks"`
+	ParallelRead  *bool `json:"parallel_read"`
+	ParallelWrite *bool `json:"parallel_write"`
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
@@ -103,6 +121,10 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 
 	if payload.Sidecar != nil {
 		payload.Sidecar.apply(&c.Sidecar)
+	}
+
+	if payload.Research != nil {
+		payload.Research.apply(&c.Research)
 	}
 
 	return nil
@@ -166,5 +188,22 @@ func (payload *sidecarConfigJSON) apply(target *SidecarConfig) {
 	if payload.Debug != nil {
 		target.Debug = *payload.Debug
 		target.debugSet = true
+	}
+}
+
+func (payload *researchConfigJSON) apply(target *ResearchConfig) {
+	if payload.MaxSubtasks != nil {
+		target.MaxSubtasks = *payload.MaxSubtasks
+		target.maxSubtasksSet = true
+	}
+
+	if payload.ParallelRead != nil {
+		target.ParallelRead = *payload.ParallelRead
+		target.parallelReadSet = true
+	}
+
+	if payload.ParallelWrite != nil {
+		target.ParallelWrite = *payload.ParallelWrite
+		target.parallelWriteSet = true
 	}
 }

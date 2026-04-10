@@ -24,12 +24,12 @@ python3 -c "import json; d=json.load(open('$REPO_ROOT/plugin/.mcp.json')); asser
 python3 -c "import json; d=json.load(open('$REPO_ROOT/plugin/hooks.json')); assert d['version']==1; assert 'preToolUse' in d['hooks']" && pass "hooks.json valid" || fail "hooks.json invalid"
 
 # Check agents exist
-for agent in conductor planner reviewer verifier; do
+for agent in conductor planner reviewer researcher verifier; do
     [ -f "$REPO_ROOT/plugin/agents/omni-${agent}.agent.md" ] && pass "agent omni-${agent} exists" || fail "agent omni-${agent} missing"
 done
 
 # Check skills exist
-for skill in init doctor run plan resume memory; do
+for skill in init doctor run plan resume memory research; do
     [ -f "$REPO_ROOT/plugin/skills/omni-${skill}/SKILL.md" ] && pass "skill omni-${skill} exists" || fail "skill omni-${skill} missing"
 done
 
@@ -62,15 +62,15 @@ assert r['result']['serverInfo']['name'] == 'copilot-omni-sidecar'
 print('  PASS: MCP initialize handshake')
 " || fail "MCP initialize"
 
-# Verify tools/list has all 7 tools
+# Verify tools/list has all 24 tools
 printf '%s\n' "$RESULT" | python3 -c "
 import sys, json
 lines = sys.stdin.read().strip().split('\n')
 tools = json.loads(lines[1])
 names = sorted([t['name'] for t in tools['result']['tools']])
-expected = ['omni_artifact_read', 'omni_artifact_write', 'omni_config_resolve', 'omni_doctor', 'omni_guarded_patch', 'omni_health', 'omni_memory_capture', 'omni_memory_export', 'omni_memory_ingest', 'omni_memory_prune', 'omni_memory_search', 'omni_memory_wipe', 'omni_policy_check', 'omni_repo_map', 'omni_resume_context', 'omni_run_status', 'omni_verification_run']
+expected = ['omni_artifact_read', 'omni_artifact_write', 'omni_config_resolve', 'omni_doctor', 'omni_guarded_patch', 'omni_health', 'omni_intent_route', 'omni_memory_capture', 'omni_memory_export', 'omni_memory_ingest', 'omni_memory_prune', 'omni_memory_search', 'omni_memory_wipe', 'omni_merge', 'omni_policy_check', 'omni_repo_map', 'omni_research', 'omni_resume_context', 'omni_run_status', 'omni_subtask_create', 'omni_subtask_status', 'omni_verification_run', 'omni_workspace_create', 'omni_workspace_remove']
 assert names == expected, f'Wrong tools: {names}'
-print('  PASS: All 17 MCP tools registered')
+print('  PASS: All 24 MCP tools registered')
 " || fail "tools/list"
 
 # Verify omni_health

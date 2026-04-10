@@ -18,7 +18,7 @@ import (
 	"github.com/copilot-omni/wrapper/internal/workflow"
 )
 
-const usage = "Usage: omni <command> [options] [arguments]\n\nCommands:\n  init      Bootstrap repository for Omni\n  doctor    Run diagnostics\n  run       Start a full workflow\n  plan      Plan only (no execution)\n  execute   Execute an approved plan with guarded file writes\n  resume    Resume an interrupted run\n  version   Print version\n"
+const usage = "Usage: omni <command> [options] [arguments]\n\nCommands:\n  init      Bootstrap repository for Omni\n  doctor    Run diagnostics\n  run       Start a full workflow\n  plan      Plan only (no execution)\n  execute   Execute an approved plan with guarded file writes\n  resume    Resume an interrupted run\n  research  Conduct structured research and produce a report\n  version   Print version\n"
 
 func main() {
 	args := os.Args[1:]
@@ -40,6 +40,8 @@ func main() {
 		runExecute(args[1:])
 	case "resume":
 		runResume(args[1:])
+	case "research":
+		runResearch(args[1:])
 	case "version":
 		fmt.Printf("omni v%s\n", version.Version)
 	case "--help", "-h":
@@ -259,6 +261,48 @@ func runExecute(args []string) {
 	}
 
 	printRunResult("Execute result", result)
+}
+
+func runResearch(args []string) {
+	query := strings.TrimSpace(strings.Join(args, " "))
+	if query == "" {
+		fmt.Fprintln(os.Stderr, "research requires a query")
+		os.Exit(1)
+	}
+
+	sidecarPath, err := sidecar.FindSidecar()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar binary: not found (%v)\n", err)
+		os.Exit(1)
+	}
+
+	mgr := sidecar.NewManager(sidecarPath)
+	defer stopManager(mgr)
+
+	ctx := context.Background()
+	if err := mgr.Start(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar start: failed (%v)\n", err)
+		os.Exit(1)
+	}
+	if err := mgr.HealthCheck(ctx, 5*time.Second); err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar health: failed (%v)\n", err)
+		os.Exit(1)
+	}
+
+	runID := fmt.Sprintf("run-%d", time.Now().Unix())
+	result, err := mgr.CallTool(ctx, "omni_research", map[string]any{
+		"repo_root": repoRoot(),
+		"run_id":    runID,
+		"query":     query,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "research failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Research report:")
+	fmt.Println(result)
+	fmt.Printf("\nRun ID: %s\n", runID)
 }
 
 func runResume(args []string) {

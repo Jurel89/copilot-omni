@@ -22,10 +22,15 @@ import (
 	"github.com/copilot-omni/sidecar/internal/doctor"
 	"github.com/copilot-omni/sidecar/internal/execution"
 	"github.com/copilot-omni/sidecar/internal/memory"
+	"github.com/copilot-omni/sidecar/internal/merge"
 	"github.com/copilot-omni/sidecar/internal/policy"
+	"github.com/copilot-omni/sidecar/internal/research"
+	"github.com/copilot-omni/sidecar/internal/router"
 	runpkg "github.com/copilot-omni/sidecar/internal/run"
 	"github.com/copilot-omni/sidecar/internal/schema"
+	subtaskpkg "github.com/copilot-omni/sidecar/internal/subtask"
 	"github.com/copilot-omni/sidecar/internal/version"
+	"github.com/copilot-omni/sidecar/internal/workspace"
 )
 
 type ToolHandler func(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error)
@@ -525,6 +530,212 @@ func NewRegistry(startedAt time.Time, resolver ConfigResolver) *Registry {
 			},
 		},
 		registry.omniMemoryPrune,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_research",
+			Description: "Generate a structured research report combining web findings, repository evidence, and memory",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"run_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Run ID for the research report artifact",
+					},
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "Research query to investigate",
+					},
+					"web_results": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional web research results to include",
+					},
+					"repo_evidence": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional repository exploration evidence to include",
+					},
+					"memory_results": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional memory search results to include",
+					},
+				},
+				Required: []string{"repo_root", "run_id", "query"},
+			},
+		},
+		registry.omniResearch,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_subtask_create",
+			Description: "Create a subtask manifest for bounded parallel work with explicit scopes and isolation requirements",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"run_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Run ID for the subtask manifest artifact",
+					},
+					"parent_task": map[string]interface{}{
+						"type":        "string",
+						"description": "Parent plan task ID that this manifest decomposes",
+					},
+					"manifest": map[string]interface{}{
+						"type":        "object",
+						"description": "Subtask manifest object with subtasks array",
+					},
+				},
+				Required: []string{"repo_root", "run_id", "parent_task", "manifest"},
+			},
+		},
+		registry.omniSubtaskCreate,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_subtask_status",
+			Description: "Read or update subtask status within a manifest, and list ready subtasks for parallel execution",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"run_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Run ID containing the subtask manifest",
+					},
+					"subtask_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional subtask ID to update status for",
+					},
+					"status": map[string]interface{}{
+						"type":        "string",
+						"description": "New status: running, completed, failed, or discarded",
+					},
+					"list_ready": map[string]interface{}{
+						"type":        "boolean",
+						"description": "If true, list subtasks ready for execution (default: false)",
+					},
+				},
+				Required: []string{"repo_root", "run_id"},
+			},
+		},
+		registry.omniSubtaskStatus,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_workspace_create",
+			Description: "Create an isolated workspace for a write-capable subtask using git worktrees or temp directories",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"subtask_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Subtask ID to create workspace for",
+					},
+					"is_write": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether the workspace needs write access (default: false)",
+					},
+				},
+				Required: []string{"repo_root", "subtask_id"},
+			},
+		},
+		registry.omniWorkspaceCreate,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_workspace_remove",
+			Description: "Remove an isolated workspace after subtask completion or failure",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"workspace_path": map[string]interface{}{
+						"type":        "string",
+						"description": "Path to the workspace to remove",
+					},
+					"subtask_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Subtask ID the workspace belongs to",
+					},
+					"isolation": map[string]interface{}{
+						"type":        "string",
+						"description": "Isolation type: worktree or tempdir",
+					},
+					"branch_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Branch name for worktree cleanup",
+					},
+				},
+				Required: []string{"repo_root", "subtask_id"},
+			},
+		},
+		registry.omniWorkspaceRemove,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_merge",
+			Description: "Merge subtask outputs through a review pipeline with accept/reject/conflict decisions",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"run_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Run ID containing the subtask manifest",
+					},
+					"decisions": map[string]interface{}{
+						"type":        "array",
+						"description": "Array of merge decisions with subtask_id, action, and optional reason",
+					},
+				},
+				Required: []string{"repo_root", "run_id", "decisions"},
+			},
+		},
+		registry.omniMerge,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_intent_route",
+			Description: "Classify user intent and route to the minimal required capability (skill, agent, sidecar tool, or built-in)",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"prompt": map[string]interface{}{
+						"type":        "string",
+						"description": "User prompt to classify and route",
+					},
+				},
+				Required: []string{"prompt"},
+			},
+		},
+		registry.omniIntentRoute,
 	)
 
 	return registry
@@ -1801,6 +2012,400 @@ func (r *Registry) omniMemoryPrune(ctx context.Context, arguments map[string]int
 		"pruned_by_count": prunedByCount,
 		"pruned_total":    totalPruned,
 		"remaining":       remaining,
+	})
+}
+
+func (r *Registry) omniResearch(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	runID, err := requiredStringArg(arguments, "run_id")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	query, err := requiredStringArg(arguments, "query")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	opts := research.GenerateOptions{
+		RunID:         runID,
+		Query:         query,
+		RepoRoot:      repoRoot,
+		WebResults:    stringVal(arguments, "web_results"),
+		RepoEvidence:  stringVal(arguments, "repo_evidence"),
+		MemoryResults: stringVal(arguments, "memory_results"),
+	}
+
+	if strings.TrimSpace(opts.MemoryResults) == "" {
+		memStore, _, memErr := r.openMemoryStore(repoRoot)
+		if memErr == nil && memStore != nil {
+			searchResult, searchErr := memStore.Search(memory.SearchQuery{
+				Query: query,
+				Limit: 5,
+			})
+			if searchErr == nil && searchResult != nil && searchResult.Total > 0 {
+				var sb strings.Builder
+				for _, rec := range searchResult.Records {
+					sb.WriteString(rec.Record.Title)
+					sb.WriteString(": ")
+					sb.WriteString(rec.Record.Content)
+					sb.WriteString("\n")
+				}
+				opts.MemoryResults = sb.String()
+			}
+			memStore.Close()
+		}
+	}
+
+	report, genErr := research.Generate(opts)
+	if genErr != nil {
+		return ToolCallResult{}, fmt.Errorf("generate research report: %w", genErr)
+	}
+
+	reportPath, writeErr := research.WriteReport(repoRoot, runID, report)
+	if writeErr != nil {
+		return ToolCallResult{}, fmt.Errorf("write research report: %w", writeErr)
+	}
+
+	reportPayload, marshalErr := json.Marshal(report)
+	if marshalErr != nil {
+		return ToolCallResult{}, fmt.Errorf("marshal research report: %w", marshalErr)
+	}
+
+	var reportMap map[string]interface{}
+	if json.Unmarshal(reportPayload, &reportMap) != nil {
+		return ToolCallResult{}, fmt.Errorf("normalize research report")
+	}
+
+	warnings, validateErr := schema.ValidateResearchReport(reportMap)
+	if validateErr != nil {
+		return ToolCallResult{}, fmt.Errorf("research report validation failed: %w", validateErr)
+	}
+
+	response := map[string]interface{}{
+		"run_id":      report.RunID,
+		"query":       report.Query,
+		"summary":     report.Summary,
+		"findings":    len(report.Findings),
+		"provenance":  len(report.Provenance),
+		"report_path": reportPath,
+	}
+	if len(warnings) > 0 {
+		response["warnings"] = warnings
+	}
+
+	return jsonToolResult(response)
+}
+
+func (r *Registry) omniSubtaskCreate(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	runID, err := requiredStringArg(arguments, "run_id")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	parentTask, err := requiredStringArg(arguments, "parent_task")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	rawManifest, ok := arguments["manifest"].(map[string]interface{})
+	if !ok || len(rawManifest) == 0 {
+		return ToolCallResult{}, fmt.Errorf("manifest must be a non-empty object")
+	}
+
+	warnings, validateErr := schema.ValidateSubtaskManifest(rawManifest)
+	if validateErr != nil {
+		return ToolCallResult{}, fmt.Errorf("subtask manifest validation failed: %w", validateErr)
+	}
+
+	resolvedConfig, configErr := resolveConfig(r.configResolver, repoRoot)
+	if configErr != nil {
+		return ToolCallResult{}, fmt.Errorf("resolve config for subtask limits: %w", configErr)
+	}
+
+	rawSubtasks, ok := rawManifest["subtasks"].([]interface{})
+	if !ok {
+		return ToolCallResult{}, fmt.Errorf("manifest.subtasks must be an array")
+	}
+
+	if resolvedConfig.Research.MaxSubtasks > 0 && len(rawSubtasks) > resolvedConfig.Research.MaxSubtasks {
+		return ToolCallResult{}, fmt.Errorf("subtask count %d exceeds configured maximum %d (profile: %s)", len(rawSubtasks), resolvedConfig.Research.MaxSubtasks, resolvedConfig.Profile)
+	}
+
+	manifest := subtaskpkg.NewManifest(runID, parentTask)
+
+	for _, raw := range rawSubtasks {
+		subMap, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		sub := subtaskpkg.Subtask{
+			ID:              stringVal(subMap, "id"),
+			Title:           stringVal(subMap, "title"),
+			Description:     stringVal(subMap, "description"),
+			Mode:            stringVal(subMap, "mode"),
+			VerificationCmd: stringVal(subMap, "verification_cmd"),
+			OutputContract:  stringVal(subMap, "output_contract"),
+		}
+		if deps, err := optionalStringArrayArg(subMap, "dependencies"); err == nil && deps != nil {
+			sub.Dependencies = deps
+		}
+		if targets, err := optionalStringArrayArg(subMap, "file_targets"); err == nil && targets != nil {
+			sub.FileTargets = targets
+		}
+		if addErr := manifest.AddSubtask(sub); addErr != nil {
+			return ToolCallResult{}, fmt.Errorf("add subtask: %w", addErr)
+		}
+	}
+
+	path, writeErr := subtaskpkg.WriteManifest(repoRoot, runID, manifest)
+	if writeErr != nil {
+		return ToolCallResult{}, fmt.Errorf("write subtask manifest: %w", writeErr)
+	}
+
+	response := map[string]interface{}{
+		"status":        "ok",
+		"run_id":        runID,
+		"parent_task":   parentTask,
+		"subtask_count": len(manifest.Subtasks),
+		"path":          path,
+	}
+	if len(warnings) > 0 {
+		response["warnings"] = warnings
+	}
+
+	return jsonToolResult(response)
+}
+
+func (r *Registry) omniSubtaskStatus(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	runID, err := requiredStringArg(arguments, "run_id")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	manifest, readErr := subtaskpkg.ReadManifest(repoRoot, runID)
+	if readErr != nil {
+		return ToolCallResult{}, fmt.Errorf("read subtask manifest: %w", readErr)
+	}
+
+	subtaskID := stringVal(arguments, "subtask_id")
+	newStatus := stringVal(arguments, "status")
+	listReady, _ := arguments["list_ready"].(bool)
+
+	if subtaskID != "" && newStatus != "" {
+		validStatuses := map[string]bool{
+			subtaskpkg.StatusRunning:   true,
+			subtaskpkg.StatusCompleted: true,
+			subtaskpkg.StatusFailed:    true,
+			subtaskpkg.StatusDiscarded: true,
+		}
+		if !validStatuses[newStatus] {
+			return ToolCallResult{}, fmt.Errorf("invalid subtask status %q; must be one of: running, completed, failed, discarded", newStatus)
+		}
+		if updateErr := subtaskpkg.UpdateSubtaskStatus(repoRoot, runID, subtaskID, newStatus); updateErr != nil {
+			return ToolCallResult{}, fmt.Errorf("update subtask status: %w", updateErr)
+		}
+		manifest, _ = subtaskpkg.ReadManifest(repoRoot, runID)
+	}
+
+	response := map[string]interface{}{
+		"run_id":         runID,
+		"parent_task":    manifest.ParentTask,
+		"total_subtasks": len(manifest.Subtasks),
+		"subtasks":       manifest.Subtasks,
+		"all_completed":  manifest.AllCompleted(),
+	}
+
+	if listReady {
+		ready := manifest.ReadySubtasks()
+		readyIDs := make([]string, 0, len(ready))
+		for _, s := range ready {
+			readyIDs = append(readyIDs, s.ID)
+		}
+		response["ready_subtasks"] = readyIDs
+	}
+
+	return jsonToolResult(response)
+}
+
+func (r *Registry) omniWorkspaceCreate(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	subtaskID, err := requiredStringArg(arguments, "subtask_id")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	isWrite := false
+	if raw, ok := arguments["is_write"].(bool); ok {
+		isWrite = raw
+	}
+
+	mgr := workspace.NewManager(repoRoot)
+	ws, createErr := mgr.CreateWorkspace(subtaskID, isWrite)
+	if createErr != nil {
+		return ToolCallResult{}, fmt.Errorf("create workspace: %w", createErr)
+	}
+
+	return jsonToolResult(ws)
+}
+
+func (r *Registry) omniWorkspaceRemove(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	subtaskID, err := requiredStringArg(arguments, "subtask_id")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	wsPath := stringVal(arguments, "workspace_path")
+	isolation := stringVal(arguments, "isolation")
+	branchName := stringVal(arguments, "branch_name")
+
+	ws := &workspace.Workspace{
+		Path:        wsPath,
+		Isolation:   workspace.IsolationType(isolation),
+		SubtaskID:   subtaskID,
+		BranchName:  branchName,
+		IsWriteable: isolation == string(workspace.IsolationWorktree) || (wsPath != "" && wsPath != repoRoot),
+	}
+
+	mgr := workspace.NewManager(repoRoot)
+	if removeErr := mgr.RemoveWorkspace(ws); removeErr != nil {
+		return ToolCallResult{}, fmt.Errorf("remove workspace: %w", removeErr)
+	}
+
+	return jsonToolResult(map[string]interface{}{
+		"status":     "ok",
+		"subtask_id": subtaskID,
+	})
+}
+
+func (r *Registry) omniMerge(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	runID, err := requiredStringArg(arguments, "run_id")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	rawDecisions, ok := arguments["decisions"].([]interface{})
+	if !ok || len(rawDecisions) == 0 {
+		return ToolCallResult{}, fmt.Errorf("decisions must be a non-empty array")
+	}
+
+	decisions := make([]merge.Decision, 0, len(rawDecisions))
+	for _, raw := range rawDecisions {
+		dMap, ok := raw.(map[string]interface{})
+		if !ok {
+			return ToolCallResult{}, fmt.Errorf("each decision must be an object")
+		}
+		decisions = append(decisions, merge.Decision{
+			SubtaskID: stringVal(dMap, "subtask_id"),
+			Action:    stringVal(dMap, "action"),
+			Reason:    stringVal(dMap, "reason"),
+			Reviewer:  stringVal(dMap, "reviewer"),
+		})
+	}
+
+	if validateErr := merge.ValidateMergeDecisions(decisions); validateErr != nil {
+		return ToolCallResult{}, fmt.Errorf("merge validation: %w", validateErr)
+	}
+
+	manifest, manifestErr := subtaskpkg.ReadManifest(repoRoot, runID)
+	if manifestErr != nil {
+		return ToolCallResult{}, fmt.Errorf("read subtask manifest for merge validation: %w", manifestErr)
+	}
+
+	knownIDs := make(map[string]bool, len(manifest.Subtasks))
+	for _, sub := range manifest.Subtasks {
+		knownIDs[sub.ID] = true
+	}
+	for _, d := range decisions {
+		if !knownIDs[d.SubtaskID] {
+			return ToolCallResult{}, fmt.Errorf("merge decision references unknown subtask %q not in manifest for run %s", d.SubtaskID, runID)
+		}
+	}
+
+	coord := merge.NewCoordinator(repoRoot)
+	result, mergeErr := coord.Merge(runID, decisions)
+	if mergeErr != nil {
+		return ToolCallResult{}, fmt.Errorf("merge subtasks: %w", mergeErr)
+	}
+
+	return jsonToolResult(result)
+}
+
+func (r *Registry) omniIntentRoute(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	prompt, err := requiredStringArg(arguments, "prompt")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	rt := router.NewRouter()
+	intent := router.ClassifyIntent(prompt)
+	route := rt.Route(intent)
+
+	return jsonToolResult(map[string]interface{}{
+		"intent": string(intent),
+		"route":  route,
 	})
 }
 

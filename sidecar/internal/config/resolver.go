@@ -65,6 +65,11 @@ func DefaultConfig() *Config {
 		Sidecar: SidecarConfig{
 			Debug: false,
 		},
+		Research: ResearchConfig{
+			MaxSubtasks:   4,
+			ParallelRead:  true,
+			ParallelWrite: false,
+		},
 	}
 }
 
@@ -147,6 +152,18 @@ func Merge(base, overlay *Config) *Config {
 
 	if overlay.Sidecar.debugSet {
 		merged.Sidecar.Debug = overlay.Sidecar.Debug
+	}
+
+	if overlay.Research.maxSubtasksSet {
+		merged.Research.MaxSubtasks = overlay.Research.MaxSubtasks
+	}
+
+	if overlay.Research.parallelReadSet {
+		merged.Research.ParallelRead = overlay.Research.ParallelRead
+	}
+
+	if overlay.Research.parallelWriteSet {
+		merged.Research.ParallelWrite = overlay.Research.ParallelWrite
 	}
 
 	return &merged
