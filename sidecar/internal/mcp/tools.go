@@ -2135,12 +2135,21 @@ func (r *Registry) omniSubtaskCreate(ctx context.Context, arguments map[string]i
 		return ToolCallResult{}, fmt.Errorf("subtask manifest validation failed: %w", validateErr)
 	}
 
-	manifest := subtaskpkg.NewManifest(runID, parentTask)
+	resolvedConfig, configErr := resolveConfig(r.configResolver, repoRoot)
+	if configErr != nil {
+		return ToolCallResult{}, fmt.Errorf("resolve config for subtask limits: %w", configErr)
+	}
 
 	rawSubtasks, ok := rawManifest["subtasks"].([]interface{})
 	if !ok {
 		return ToolCallResult{}, fmt.Errorf("manifest.subtasks must be an array")
 	}
+
+	if resolvedConfig.Research.MaxSubtasks > 0 && len(rawSubtasks) > resolvedConfig.Research.MaxSubtasks {
+		return ToolCallResult{}, fmt.Errorf("subtask count %d exceeds configured maximum %d (profile: %s)", len(rawSubtasks), resolvedConfig.Research.MaxSubtasks, resolvedConfig.Profile)
+	}
+
+	manifest := subtaskpkg.NewManifest(runID, parentTask)
 
 	for _, raw := range rawSubtasks {
 		subMap, ok := raw.(map[string]interface{})
@@ -2211,6 +2220,15 @@ func (r *Registry) omniSubtaskStatus(ctx context.Context, arguments map[string]i
 	listReady, _ := arguments["list_ready"].(bool)
 
 	if subtaskID != "" && newStatus != "" {
+		validStatuses := map[string]bool{
+			subtaskpkg.StatusRunning:   true,
+			subtaskpkg.StatusCompleted: true,
+			subtaskpkg.StatusFailed:    true,
+			subtaskpkg.StatusDiscarded: true,
+		}
+		if !validStatuses[newStatus] {
+			return ToolCallResult{}, fmt.Errorf("invalid subtask status %q; must be one of: running, completed, failed, discarded", newStatus)
+		}
 		if updateErr := subtaskpkg.UpdateSubtaskStatus(repoRoot, runID, subtaskID, newStatus); updateErr != nil {
 			return ToolCallResult{}, fmt.Errorf("update subtask status: %w", updateErr)
 		}
@@ -2292,7 +2310,7 @@ func (r *Registry) omniWorkspaceRemove(ctx context.Context, arguments map[string
 		Isolation:   workspace.IsolationType(isolation),
 		SubtaskID:   subtaskID,
 		BranchName:  branchName,
-		IsWriteable: isolation == string(workspace.IsolationWorktree),
+		IsWriteable: isolation == string(workspace.IsolationWorktree) || (wsPath != "" && wsPath != repoRoot),
 	}
 
 	mgr := workspace.NewManager(repoRoot)
@@ -2343,6 +2361,21 @@ func (r *Registry) omniMerge(ctx context.Context, arguments map[string]interface
 
 	if validateErr := merge.ValidateMergeDecisions(decisions); validateErr != nil {
 		return ToolCallResult{}, fmt.Errorf("merge validation: %w", validateErr)
+	}
+
+	manifest, manifestErr := subtaskpkg.ReadManifest(repoRoot, runID)
+	if manifestErr != nil {
+		return ToolCallResult{}, fmt.Errorf("read subtask manifest for merge validation: %w", manifestErr)
+	}
+
+	knownIDs := make(map[string]bool, len(manifest.Subtasks))
+	for _, sub := range manifest.Subtasks {
+		knownIDs[sub.ID] = true
+	}
+	for _, d := range decisions {
+		if !knownIDs[d.SubtaskID] {
+			return ToolCallResult{}, fmt.Errorf("merge decision references unknown subtask %q not in manifest for run %s", d.SubtaskID, runID)
+		}
 	}
 
 	coord := merge.NewCoordinator(repoRoot)

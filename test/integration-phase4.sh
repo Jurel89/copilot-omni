@@ -85,7 +85,75 @@ for finding in report['findings']:
 print('  PASS: research report generated with provenance and findings')
 " || fail "research report"
 
-rm -rf "$RES_DIR"
+echo ""
+echo "--- Runtime Config Resolution ---"
+
+python3 -c "
+import json, subprocess, os, tempfile
+
+dir = tempfile.mkdtemp()
+os.makedirs(os.path.join(dir, '.omni'), exist_ok=True)
+
+result = subprocess.run(
+    ['$REPO_ROOT/sidecar/omni-sidecar', 'serve'],
+    input='{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"1.0.0\"}}}\n{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"omni_config_resolve\",\"arguments\":{\"repo_root\":\"' + dir + '\"}}}',
+    capture_output=True, text=True
+)
+lines = result.stdout.strip().split('\n')
+r = json.loads(lines[1])
+text = json.loads(r['result']['content'][0]['text'])
+cfg = text.get('resolved_config', text)
+research = cfg.get('research', {})
+assert research.get('max_subtasks', 0) > 0, f'max_subtasks should be > 0, got: {research}'
+assert research.get('parallel_read') == True, f'parallel_read should be True, got: {research}'
+print(f'  PASS: runtime config resolves research.max_subtasks={research[\"max_subtasks\"]}, parallel_read={research[\"parallel_read\"]}')
+" || fail "runtime config resolution"
+
+echo ""
+echo "--- Invalid Subtask Status Rejection ---"
+
+INVALID_DIR=$(mktemp -d)
+mkdir -p "$INVALID_DIR/.omni/runs/run-test-invalid"
+
+echo "{\"run_id\":\"run-test-invalid\",\"parent_task\":\"task-1\",\"subtasks\":[{\"id\":\"sub-1\",\"title\":\"Test\",\"description\":\"Test\",\"mode\":\"read_only\",\"dependencies\":[],\"status\":\"pending\"}],\"created_at\":\"2024-01-01T00:00:00Z\"}" > "$INVALID_DIR/.omni/runs/run-test-invalid/subtask-manifest.json"
+
+INVALID_RESULT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"omni_subtask_status","arguments":{"repo_root":"'"$INVALID_DIR"'","run_id":"run-test-invalid","subtask_id":"sub-1","status":"banana"}}}' | "$REPO_ROOT/sidecar/omni-sidecar" serve 2>/dev/null)
+
+printf '%s\n' "$INVALID_RESULT" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+r = json.loads(lines[1])
+assert 'error' in r, f'Expected error for invalid status, got success: {r}'
+assert 'invalid subtask status' in r['error']['message'].lower(), f'Wrong error message: {r}'
+print('  PASS: invalid subtask status rejected')
+" || fail "invalid status rejection"
+
+rm -rf "$INVALID_DIR"
+
+echo ""
+echo "--- Merge Unknown Subtask Rejection ---"
+
+MERGE_REJ_DIR=$(mktemp -d)
+mkdir -p "$MERGE_REJ_DIR/.omni/runs/run-test-merge-rej"
+
+echo "{\"run_id\":\"run-test-merge-rej\",\"parent_task\":\"task-1\",\"subtasks\":[{\"id\":\"sub-1\",\"title\":\"Test\",\"description\":\"Test\",\"mode\":\"read_only\",\"dependencies\":[],\"status\":\"completed\"}],\"created_at\":\"2024-01-01T00:00:00Z\"}" > "$MERGE_REJ_DIR/.omni/runs/run-test-merge-rej/subtask-manifest.json"
+
+MERGE_INVALID=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"omni_merge","arguments":{"repo_root":"'"$MERGE_REJ_DIR"'","run_id":"run-test-merge-rej","decisions":[{"subtask_id":"nonexistent-sub","action":"accept"}]}}}' | "$REPO_ROOT/sidecar/omni-sidecar" serve 2>/dev/null)
+
+printf '%s\n' "$MERGE_INVALID" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+r = json.loads(lines[1])
+assert 'error' in r, f'Expected error for unknown subtask, got success: {r}'
+assert 'unknown subtask' in r['error']['message'].lower(), f'Wrong error message: {r}'
+print('  PASS: merge rejects decisions for unknown subtasks')
+" || fail "merge unknown subtask rejection"
+
+rm -rf "$MERGE_REJ_DIR"
 
 echo ""
 echo "--- Subtask Manifest ---"
