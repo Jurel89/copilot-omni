@@ -4,7 +4,7 @@
     "sessionStart": [
       {
         "type": "command",
-        "bash": "echo 'Copilot Omni plugin active - Phase 2 guarded execution enabled'",
+        "bash": "echo 'Copilot Omni plugin active - Phase 3 local memory and resumability enabled'",
         "timeoutSec": 5
       }
     ],

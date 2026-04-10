@@ -15,7 +15,7 @@ echo "--- Sidecar Build ---"
 (cd "$REPO_ROOT/sidecar" && go build ./cmd/omni-sidecar/) && pass "sidecar builds" || fail "sidecar build failed"
 
 echo ""
-echo "--- Tool Registry (11 tools) ---"
+echo "--- Tool Registry (17 tools) ---"
 
 TOOL_COUNT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
@@ -30,7 +30,7 @@ for name in ['omni_guarded_patch', 'omni_verification_run', 'omni_repo_map', 'om
     assert name in tool_names, f'Missing tool: {name}'
 ")
 
-[ "$TOOL_COUNT" = "11" ] && pass "11 MCP tools registered (7 Phase 0/1 + 4 Phase 2)" || fail "expected 11 tools, got $TOOL_COUNT"
+[ "$TOOL_COUNT" = "17" ] && pass "17 MCP tools registered (11 Phase 0-2 + 6 Phase 3)" || fail "expected 17 tools, got $TOOL_COUNT"
 
 echo ""
 echo "--- Policy Engine ---"

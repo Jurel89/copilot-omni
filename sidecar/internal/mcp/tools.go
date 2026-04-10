@@ -21,6 +21,7 @@ import (
 	"github.com/copilot-omni/sidecar/internal/config"
 	"github.com/copilot-omni/sidecar/internal/doctor"
 	"github.com/copilot-omni/sidecar/internal/execution"
+	"github.com/copilot-omni/sidecar/internal/memory"
 	"github.com/copilot-omni/sidecar/internal/policy"
 	runpkg "github.com/copilot-omni/sidecar/internal/run"
 	"github.com/copilot-omni/sidecar/internal/schema"
@@ -340,6 +341,190 @@ func NewRegistry(startedAt time.Time, resolver ConfigResolver) *Registry {
 			},
 		},
 		registry.omniPolicyCheck,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_memory_search",
+			Description: "Search local memory for past decisions, specs, plans, notes, and verification results",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "Search terms for lexical matching",
+					},
+					"type": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by record type: decision, spec, plan, summary, note, verification",
+					},
+					"scope": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by scope: project or global",
+					},
+					"run_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter to a specific run ID",
+					},
+					"tags": map[string]interface{}{
+						"type":        "array",
+						"description": "Filter by tags",
+					},
+					"trust_level": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by trust level: high, medium, low",
+					},
+					"limit": map[string]interface{}{
+						"type":        "number",
+						"description": "Maximum results to return (default 10)",
+					},
+				},
+				Required: []string{"repo_root"},
+			},
+		},
+		registry.omniMemorySearch,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_memory_capture",
+			Description: "Store a user-authored or system-generated note in local memory",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"title": map[string]interface{}{
+						"type":        "string",
+						"description": "Short title for the memory entry",
+					},
+					"content": map[string]interface{}{
+						"type":        "string",
+						"description": "The memory content to store",
+					},
+					"type": map[string]interface{}{
+						"type":        "string",
+						"description": "Record type (default: note)",
+					},
+					"source": map[string]interface{}{
+						"type":        "string",
+						"description": "Source: user, system, or artifact (default: user)",
+					},
+					"tags": map[string]interface{}{
+						"type":        "array",
+						"description": "Tags for categorization",
+					},
+					"sensitivity": map[string]interface{}{
+						"type":        "string",
+						"description": "Sensitivity level: normal, sensitive, secret (default: normal)",
+					},
+				},
+				Required: []string{"repo_root", "title", "content"},
+			},
+		},
+		registry.omniMemoryCapture,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_memory_ingest",
+			Description: "Ingest run artifacts (spec, plan, decisions, verification) into local memory",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"run_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Run ID whose artifacts to ingest",
+					},
+				},
+				Required: []string{"repo_root", "run_id"},
+			},
+		},
+		registry.omniMemoryIngest,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_memory_wipe",
+			Description: "Wipe all memory records for a given scope (project or global)",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"scope": map[string]interface{}{
+						"type":        "string",
+						"description": "Scope to wipe: project or global",
+					},
+				},
+				Required: []string{"repo_root", "scope"},
+			},
+		},
+		registry.omniMemoryWipe,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_memory_export",
+			Description: "Export all memory records as JSON for compliance or backup",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"scope": map[string]interface{}{
+						"type":        "string",
+						"description": "Scope to export: project or global (default: project)",
+					},
+				},
+				Required: []string{"repo_root"},
+			},
+		},
+		registry.omniMemoryExport,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_memory_prune",
+			Description: "Prune retained memory records by maximum age and/or record count",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"max_age_days": map[string]interface{}{
+						"type":        "number",
+						"description": "Optional maximum age in days for retained records",
+					},
+					"max_records": map[string]interface{}{
+						"type":        "number",
+						"description": "Optional maximum number of retained records for the selected scope",
+					},
+					"scope": map[string]interface{}{
+						"type":        "string",
+						"description": "Scope to prune by count: project or global (default: project)",
+					},
+				},
+				Required: []string{"repo_root"},
+			},
+		},
+		registry.omniMemoryPrune,
 	)
 
 	return registry
@@ -701,6 +886,15 @@ func (r *Registry) omniResumeContext(ctx context.Context, arguments map[string]i
 		"summary":            summary.NextSafeAction,
 		"recommended_prompt": r.buildResumePrompt(runObj),
 		"next_safe_action":   runpkg.NextSafeAction(runObj),
+	}
+
+	memStore, _, memErr := r.openMemoryStore(repoRoot)
+	if memErr == nil && memStore != nil {
+		bundle, err := memory.HydrateContext(memStore, repoRoot, runID)
+		if err == nil && bundle != nil {
+			response["memory_context"] = bundle
+		}
+		memStore.Close()
 	}
 
 	payload, err := json.Marshal(response)
@@ -1304,6 +1498,315 @@ func (r *Registry) omniPolicyCheck(ctx context.Context, arguments map[string]int
 		result.Profile = resolvedConfig.Profile
 	}
 	return jsonToolResult(result)
+}
+
+func (r *Registry) openMemoryStore(repoRoot string) (*memory.Store, *config.Config, error) {
+	resolvedConfig, err := resolveConfig(r.configResolver, repoRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if !resolvedConfig.Memory.Enabled {
+		return nil, nil, fmt.Errorf("memory is disabled in configuration")
+	}
+
+	dbPath := memory.DBPath(repoRoot, resolvedConfig.Memory.DBPath)
+	store, err := memory.NewStore(dbPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open memory store: %w", err)
+	}
+
+	return store, resolvedConfig, nil
+}
+
+func (r *Registry) omniMemorySearch(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	store, _, err := r.openMemoryStore(repoRoot)
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	defer store.Close()
+
+	query := memory.SearchQuery{
+		Query:      stringVal(arguments, "query"),
+		Type:       stringVal(arguments, "type"),
+		Scope:      stringVal(arguments, "scope"),
+		RunID:      stringVal(arguments, "run_id"),
+		TrustLevel: stringVal(arguments, "trust_level"),
+	}
+
+	if tags, err := optionalStringArrayArg(arguments, "tags"); err == nil && tags != nil {
+		query.Tags = tags
+	}
+
+	if limit, ok := arguments["limit"].(float64); ok && limit > 0 {
+		query.Limit = int(limit)
+	}
+
+	result, err := store.Search(query)
+	if err != nil {
+		return ToolCallResult{}, fmt.Errorf("memory search failed: %w", err)
+	}
+
+	return jsonToolResult(result)
+}
+
+func (r *Registry) omniMemoryCapture(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	title, err := requiredStringArg(arguments, "title")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	content, err := requiredStringArg(arguments, "content")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	store, _, err := r.openMemoryStore(repoRoot)
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	defer store.Close()
+
+	cleanedContent, wasRedacted := memory.RedactSecrets(content)
+
+	sensitivity := stringVal(arguments, "sensitivity")
+	if sensitivity == "" {
+		sensitivity = "normal"
+	}
+	if wasRedacted && sensitivity == "normal" {
+		sensitivity = "sensitive"
+	}
+
+	record := &memory.MemoryRecord{
+		Type:        stringVal(arguments, "type"),
+		Source:      stringVal(arguments, "source"),
+		Scope:       memory.ScopeProject,
+		Title:       title,
+		Content:     cleanedContent,
+		Sensitivity: sensitivity,
+	}
+
+	if record.Type == "" {
+		record.Type = memory.TypeNote
+	}
+	if record.Source == "" {
+		record.Source = memory.SourceUser
+	}
+
+	if tags, err := optionalStringArrayArg(arguments, "tags"); err == nil && tags != nil {
+		record.Tags = tags
+	}
+
+	if err := store.Create(record); err != nil {
+		return ToolCallResult{}, fmt.Errorf("memory capture failed: %w", err)
+	}
+
+	return jsonToolResult(map[string]interface{}{
+		"status":      "ok",
+		"id":          record.ID,
+		"type":        record.Type,
+		"sensitivity": record.Sensitivity,
+		"redacted":    wasRedacted,
+	})
+}
+
+func (r *Registry) omniMemoryIngest(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	runID, err := requiredStringArg(arguments, "run_id")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	store, resolvedConfig, err := r.openMemoryStore(repoRoot)
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	defer store.Close()
+
+	if err := memory.IngestRunArtifacts(store, repoRoot, runID); err != nil {
+		return ToolCallResult{}, fmt.Errorf("memory ingest failed: %w", err)
+	}
+
+	// Verification report is optional (returns nil if missing), but
+	// parse/store failures are real errors that should be surfaced.
+	if err := memory.IngestVerificationReport(store, repoRoot, runID); err != nil {
+		return ToolCallResult{}, fmt.Errorf("verification report ingest failed: %w", err)
+	}
+
+	if resolvedConfig != nil && resolvedConfig.Memory.AutoIngest && resolvedConfig.Memory.RetentionDays > 0 {
+		maxAge := time.Duration(resolvedConfig.Memory.RetentionDays) * 24 * time.Hour
+		_, _ = memory.PruneByAge(store, maxAge)
+	}
+
+	count, _ := store.RecordCount(memory.ScopeProject)
+
+	return jsonToolResult(map[string]interface{}{
+		"status":        "ok",
+		"run_id":        runID,
+		"total_records": count,
+	})
+}
+
+func (r *Registry) omniMemoryWipe(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	scope, err := requiredStringArg(arguments, "scope")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	store, _, err := r.openMemoryStore(repoRoot)
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	defer store.Close()
+
+	if err := memory.WipeScope(store, scope); err != nil {
+		return ToolCallResult{}, fmt.Errorf("memory wipe failed: %w", err)
+	}
+
+	return jsonToolResult(map[string]interface{}{
+		"status": "ok",
+		"scope":  scope,
+	})
+}
+
+func (r *Registry) omniMemoryExport(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	scope := stringVal(arguments, "scope")
+	if scope == "" {
+		scope = memory.ScopeProject
+	}
+
+	store, _, err := r.openMemoryStore(repoRoot)
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	defer store.Close()
+
+	data, err := memory.ExportRecords(store, scope)
+	if err != nil {
+		return ToolCallResult{}, fmt.Errorf("memory export failed: %w", err)
+	}
+
+	return ToolCallResult{
+		Content: []ToolContent{{
+			Type: "text",
+			Text: string(data),
+		}},
+	}, nil
+}
+
+func (r *Registry) omniMemoryPrune(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	scope := stringVal(arguments, "scope")
+	if scope == "" {
+		scope = memory.ScopeProject
+	}
+
+	maxAgeDays := intFromArgument(arguments["max_age_days"], 0)
+	maxRecords := intFromArgument(arguments["max_records"], 0)
+	if maxAgeDays <= 0 && maxRecords <= 0 {
+		return ToolCallResult{}, fmt.Errorf("at least one of max_age_days or max_records must be provided")
+	}
+
+	store, _, err := r.openMemoryStore(repoRoot)
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	defer store.Close()
+
+	prunedByAge := 0
+	if maxAgeDays > 0 {
+		prunedByAge, err = memory.PruneByAge(store, time.Duration(maxAgeDays)*24*time.Hour)
+		if err != nil {
+			return ToolCallResult{}, fmt.Errorf("memory prune by age failed: %w", err)
+		}
+	}
+
+	prunedByCount := 0
+	if maxRecords > 0 {
+		prunedByCount, err = memory.PruneByCount(store, maxRecords, scope)
+		if err != nil {
+			return ToolCallResult{}, fmt.Errorf("memory prune by count failed: %w", err)
+		}
+	}
+
+	totalPruned := prunedByAge + prunedByCount
+	remaining, err := store.RecordCount(scope)
+	if err != nil {
+		return ToolCallResult{}, fmt.Errorf("memory prune count failed: %w", err)
+	}
+
+	return jsonToolResult(map[string]interface{}{
+		"status":          "ok",
+		"scope":           scope,
+		"pruned_by_age":   prunedByAge,
+		"pruned_by_count": prunedByCount,
+		"pruned_total":    totalPruned,
+		"remaining":       remaining,
+	})
+}
+
+func stringVal(arguments map[string]interface{}, key string) string {
+	val, _ := arguments[key].(string)
+	return strings.TrimSpace(val)
 }
 
 var errRepoMapLimitReached = errors.New("repo_map_limit_reached")

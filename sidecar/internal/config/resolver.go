@@ -57,8 +57,10 @@ func DefaultConfig() *Config {
 			MaxAutopilotTurns: 15,
 		},
 		Memory: MemoryConfig{
-			Enabled:   true,
-			MaxSizeMB: 200,
+			Enabled:       true,
+			MaxSizeMB:     200,
+			RetentionDays: 90,
+			AutoIngest:    true,
 		},
 		Sidecar: SidecarConfig{
 			Debug: false,
@@ -129,6 +131,14 @@ func Merge(base, overlay *Config) *Config {
 
 	if overlay.Memory.maxSizeMBSet {
 		merged.Memory.MaxSizeMB = overlay.Memory.MaxSizeMB
+	}
+
+	if overlay.Memory.retentionDaysSet {
+		merged.Memory.RetentionDays = overlay.Memory.RetentionDays
+	}
+
+	if overlay.Memory.autoIngestSet {
+		merged.Memory.AutoIngest = overlay.Memory.AutoIngest
 	}
 
 	if overlay.Sidecar.logPathSet {

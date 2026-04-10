@@ -16,6 +16,11 @@ allowed-tools:
   - omni_verification_run
   - omni_repo_map
   - omni_policy_check
+  - omni_memory_search
+  - omni_memory_capture
+  - omni_memory_ingest
+  - omni_memory_export
+  - omni_memory_wipe
 user-invocable: true
 ---
 

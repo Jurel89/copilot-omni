@@ -9,7 +9,9 @@
   },
   "memory": {
     "enabled": true,
-    "max_size_mb": 200
+    "max_size_mb": 200,
+    "retention_days": 90,
+    "auto_ingest": true
   },
   "sidecar": {
     "debug": false
