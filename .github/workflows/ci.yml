@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build sidecar
+        run: |
+          cd sidecar
+          go build ./cmd/omni-sidecar/
+          go vet ./...
+
+      - name: Build wrapper
+        run: |
+          cd wrapper
+          go build ./cmd/omni/
+          go vet ./...
+
+      - name: Validate plugin manifest
+        run: |
+          python3 -c "import json; json.load(open('plugin/plugin.json'))"
+          python3 -c "import json; json.load(open('plugin/hooks.json'))"
+          python3 -c "import json; json.load(open('plugin/.mcp.json'))"
+
+      - name: Validate profile configs
+        run: |
+          for f in profiles/*/config.json; do
+            python3 -c "import json; json.load(open('$f'))"
+          done
+
+      - name: Sidecar MCP smoke test
+        run: |
+          cd sidecar
+          echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}
+          {"jsonrpc":"2.0","method":"notifications/initialized"}
+          {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+          {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"omni_health","arguments":{}}}' | ./omni-sidecar serve 2>/dev/null | python3 -c "
+          import sys, json
+          lines = sys.stdin.read().strip().split('\n')
+          assert len(lines) == 3, f'Expected 3 responses, got {len(lines)}'
+          init = json.loads(lines[0])
+          assert init['result']['serverInfo']['name'] == 'copilot-omni-sidecar'
+          tools = json.loads(lines[1])
+          tool_names = [t['name'] for t in tools['result']['tools']]
+          assert 'omni_health' in tool_names
+          health = json.loads(lines[2])
+          health_text = json.loads(health['result']['content'][0]['text'])
+          assert health_text['status'] == 'ok'
+          print('All MCP smoke tests passed')
+          "
+
+      - name: Wrapper CLI test
+        run: |
+          cd wrapper
+          OUTPUT=$(./omni version)
+          [[ "$OUTPUT" == "omni v0.1.0" ]] || { echo "version mismatch: $OUTPUT"; exit 1; }
+          OUTPUT=$(./omni 2>&1 || true)
+          [[ "$OUTPUT" == *"Usage: omni"* ]] || { echo "usage missing: $OUTPUT"; exit 1; }
+          echo "Wrapper CLI tests passed"
+
+      - name: Integration test
+        run: bash test/integration-test.sh
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build sidecar for multiple platforms
+        run: |
+          mkdir -p dist
+          cd sidecar
+          GOOS=linux GOARCH=amd64 go build -o ../dist/omni-sidecar-linux-amd64 ./cmd/omni-sidecar/
+          GOOS=linux GOARCH=arm64 go build -o ../dist/omni-sidecar-linux-arm64 ./cmd/omni-sidecar/
+          GOOS=darwin GOARCH=amd64 go build -o ../dist/omni-sidecar-darwin-amd64 ./cmd/omni-sidecar/
+          GOOS=darwin GOARCH=arm64 go build -o ../dist/omni-sidecar-darwin-arm64 ./cmd/omni-sidecar/
+          GOOS=windows GOARCH=amd64 go build -o ../dist/omni-sidecar-windows-amd64.exe ./cmd/omni-sidecar/
+
+      - name: Build wrapper for multiple platforms
+        run: |
+          cd wrapper
+          GOOS=linux GOARCH=amd64 go build -o ../dist/omni-linux-amd64 ./cmd/omni/
+          GOOS=linux GOARCH=arm64 go build -o ../dist/omni-linux-arm64 ./cmd/omni/
+          GOOS=darwin GOARCH=amd64 go build -o ../dist/omni-darwin-amd64 ./cmd/omni/
+          GOOS=darwin GOARCH=arm64 go build -o ../dist/omni-darwin-arm64 ./cmd/omni/
+          GOOS=windows GOARCH=amd64 go build -o ../dist/omni-windows-amd64.exe ./cmd/omni/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: dist/
