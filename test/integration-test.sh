@@ -68,9 +68,9 @@ import sys, json
 lines = sys.stdin.read().strip().split('\n')
 tools = json.loads(lines[1])
 names = sorted([t['name'] for t in tools['result']['tools']])
-expected = ['omni_artifact_read', 'omni_artifact_write', 'omni_config_resolve', 'omni_doctor', 'omni_health', 'omni_resume_context', 'omni_run_status']
+expected = ['omni_artifact_read', 'omni_artifact_write', 'omni_config_resolve', 'omni_doctor', 'omni_guarded_patch', 'omni_health', 'omni_policy_check', 'omni_repo_map', 'omni_resume_context', 'omni_run_status', 'omni_verification_run']
 assert names == expected, f'Wrong tools: {names}'
-print('  PASS: All 7 MCP tools registered')
+print('  PASS: All 11 MCP tools registered')
 " || fail "tools/list"
 
 # Verify omni_health

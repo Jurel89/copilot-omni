@@ -18,7 +18,7 @@ import (
 	"github.com/copilot-omni/wrapper/internal/workflow"
 )
 
-const usage = "Usage: omni <command> [options] [arguments]\n\nCommands:\n  init      Bootstrap repository for Omni\n  doctor    Run diagnostics\n  run       Start a full workflow\n  plan      Plan only (no execution)\n  resume    Resume an interrupted run\n  version   Print version\n"
+const usage = "Usage: omni <command> [options] [arguments]\n\nCommands:\n  init      Bootstrap repository for Omni\n  doctor    Run diagnostics\n  run       Start a full workflow\n  plan      Plan only (no execution)\n  execute   Execute an approved plan with guarded file writes\n  resume    Resume an interrupted run\n  version   Print version\n"
 
 func main() {
 	args := os.Args[1:]
@@ -36,6 +36,8 @@ func main() {
 		runWorkflow(args[1:])
 	case "plan":
 		runPlan(args[1:])
+	case "execute":
+		runExecute(args[1:])
 	case "resume":
 		runResume(args[1:])
 	case "version":
@@ -223,6 +225,40 @@ func runPlan(args []string) {
 	}
 
 	printRunResult("Plan result", result)
+}
+
+func runExecute(args []string) {
+	runID := ""
+	if len(args) > 0 {
+		runID = strings.TrimSpace(args[0])
+	}
+
+	if _, err := copilot.FindCopilot(); err != nil {
+		fmt.Fprintf(os.Stderr, "Copilot CLI: not found (%v)\n", err)
+		os.Exit(1)
+	}
+
+	sidecarPath, err := sidecar.FindSidecar()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar binary: not found (%v)\n", err)
+		os.Exit(1)
+	}
+
+	mgr := sidecar.NewManager(sidecarPath)
+	defer stopManager(mgr)
+
+	runner := workflow.NewRunner(repoRoot(), mgr, workflow.StandardCopilotRunner{})
+	result, err := runner.Execute(context.Background(), runID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "execute failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Remediation: check verification-report.json and execution journal under .omni/runs/<run-id>/")
+		if result != nil {
+			printRunResult("Execute result", result)
+		}
+		os.Exit(1)
+	}
+
+	printRunResult("Execute result", result)
 }
 
 func runResume(args []string) {
