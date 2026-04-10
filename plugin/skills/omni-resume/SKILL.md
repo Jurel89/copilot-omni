@@ -1,6 +1,6 @@
 ---
 name: omni-resume
-description: Resumes an interrupted Copilot Omni workflow from recorded artifacts and run state.
+description: Resumes an interrupted Copilot Omni workflow from recorded artifacts, run state, and memory context.
 allowed-tools:
   - bash
   - edit
@@ -10,6 +10,9 @@ allowed-tools:
   - omni_config_resolve
   - omni_run_status
   - omni_resume_context
+  - omni_memory_search
+  - omni_memory_capture
+  - omni_memory_ingest
 user-invocable: true
 ---
 
@@ -31,5 +34,12 @@ The resume engine derives phase from `run.json` plus artifact existence:
 - `spec_ready` → Spec exists, no plan. Start from plan phase.
 - `plan_ready` → Plan exists, not reviewed. Start from review phase.
 - `blocked` → Check blockers. If resolved, retry the blocked phase.
+
+## Deep Resume with Memory
+
+Phase 3 adds memory-enriched context recovery:
+1. **Memory Search** — Call `omni_memory_search` with the original prompt or run ID to find related past decisions, specs, and plans.
+2. **Context Enrichment** — The `omni_resume_context` tool now returns memory-enriched context including recent decisions and project patterns.
+3. **Artifact Ingestion** — If artifacts from the interrupted run haven't been ingested into memory, call `omni_memory_ingest` to capture them before resuming.
 
 Avoid restarting completed phases unless artifacts are corrupted or missing.

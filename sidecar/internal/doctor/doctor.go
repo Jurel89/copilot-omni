@@ -135,6 +135,69 @@ func CheckHooksConfig(repoRoot string) Diagnostic {
 	return Diagnostic{Name: "HooksConfig", Status: "pass", Message: "hooks.json valid with preToolUse policy"}
 }
 
+func CheckMemoryDatabase(repoRoot string) Diagnostic {
+	memoryPath := filepath.Join(repoRoot, ".omni", "memory.db")
+	info, err := os.Stat(memoryPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return Diagnostic{
+				Name:        "MemoryDatabase",
+				Status:      "warn",
+				Message:     "No memory database found at .omni/memory.db",
+				Remediation: "Memory will be created on first use. Run omni-memory or omni-run to initialize.",
+			}
+		}
+		return Diagnostic{
+			Name:        "MemoryDatabase",
+			Status:      "fail",
+			Message:     "Cannot stat memory database: " + err.Error(),
+			Remediation: "Check filesystem permissions on .omni/memory.db",
+		}
+	}
+
+	if info.IsDir() {
+		return Diagnostic{
+			Name:        "MemoryDatabase",
+			Status:      "fail",
+			Message:     ".omni/memory.db is a directory, expected a file",
+			Remediation: "Remove the directory and let Omni create the database file.",
+		}
+	}
+
+	file, err := os.Open(memoryPath)
+	if err != nil {
+		return Diagnostic{
+			Name:        "MemoryDatabase",
+			Status:      "warn",
+			Message:     "Cannot open memory database for validation",
+			Remediation: "Check filesystem permissions on .omni/memory.db",
+		}
+	}
+	defer file.Close()
+
+	const sqliteHeader = "SQLite format 3\x00"
+	header := make([]byte, len(sqliteHeader))
+	n, _ := file.Read(header)
+	if info.Size() > 0 && (n < len(sqliteHeader) || string(header[:len(sqliteHeader)]) != sqliteHeader) {
+		return Diagnostic{
+			Name:        "MemoryDatabase",
+			Status:      "fail",
+			Message:     ".omni/memory.db is not a valid SQLite database",
+			Remediation: "Delete the corrupted file and let Omni recreate it.",
+		}
+	}
+
+	sizeMB := info.Size() / (1024 * 1024)
+	status := "pass"
+	message := fmt.Sprintf("Memory database found (%d MB)", sizeMB)
+	if sizeMB > 200 {
+		status = "warn"
+		message = fmt.Sprintf("Memory database is large (%d MB). Consider pruning.", sizeMB)
+	}
+
+	return Diagnostic{Name: "MemoryDatabase", Status: status, Message: message}
+}
+
 func RunAll(repoRoot string) Report {
 	diagnostics := []Diagnostic{
 		CheckConfigFile(repoRoot),
@@ -144,6 +207,7 @@ func RunAll(repoRoot string) Report {
 		CheckPluginManifest(repoRoot),
 		CheckMCPConfig(repoRoot),
 		CheckHooksConfig(repoRoot),
+		CheckMemoryDatabase(repoRoot),
 	}
 
 	reportStatus := "healthy"

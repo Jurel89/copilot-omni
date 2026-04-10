@@ -26,13 +26,17 @@ type PolicyConfig struct {
 }
 
 type MemoryConfig struct {
-	Enabled   bool   `json:"enabled"`
-	DBPath    string `json:"db_path,omitempty"`
-	MaxSizeMB int    `json:"max_size_mb"`
+	Enabled       bool   `json:"enabled"`
+	DBPath        string `json:"db_path,omitempty"`
+	MaxSizeMB     int    `json:"max_size_mb"`
+	RetentionDays int    `json:"retention_days"`
+	AutoIngest    bool   `json:"auto_ingest"`
 
-	enabledSet   bool
-	dbPathSet    bool
-	maxSizeMBSet bool
+	enabledSet       bool
+	dbPathSet        bool
+	maxSizeMBSet     bool
+	retentionDaysSet bool
+	autoIngestSet    bool
 }
 
 type SidecarConfig struct {
@@ -59,9 +63,11 @@ type policyConfigJSON struct {
 }
 
 type memoryConfigJSON struct {
-	Enabled   *bool   `json:"enabled"`
-	DBPath    *string `json:"db_path"`
-	MaxSizeMB *int    `json:"max_size_mb"`
+	Enabled       *bool   `json:"enabled"`
+	DBPath        *string `json:"db_path"`
+	MaxSizeMB     *int    `json:"max_size_mb"`
+	RetentionDays *int    `json:"retention_days"`
+	AutoIngest    *bool   `json:"auto_ingest"`
 }
 
 type sidecarConfigJSON struct {
@@ -138,6 +144,16 @@ func (payload *memoryConfigJSON) apply(target *MemoryConfig) {
 	if payload.MaxSizeMB != nil {
 		target.MaxSizeMB = *payload.MaxSizeMB
 		target.maxSizeMBSet = true
+	}
+
+	if payload.RetentionDays != nil {
+		target.RetentionDays = *payload.RetentionDays
+		target.retentionDaysSet = true
+	}
+
+	if payload.AutoIngest != nil {
+		target.AutoIngest = *payload.AutoIngest
+		target.autoIngestSet = true
 	}
 }
 
