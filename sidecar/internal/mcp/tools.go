@@ -14,17 +14,20 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/copilot-omni/sidecar/internal/artifact"
 	"github.com/copilot-omni/sidecar/internal/audit"
+	"github.com/copilot-omni/sidecar/internal/benchmark"
 	"github.com/copilot-omni/sidecar/internal/compat"
 	"github.com/copilot-omni/sidecar/internal/config"
 	"github.com/copilot-omni/sidecar/internal/doctor"
 	"github.com/copilot-omni/sidecar/internal/execution"
 	"github.com/copilot-omni/sidecar/internal/memory"
 	"github.com/copilot-omni/sidecar/internal/merge"
+	"github.com/copilot-omni/sidecar/internal/migration"
 	"github.com/copilot-omni/sidecar/internal/policy"
 	"github.com/copilot-omni/sidecar/internal/policypack"
 	"github.com/copilot-omni/sidecar/internal/release"
@@ -33,6 +36,7 @@ import (
 	runpkg "github.com/copilot-omni/sidecar/internal/run"
 	"github.com/copilot-omni/sidecar/internal/schema"
 	subtaskpkg "github.com/copilot-omni/sidecar/internal/subtask"
+	"github.com/copilot-omni/sidecar/internal/support"
 	"github.com/copilot-omni/sidecar/internal/version"
 	"github.com/copilot-omni/sidecar/internal/workspace"
 )
@@ -50,6 +54,11 @@ type Registry struct {
 type registeredTool struct {
 	definition Tool
 	handler    ToolHandler
+}
+
+type migrationToolEngine struct {
+	schema string
+	engine *migration.Engine
 }
 
 func NewRegistry(startedAt time.Time, resolver ConfigResolver) *Registry {
@@ -3488,34 +3497,100 @@ func (r *Registry) omniBenchmark(ctx context.Context, arguments map[string]inter
 	default:
 	}
 
-	action, _ := arguments["action"].(string)
-	category, _ := arguments["category"].(string)
-	benchmark, _ := arguments["benchmark"].(string)
+	action, err := requiredStringArg(arguments, "action")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	category := stringVal(arguments, "category")
+	benchmarkName := stringVal(arguments, "benchmark")
 
 	switch action {
 	case "list":
+		benchmarks := benchmark.DefaultBenchmarks(nil, nil, nil, nil)
+		listed := make([]map[string]string, 0, len(benchmarks))
+		for _, candidate := range benchmarks {
+			listed = append(listed, map[string]string{
+				"name":        candidate.Name,
+				"category":    candidate.Category,
+				"description": candidate.Description,
+			})
+		}
 		return jsonToolResult(map[string]interface{}{
-			"benchmarks": []map[string]string{
-				{"name": "cold_start", "category": "startup", "description": "Cold start latency"},
-				{"name": "memory_search", "category": "memory", "description": "Memory search latency"},
-				{"name": "policy_check", "category": "execution", "description": "Policy evaluation latency"},
-				{"name": "artifact_load", "category": "execution", "description": "Artifact loading latency"},
-				{"name": "plan_parse", "category": "execution", "description": "Plan parsing latency"},
-			},
+			"benchmarks": listed,
 		})
 	case "run":
+		repoRoot, err := repoRootArg(arguments)
+		if err != nil {
+			return ToolCallResult{}, err
+		}
+		harness, historyDir, cleanup, err := r.newBenchmarkHarness(repoRoot)
+		if err != nil {
+			return ToolCallResult{}, err
+		}
+		defer cleanup()
+
+		var results []*benchmark.BenchmarkResult
+		switch {
+		case benchmarkName != "":
+			result, runErr := harness.Run(ctx, benchmarkName)
+			if runErr != nil {
+				return ToolCallResult{}, fmt.Errorf("run benchmark %s: %w", benchmarkName, runErr)
+			}
+			results = []*benchmark.BenchmarkResult{result}
+		case category != "" && category != "all":
+			results, err = harness.RunCategory(ctx, category)
+			if err != nil {
+				return ToolCallResult{}, fmt.Errorf("run benchmark category %s: %w", category, err)
+			}
+		default:
+			results, err = harness.RunAll(ctx)
+			if err != nil {
+				return ToolCallResult{}, fmt.Errorf("run benchmarks: %w", err)
+			}
+		}
+
+		if len(results) == 0 {
+			return ToolCallResult{}, fmt.Errorf("no benchmarks matched the requested selection")
+		}
+
+		if err := harness.SaveResults(results); err != nil {
+			return ToolCallResult{}, fmt.Errorf("save benchmark results: %w", err)
+		}
+
+		report := benchmark.GenerateReport(results, harness.GetBudgets())
 		return jsonToolResult(map[string]interface{}{
-			"action":    "run",
-			"category":  category,
-			"benchmark": benchmark,
-			"status":    "not_implemented",
-			"message":   "Benchmark runner requires full implementation",
+			"action":         "run",
+			"repo_root":      repoRoot,
+			"category":       category,
+			"benchmark":      benchmarkName,
+			"benchmarks_run": len(results),
+			"results":        results,
+			"summary":        report.Summary,
+			"budgets":        harness.GetBudgets(),
+			"history_dir":    historyDir,
 		})
 	case "report":
+		repoRoot, err := repoRootArg(arguments)
+		if err != nil {
+			return ToolCallResult{}, err
+		}
+		historyDir := benchmarkHistoryDir(repoRoot)
+		harness := benchmark.NewHarness(historyDir)
+		history, err := harness.LoadHistory()
+		if err != nil {
+			return ToolCallResult{}, fmt.Errorf("load benchmark history: %w", err)
+		}
+		if len(history) == 0 {
+			return ToolCallResult{}, fmt.Errorf("no benchmark history available")
+		}
+
+		report := benchmark.GenerateReport(history, harness.GetBudgets())
 		return jsonToolResult(map[string]interface{}{
-			"action":  "report",
-			"status":  "not_implemented",
-			"message": "Benchmark reports require full implementation",
+			"action":          "report",
+			"repo_root":       repoRoot,
+			"historical_runs": len(history),
+			"history_dir":     historyDir,
+			"report":          report,
 		})
 	default:
 		return ToolCallResult{}, fmt.Errorf("unknown action: %s", action)
@@ -3529,36 +3604,158 @@ func (r *Registry) omniMigrate(ctx context.Context, arguments map[string]interfa
 	default:
 	}
 
-	action, _ := arguments["action"].(string)
-	targetVersion, _ := arguments["target_version"].(string)
+	action, err := requiredStringArg(arguments, "action")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	repoRoot, err := repoRootArg(arguments)
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	targetVersion, err := migrationTargetVersionArg(arguments["target_version"])
+	if err != nil {
+		return ToolCallResult{}, err
+	}
 	dryRun, _ := arguments["dry_run"].(bool)
+	engines, registry, err := r.newMigrationEngines(repoRoot)
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	schemaStatuses := make([]map[string]interface{}, 0, len(engines))
+	aggregatedPending := make([]string, 0)
+	migrationsToApply := make([]string, 0)
+	migrationsToRollback := make([]string, 0)
+	validatedSchemas := make([]map[string]interface{}, 0, len(engines))
+
+	for _, candidate := range engines {
+		available := registry.Available(candidate.schema)
+		currentVersion, versionErr := candidate.engine.GetCurrentVersion()
+		if versionErr != nil {
+			return ToolCallResult{}, fmt.Errorf("get current version for %s migrations: %w", candidate.schema, versionErr)
+		}
+
+		latestVersion := latestMigrationVersion(available)
+		pending := plannedUpMigrations(available, currentVersion, targetVersion)
+		rollback := plannedDownMigrations(available, currentVersion, targetVersion)
+		aggregatedPending = append(aggregatedPending, migrationLabels(candidate.schema, pending)...)
+		migrationsToApply = append(migrationsToApply, migrationLabels(candidate.schema, pending)...)
+		migrationsToRollback = append(migrationsToRollback, migrationLabels(candidate.schema, rollback)...)
+
+		schemaStatuses = append(schemaStatuses, map[string]interface{}{
+			"schema":           candidate.schema,
+			"current_version":  currentVersion,
+			"latest_version":   latestVersion,
+			"target_version":   migrationResolvedTargetVersion(targetVersion, latestVersion, action),
+			"pending":          pending,
+			"can_migrate_up":   currentVersion < latestVersion,
+			"can_migrate_down": currentVersion > 0,
+		})
+
+		if action == "validate" {
+			validateErr := candidate.engine.Validate()
+			validationResult := map[string]interface{}{
+				"schema": candidate.schema,
+				"valid":  validateErr == nil,
+			}
+			if validateErr != nil {
+				validationResult["error"] = validateErr.Error()
+			}
+			validatedSchemas = append(validatedSchemas, validationResult)
+		}
+	}
 
 	switch action {
 	case "status":
 		return jsonToolResult(map[string]interface{}{
-			"current_version": "0.1.0",
-			"target_version":  targetVersion,
-			"pending":         []string{},
-			"status":          "ok",
+			"repo_root":      repoRoot,
+			"state_path":     registry.Path(),
+			"target_version": targetVersion,
+			"pending":        aggregatedPending,
+			"schemas":        schemaStatuses,
+			"status":         migrationOverallStatus(schemaStatuses),
 		})
 	case "up":
+		if dryRun {
+			return jsonToolResult(map[string]interface{}{
+				"action":         "up",
+				"repo_root":      repoRoot,
+				"dry_run":        true,
+				"target_version": targetVersion,
+				"migrations":     migrationsToApply,
+				"schemas":        schemaStatuses,
+				"status":         "dry_run",
+			})
+		}
+
+		for _, candidate := range engines {
+			if err := candidate.engine.MigrateUp(targetVersion); err != nil {
+				return ToolCallResult{}, fmt.Errorf("migrate %s up: %w", candidate.schema, err)
+			}
+		}
+
+		updatedStatuses, statusErr := migrationStatuses(engines, registry, targetVersion, action)
+		if statusErr != nil {
+			return ToolCallResult{}, statusErr
+		}
 		return jsonToolResult(map[string]interface{}{
-			"action":     "up",
-			"dry_run":    dryRun,
-			"migrations": []string{},
-			"status":     "not_implemented",
+			"action":         "up",
+			"repo_root":      repoRoot,
+			"dry_run":        false,
+			"target_version": targetVersion,
+			"migrations":     migrationsToApply,
+			"schemas":        updatedStatuses,
+			"status":         "ok",
 		})
 	case "down":
+		if dryRun {
+			return jsonToolResult(map[string]interface{}{
+				"action":         "down",
+				"repo_root":      repoRoot,
+				"dry_run":        true,
+				"target_version": targetVersion,
+				"migrations":     migrationsToRollback,
+				"schemas":        schemaStatuses,
+				"status":         "dry_run",
+			})
+		}
+
+		for index := len(engines) - 1; index >= 0; index-- {
+			candidate := engines[index]
+			if err := candidate.engine.MigrateDown(targetVersion); err != nil {
+				return ToolCallResult{}, fmt.Errorf("migrate %s down: %w", candidate.schema, err)
+			}
+		}
+
+		updatedStatuses, statusErr := migrationStatuses(engines, registry, targetVersion, action)
+		if statusErr != nil {
+			return ToolCallResult{}, statusErr
+		}
 		return jsonToolResult(map[string]interface{}{
-			"action":     "down",
-			"dry_run":    dryRun,
-			"migrations": []string{},
-			"status":     "not_implemented",
+			"action":         "down",
+			"repo_root":      repoRoot,
+			"dry_run":        false,
+			"target_version": targetVersion,
+			"migrations":     migrationsToRollback,
+			"schemas":        updatedStatuses,
+			"status":         "ok",
 		})
 	case "validate":
+		valid := true
+		errors := make([]string, 0)
+		for _, result := range validatedSchemas {
+			if schemaValid, ok := result["valid"].(bool); ok && !schemaValid {
+				valid = false
+				if schemaErr, ok := result["error"].(string); ok && schemaErr != "" {
+					errors = append(errors, fmt.Sprintf("%s: %s", result["schema"], schemaErr))
+				}
+			}
+		}
 		return jsonToolResult(map[string]interface{}{
-			"valid":  true,
-			"errors": []string{},
+			"repo_root": repoRoot,
+			"valid":     valid,
+			"errors":    errors,
+			"schemas":   validatedSchemas,
 		})
 	default:
 		return ToolCallResult{}, fmt.Errorf("unknown action: %s", action)
@@ -3572,22 +3769,264 @@ func (r *Registry) omniSupportBundle(ctx context.Context, arguments map[string]i
 	default:
 	}
 
-	repoRoot, _ := arguments["repo_root"].(string)
-	outputPath, _ := arguments["output_path"].(string)
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	outputPath := stringVal(arguments, "output_path")
 	includeLogs, _ := arguments["include_logs"].(bool)
-	redactionLevel, _ := arguments["redaction_level"].(string)
-
-	if repoRoot == "" {
-		return ToolCallResult{}, fmt.Errorf("repo_root is required")
+	runID := stringVal(arguments, "run_id")
+	redactionLevel, err := supportRedactionLevelArg(arguments["redaction_level"])
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	creator := support.NewCreator()
+	bundle, err := creator.Create(support.CreateOptions{
+		RepoRoot:         repoRoot,
+		RunID:            runID,
+		OutputPath:       outputPath,
+		IncludeLogs:      includeLogs,
+		IncludeArtifacts: true,
+		RedactionLevel:   redactionLevel,
+	})
+	if err != nil {
+		return ToolCallResult{}, fmt.Errorf("create support bundle: %w", err)
+	}
+	if outputPath == "" {
+		outputPath = filepath.Join(repoRoot, ".omni", "support", fmt.Sprintf("support-bundle-%s.zip", bundle.BundleID))
 	}
 
 	return jsonToolResult(map[string]interface{}{
-		"status":          "ok",
+		"status":          bundle.Status,
+		"bundle_id":       bundle.BundleID,
 		"repo_root":       repoRoot,
 		"output_path":     outputPath,
+		"format":          bundle.Format,
+		"generated_at":    bundle.GeneratedAt,
 		"include_logs":    includeLogs,
-		"redaction_level": redactionLevel,
-		"bundle_size":     0,
-		"message":         "Support bundle generation requires full implementation",
+		"redaction_level": bundle.RedactionLevel,
+		"bundle_size":     bundle.SizeBytes,
+		"size_bytes":      bundle.SizeBytes,
+		"item_count":      len(bundle.Items),
+		"items":           bundle.Items,
+		"checksum":        bundle.Checksum,
+		"errors":          bundle.Errors,
+		"bundle":          bundle,
 	})
+}
+
+func repoRootArg(arguments map[string]interface{}) (string, error) {
+	repoRoot, err := optionalStringArg(arguments, "repo_root")
+	if err != nil {
+		return "", err
+	}
+	if repoRoot != "" {
+		return repoRoot, nil
+	}
+	repoRoot, err = os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("determine repository root: %w", err)
+	}
+	return repoRoot, nil
+}
+
+func benchmarkHistoryDir(repoRoot string) string {
+	if strings.TrimSpace(repoRoot) == "" {
+		return ""
+	}
+	return filepath.Join(repoRoot, ".omni", "benchmarks")
+}
+
+func (r *Registry) newBenchmarkHarness(repoRoot string) (*benchmark.Harness, string, func(), error) {
+	resolvedConfig := &config.Config{}
+	if r.configResolver != nil {
+		cfg, err := resolveConfig(r.configResolver, repoRoot)
+		if err != nil {
+			return nil, "", nil, err
+		}
+		resolvedConfig = cfg
+	}
+
+	historyDir := benchmarkHistoryDir(repoRoot)
+	harness := benchmark.NewHarness(historyDir)
+
+	dbPath := memory.DBPath(repoRoot, resolvedConfig.Memory.DBPath)
+	memoryStore, err := memory.NewStore(dbPath)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("open benchmark memory store: %w", err)
+	}
+
+	policyEngine := policy.NewEngine(&resolvedConfig.Policy)
+	artifactStore := artifact.NewStore(repoRoot)
+	for _, candidate := range benchmark.DefaultBenchmarks(artifactStore, resolvedConfig, memoryStore, policyEngine) {
+		if err := harness.Register(candidate); err != nil {
+			_ = memoryStore.Close()
+			return nil, "", nil, fmt.Errorf("register benchmark %s: %w", candidate.Name, err)
+		}
+	}
+
+	cleanup := func() {
+		_ = memoryStore.Close()
+	}
+
+	return harness, historyDir, cleanup, nil
+}
+
+func (r *Registry) newMigrationEngines(repoRoot string) ([]migrationToolEngine, *migration.Registry, error) {
+	registry := migration.NewRegistryForRepo(repoRoot)
+
+	memoryDBPath := migration.DefaultMemoryDBPath(repoRoot)
+	if r.configResolver != nil {
+		if resolvedConfig, err := resolveConfig(r.configResolver, repoRoot); err == nil && resolvedConfig != nil {
+			memoryDBPath = memory.DBPath(repoRoot, resolvedConfig.Memory.DBPath)
+		}
+	}
+
+	configEngine, err := migration.NewConfigEngine(repoRoot, migration.DefaultConfigPath(repoRoot), registry)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build config migration engine: %w", err)
+	}
+	artifactEngine, err := migration.NewArtifactEngine(repoRoot, migration.DefaultArtifactRoot(repoRoot), registry)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build artifact migration engine: %w", err)
+	}
+	memoryEngine, err := migration.NewMemoryEngine(repoRoot, memoryDBPath, registry)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build memory migration engine: %w", err)
+	}
+
+	return []migrationToolEngine{
+		{schema: migration.SchemaConfig, engine: configEngine},
+		{schema: migration.SchemaArtifact, engine: artifactEngine},
+		{schema: migration.SchemaMemory, engine: memoryEngine},
+	}, registry, nil
+}
+
+func migrationTargetVersionArg(raw interface{}) (int, error) {
+	if raw == nil {
+		return 0, nil
+	}
+	switch value := raw.(type) {
+	case string:
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return 0, nil
+		}
+		parsed, err := strconv.Atoi(trimmed)
+		if err != nil {
+			return 0, fmt.Errorf("target_version must be a valid integer")
+		}
+		return parsed, nil
+	case float64:
+		return int(value), nil
+	default:
+		return 0, fmt.Errorf("target_version must be a string or number")
+	}
+}
+
+func latestMigrationVersion(available []migration.MigrationInfo) int {
+	if len(available) == 0 {
+		return 0
+	}
+	return available[len(available)-1].Version
+}
+
+func plannedUpMigrations(available []migration.MigrationInfo, currentVersion, targetVersion int) []migration.MigrationInfo {
+	resolvedTarget := latestMigrationVersion(available)
+	if targetVersion > 0 && targetVersion < resolvedTarget {
+		resolvedTarget = targetVersion
+	}
+	if resolvedTarget <= currentVersion {
+		return nil
+	}
+	planned := make([]migration.MigrationInfo, 0)
+	for _, candidate := range available {
+		if candidate.Version > currentVersion && candidate.Version <= resolvedTarget {
+			planned = append(planned, candidate)
+		}
+	}
+	return planned
+}
+
+func plannedDownMigrations(available []migration.MigrationInfo, currentVersion, targetVersion int) []migration.MigrationInfo {
+	if currentVersion <= targetVersion {
+		return nil
+	}
+	planned := make([]migration.MigrationInfo, 0)
+	for index := len(available) - 1; index >= 0; index-- {
+		candidate := available[index]
+		if candidate.Version <= currentVersion && candidate.Version > targetVersion {
+			planned = append(planned, candidate)
+		}
+	}
+	return planned
+}
+
+func migrationLabels(schema string, migrations []migration.MigrationInfo) []string {
+	labels := make([]string, 0, len(migrations))
+	for _, candidate := range migrations {
+		labels = append(labels, fmt.Sprintf("%s:%d:%s", schema, candidate.Version, candidate.Name))
+	}
+	return labels
+}
+
+func migrationResolvedTargetVersion(targetVersion, latestVersion int, action string) int {
+	if action == "down" {
+		return targetVersion
+	}
+	if targetVersion > 0 {
+		return targetVersion
+	}
+	return latestVersion
+}
+
+func migrationOverallStatus(statuses []map[string]interface{}) string {
+	for _, status := range statuses {
+		pending, _ := status["pending"].([]migration.MigrationInfo)
+		if len(pending) > 0 {
+			return "pending"
+		}
+	}
+	return "ok"
+}
+
+func migrationStatuses(engines []migrationToolEngine, registry *migration.Registry, targetVersion int, action string) ([]map[string]interface{}, error) {
+	statuses := make([]map[string]interface{}, 0, len(engines))
+	for _, candidate := range engines {
+		available := registry.Available(candidate.schema)
+		currentVersion, err := candidate.engine.GetCurrentVersion()
+		if err != nil {
+			return nil, fmt.Errorf("get current version for %s migrations: %w", candidate.schema, err)
+		}
+		statuses = append(statuses, map[string]interface{}{
+			"schema":           candidate.schema,
+			"current_version":  currentVersion,
+			"latest_version":   latestMigrationVersion(available),
+			"target_version":   migrationResolvedTargetVersion(targetVersion, latestMigrationVersion(available), action),
+			"pending":          plannedUpMigrations(available, currentVersion, targetVersion),
+			"can_migrate_up":   currentVersion < latestMigrationVersion(available),
+			"can_migrate_down": currentVersion > 0,
+		})
+	}
+	return statuses, nil
+}
+
+func supportRedactionLevelArg(raw interface{}) (support.RedactionLevel, error) {
+	if raw == nil {
+		return support.RedactionStandard, nil
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("redaction_level must be a string when provided")
+	}
+	switch support.RedactionLevel(strings.TrimSpace(value)) {
+	case "", support.RedactionStandard:
+		return support.RedactionStandard, nil
+	case support.RedactionMinimal:
+		return support.RedactionMinimal, nil
+	case support.RedactionAggressive:
+		return support.RedactionAggressive, nil
+	default:
+		return "", fmt.Errorf("redaction_level must be one of: minimal, standard, aggressive")
+	}
 }
