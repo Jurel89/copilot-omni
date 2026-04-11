@@ -22,22 +22,40 @@ sha256_hash() {
 
 resolve_path() {
     if command -v realpath >/dev/null 2>&1; then
-        realpath "$1" 2>/dev/null || echo "$1"
-    elif command -v readlink >/dev/null 2>&1 && readlink -f / >/dev/null 2>&1; then
-        readlink -f "$1" 2>/dev/null || echo "$1"
-    else
-        echo "$1"
+        realpath "$1" 2>/dev/null && return 0
     fi
+    if command -v readlink >/dev/null 2>&1 && readlink -f / >/dev/null 2>&1; then
+        readlink -f "$1" 2>/dev/null && return 0
+    fi
+    return 1
+}
+
+resolve_existing_parent() {
+    local p="$1"
+    while [[ -n "$p" && "$p" != "/" ]]; do
+        local resolved
+        resolved="$(resolve_path "$p")" && echo "$resolved" && return 0
+        p="$(dirname "$p")"
+    done
+    return 1
 }
 
 path_contained() {
     local base="$1"
     local candidate="$2"
     local abs_base
-    abs_base="$(resolve_path "$base")"
+    abs_base="$(resolve_path "$base")" || return 1
     local abs_candidate
-    abs_candidate="$(resolve_path "$candidate")"
-    if [[ "$abs_candidate" != "$abs_base" && "$abs_candidate" != "$abs_base/"* ]]; then
+    abs_candidate="$(resolve_path "$candidate")" 2>/dev/null
+    if [[ -n "$abs_candidate" ]]; then
+        if [[ "$abs_candidate" != "$abs_base" && "$abs_candidate" != "$abs_base/"* ]]; then
+            return 1
+        fi
+        return 0
+    fi
+    local abs_parent
+    abs_parent="$(resolve_existing_parent "$candidate")" || return 1
+    if [[ "$abs_parent" != "$abs_base" && "$abs_parent" != "$abs_base/"* ]]; then
         return 1
     fi
     return 0
