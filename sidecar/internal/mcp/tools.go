@@ -2615,7 +2615,7 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 
 		if signingEnabled {
 			manifest.Provenance.Workflow = "enterprise-release"
-			manifest.Provenance.Signature = "unsigned-hmac-sha256:" + computeBundleFingerprint(manifest)
+			manifest.Provenance.Signature = "sha256-fingerprint:" + computeBundleFingerprint(manifest)
 		}
 
 		manifestPath, writeErr := manifest.WriteBundle(outputDir)

@@ -8,8 +8,8 @@
       "version": "0.1.0",
       "description": "Artifact-driven development workflows for Copilot CLI",
       "path": "./plugin",
-      "sidecar": "./sidecar/omni-sidecar",
-      "wrapper": "./wrapper/omni"
+      "sidecar": "./omni-sidecar",
+      "wrapper": "./omni"
     }
   ]
 }

@@ -235,9 +235,29 @@ echo "--- Marketplace Metadata ---"
 python3 -c "import json; d=json.load(open('$REPO_ROOT/marketplace.json')); assert 'plugins' in d; assert len(d['plugins']) > 0" && pass "marketplace.json valid" || fail "marketplace.json invalid"
 
 echo ""
+echo "--- Marketplace Paths Match Bundle Layout ---"
+python3 -c "
+import json
+mp = json.load(open('$REPO_ROOT/marketplace.json'))
+plugin = mp['plugins'][0]
+assert plugin['sidecar'] == './omni-sidecar', f'Expected ./omni-sidecar, got {plugin[\"sidecar\"]}'
+assert plugin['wrapper'] == './omni', f'Expected ./omni, got {plugin[\"wrapper\"]}'
+print('  PASS: marketplace.json paths match bundle binary layout')
+" || fail "marketplace.json path layout"
+
+echo ""
 echo "--- Offline Install Script ---"
 bash -n "$REPO_ROOT/scripts/install-offline.sh" && pass "install-offline.sh syntax valid" || fail "install-offline.sh syntax error"
 [ -x "$REPO_ROOT/scripts/install-offline.sh" ] && pass "install-offline.sh is executable" || fail "install-offline.sh not executable"
+
+echo ""
+echo "--- Offline Installer Round-Trip ---"
+INSTALL_TARGET=$(mktemp -d)
+bash "$REPO_ROOT/scripts/install-offline.sh" --bundle-dir "$ARTIFACT_DIR/bundle" --target "$INSTALL_TARGET" 2>&1 && pass "installer completes" || fail "installer failed"
+[ -f "$INSTALL_TARGET/bin/omni-sidecar" ] && pass "omni-sidecar installed to bin" || fail "omni-sidecar not in bin"
+[ -f "$INSTALL_TARGET/bin/omni" ] && pass "omni installed to bin" || fail "omni not in bin"
+[ -f "$INSTALL_TARGET/share/copilot-omni/release-manifest.json" ] && pass "manifest installed" || fail "manifest not installed"
+rm -rf "$INSTALL_TARGET"
 
 echo ""
 echo "--- Wrapper Commands ---"

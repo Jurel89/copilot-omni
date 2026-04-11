@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$BUNDLE_DIR" ]]; then
-    BUNDLE_DIR="$(cd "$(dirname "$0")/.." && pwd)/.omni/bundle"
+    BUNDLE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 fi
 
 if [[ ! -d "$BUNDLE_DIR" ]]; then
