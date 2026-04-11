@@ -40,9 +40,25 @@ resolve_existing_parent() {
     return 1
 }
 
+has_dotdot() {
+    local p="$1"
+    local IFS='/'
+    local seg
+    for seg in $p; do
+        if [[ "$seg" == ".." ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 path_contained() {
     local base="$1"
     local candidate="$2"
+    local rel="${candidate#"$base"/}"
+    if has_dotdot "$rel"; then
+        return 1
+    fi
     local abs_base
     abs_base="$(resolve_path "$base")" || return 1
     local abs_candidate
