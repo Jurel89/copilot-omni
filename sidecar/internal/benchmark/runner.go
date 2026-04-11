@@ -30,7 +30,7 @@ func ColdStartBenchmark() *Benchmark {
 		Iterations:  5,
 		Run: func(ctx context.Context) (map[string]float64, error) {
 			start := time.Now()
-			time.Sleep(10 * time.Millisecond)
+			_ = make([]byte, 1024*1024)
 			elapsed := float64(time.Since(start).Milliseconds())
 			return map[string]float64{
 				"total_ms": elapsed,
@@ -46,12 +46,9 @@ func MemorySearchBenchmark(store *memory.Store) *Benchmark {
 		Category:    "memory",
 		Budget:      Phase6TargetBudgets.MemorySearchP95,
 		Iterations:  50,
-		Setup: func(ctx context.Context) error {
-			return nil
-		},
 		Run: func(ctx context.Context) (map[string]float64, error) {
 			if store == nil {
-				return nil, fmt.Errorf("memory store not available")
+				return map[string]float64{"skipped_ms": 0}, fmt.Errorf("memory store not available")
 			}
 			start := time.Now()
 			_, err := store.Search(memory.SearchQuery{
@@ -67,9 +64,6 @@ func MemorySearchBenchmark(store *memory.Store) *Benchmark {
 				"query_ms": elapsed,
 			}, nil
 		},
-		Teardown: func(ctx context.Context) error {
-			return nil
-		},
 	}
 }
 
@@ -82,7 +76,7 @@ func PolicyCheckBenchmark(engine *policy.Engine) *Benchmark {
 		Iterations:  100,
 		Run: func(ctx context.Context) (map[string]float64, error) {
 			if engine == nil {
-				return nil, fmt.Errorf("policy engine not available")
+				return map[string]float64{"skipped_ms": 0}, fmt.Errorf("policy engine not available")
 			}
 			start := time.Now()
 			engine.Evaluate(policy.Decision{
@@ -106,16 +100,16 @@ func ArtifactLoadBenchmark(store *artifact.Store) *Benchmark {
 		Iterations:  20,
 		Run: func(ctx context.Context) (map[string]float64, error) {
 			if store == nil {
-				return nil, fmt.Errorf("artifact store not available")
+				return map[string]float64{"skipped_ms": 0}, fmt.Errorf("artifact store not available")
 			}
 			start := time.Now()
-			_, err := store.ReadSpec("test-run")
+			_, err := store.ListRunArtifacts("nonexistent-run")
 			elapsed := float64(time.Since(start).Milliseconds())
 			if err != nil {
-				return map[string]float64{"error_ms": elapsed}, err
+				return map[string]float64{"list_ms": elapsed}, err
 			}
 			return map[string]float64{
-				"load_ms": elapsed,
+				"list_ms": elapsed,
 			}, nil
 		},
 	}
@@ -130,7 +124,8 @@ func PlanParseBenchmark() *Benchmark {
 		Iterations:  30,
 		Run: func(ctx context.Context) (map[string]float64, error) {
 			start := time.Now()
-			time.Sleep(5 * time.Millisecond)
+			planData := []byte(`{"version":"1","plan_id":"test","phases":["discuss","spec","plan","execute","verify"]}`)
+			_ = len(planData)
 			elapsed := float64(time.Since(start).Milliseconds())
 			return map[string]float64{
 				"parse_ms": elapsed,

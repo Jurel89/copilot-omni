@@ -23,6 +23,7 @@ const usage = `Usage: omni <command> [options] [arguments]
 Commands:
   init              Bootstrap repository for Omni
   doctor            Run diagnostics
+  status            Check current workflow status
   run               Start a full workflow
   plan              Plan only (no execution)
   execute           Execute an approved plan with guarded file writes
@@ -48,6 +49,8 @@ func main() {
 		runInit()
 	case "doctor":
 		runDoctor()
+	case "status":
+		runStatus()
 	case "run":
 		runWorkflow(args[1:])
 	case "plan":
@@ -184,6 +187,40 @@ func runDoctor() {
 
 	fmt.Printf("Copilot CLI: %s\n", copilotStatus)
 	fmt.Printf("Plugin directory: %s\n", pluginStatus)
+}
+
+func runStatus() {
+	ctx := context.Background()
+	fmt.Println("Checking workflow status...")
+
+	sidecarPath, err := sidecar.FindSidecar()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar binary: not found (%v)\n", err)
+		os.Exit(1)
+	}
+
+	mgr := sidecar.NewManager(sidecarPath)
+	defer stopManager(mgr)
+
+	if err := mgr.Start(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar start: failed (%v)\n", err)
+		os.Exit(1)
+	}
+	if err := mgr.HealthCheck(ctx, 5*time.Second); err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar health: failed (%v)\n", err)
+		os.Exit(1)
+	}
+
+	result, err := mgr.CallTool(ctx, "omni_run_status", map[string]any{
+		"repo_root": repoRoot(),
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "status check failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Workflow status:")
+	fmt.Println(result)
 }
 
 func runBenchmark(args []string) {

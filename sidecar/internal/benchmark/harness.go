@@ -219,6 +219,13 @@ func (h *Harness) runBenchmark(ctx context.Context, b *Benchmark) (*BenchmarkRes
 	}
 
 	// Calculate statistics for each metric
+	successfulIterations := len(measurements)
+	if successfulIterations == 0 {
+		result.Status = BudgetFail
+		result.Errors = append(result.Errors, fmt.Sprintf("no successful iterations out of %d attempted", b.Iterations))
+		return result, nil
+	}
+
 	for name, values := range measurements {
 		if len(values) == 0 {
 			continue
@@ -233,6 +240,11 @@ func (h *Harness) runBenchmark(ctx context.Context, b *Benchmark) (*BenchmarkRes
 		} else if metric.Status == BudgetWarn && result.Status == BudgetPass {
 			result.Status = BudgetWarn
 		}
+	}
+
+	if len(result.Errors) == b.Iterations {
+		result.Status = BudgetFail
+		result.Errors = append(result.Errors, "all iterations failed")
 	}
 
 	result.EndTime = time.Now()
