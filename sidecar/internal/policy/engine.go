@@ -15,6 +15,10 @@ const (
 	OpPathWrite        OperationType = "path_write"
 	OpPathRead         OperationType = "path_read"
 	OpArtifactMutation OperationType = "artifact_mutation"
+	OpTool             OperationType = "tool"
+	OpNetwork          OperationType = "network"
+	OpMemory           OperationType = "memory"
+	OpUpdate           OperationType = "update"
 )
 
 type Decision struct {
@@ -127,6 +131,8 @@ func (e *Engine) Evaluate(decision Decision) PolicyResult {
 
 		return allowedResult(profile)
 	case OpArtifactMutation:
+		return allowedResult(profile)
+	case OpTool, OpNetwork, OpMemory, OpUpdate:
 		return allowedResult(profile)
 	default:
 		return PolicyResult{

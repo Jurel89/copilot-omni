@@ -1805,13 +1805,13 @@ func (r *Registry) omniPolicyCheck(ctx context.Context, arguments map[string]int
 	case "artifact":
 		decision.Operation = policy.OpArtifactMutation
 	case "tool", "tools":
-		decision.Operation = "tool"
+		decision.Operation = policy.OpTool
 	case "network":
-		decision.Operation = "network"
+		decision.Operation = policy.OpNetwork
 	case "memory":
-		decision.Operation = "memory"
+		decision.Operation = policy.OpMemory
 	case "update", "updates":
-		decision.Operation = "update"
+		decision.Operation = policy.OpUpdate
 	default:
 		return ToolCallResult{}, fmt.Errorf("operation must be one of: command, path, artifact, prompt, tool, network, memory, update")
 	}
@@ -2641,12 +2641,7 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 
 		sbomChecksum, _ := release.FileChecksum(filepath.Join(outputDir, "sbom.json"))
 		manifest.Checksums["sbom.json"] = sbomChecksum
-		// Compute fingerprint BEFORE including the manifest's own checksum.
-		// The manifest cannot sign itself (chicken-and-egg): rewriting the
-		// manifest after setting the signature changes its hash, which would
-		// invalidate the fingerprint.  Integrity of release-manifest.json is
-		// still enforced by checksums.txt during validation.
-		manifest.Provenance.Signature = "sha256-fingerprint:" + computeBundleFingerprint(manifest)
+		manifest.Provenance.Fingerprint = "sha256:" + computeBundleFingerprint(manifest)
 		if payload, err := json.MarshalIndent(manifest, "", "  "); err == nil {
 			_ = os.WriteFile(manifestPath, payload, 0o644)
 		}
@@ -2780,9 +2775,10 @@ func (r *Registry) omniEnterpriseDiagnose(ctx context.Context, arguments map[str
 }
 
 func checkAgainstShippedPacks(repoRoot, profile, operation, value string) *policypack.PolicyPackResult {
+	exePath, _ := os.Executable()
 	searchPaths := []string{
 		filepath.Join(repoRoot, "policies", profile+".json"),
-		filepath.Join(repoRoot, "sidecar", "internal", "config", "profiles", profile, "policy-pack.json"),
+		filepath.Join(filepath.Dir(exePath), "..", "share", "copilot-omni", "policies", profile+".json"),
 	}
 
 	var packData []byte
@@ -2839,6 +2835,71 @@ func checkAgainstShippedPacks(repoRoot, profile, operation, value string) *polic
 						Allowed:     false,
 						ReasonCode:  "policy_pack_denied",
 						Message:     fmt.Sprintf("denied by policy pack rule %s (%s)", rule.ID, rule.Severity),
+						MatchedRule: rule.ID,
+					}
+				}
+			}
+		case "allow_list":
+			allowed := false
+			for _, a := range rule.Values {
+				if strings.EqualFold(strings.TrimSpace(value), strings.TrimSpace(a)) {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				return &policypack.PolicyPackResult{
+					RuleID:      rule.ID,
+					Allowed:     false,
+					ReasonCode:  "policy_pack_not_allowed",
+					Message:     fmt.Sprintf("not in allow_list for rule %s (%s)", rule.ID, rule.Severity),
+					MatchedRule: rule.ID,
+				}
+			}
+		case "max_value":
+			if len(rule.Values) > 0 {
+				limitStr := rule.Values[0]
+				limit := 0
+				if _, err := fmt.Sscanf(limitStr, "%d", &limit); err == nil {
+					val := 0
+					if _, err := fmt.Sscanf(value, "%d", &val); err == nil && val > limit {
+						return &policypack.PolicyPackResult{
+							RuleID:      rule.ID,
+							Allowed:     false,
+							ReasonCode:  "policy_pack_max_exceeded",
+							Message:     fmt.Sprintf("value %d exceeds max %d for rule %s (%s)", val, limit, rule.ID, rule.Severity),
+							MatchedRule: rule.ID,
+						}
+					}
+				}
+			}
+		case "must_exist":
+			for _, req := range rule.Values {
+				if strings.EqualFold(strings.TrimSpace(value), strings.TrimSpace(req)) {
+					return &policypack.PolicyPackResult{
+						RuleID:      rule.ID,
+						Allowed:     true,
+						ReasonCode:  "policy_pack_requirement_met",
+						Message:     fmt.Sprintf("required value %q present for rule %s", req, rule.ID),
+						MatchedRule: rule.ID,
+					}
+				}
+			}
+			return &policypack.PolicyPackResult{
+				RuleID:      rule.ID,
+				Allowed:     false,
+				ReasonCode:  "policy_pack_missing_required",
+				Message:     fmt.Sprintf("required value missing for rule %s (%s)", rule.ID, rule.Severity),
+				MatchedRule: rule.ID,
+			}
+		case "must_not_exist":
+			for _, forbidden := range rule.Values {
+				if strings.Contains(strings.ToLower(value), strings.ToLower(forbidden)) {
+					return &policypack.PolicyPackResult{
+						RuleID:      rule.ID,
+						Allowed:     false,
+						ReasonCode:  "policy_pack_forbidden_present",
+						Message:     fmt.Sprintf("forbidden value %q found for rule %s (%s)", forbidden, rule.ID, rule.Severity),
 						MatchedRule: rule.ID,
 					}
 				}

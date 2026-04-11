@@ -37,10 +37,11 @@ type Component struct {
 }
 
 type Provenance struct {
-	Builder    string `json:"builder"`
-	Signature  string `json:"signature,omitempty"`
-	Workflow   string `json:"workflow,omitempty"`
-	Repository string `json:"repository,omitempty"`
+	Builder     string `json:"builder"`
+	Signature   string `json:"signature,omitempty"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+	Workflow    string `json:"workflow,omitempty"`
+	Repository  string `json:"repository,omitempty"`
 }
 
 type SBOMEntry struct {
@@ -278,10 +279,16 @@ func ValidateBundle(bundleDir string) ([]string, error) {
 		bundleErrors = append(bundleErrors, "sbom.json missing from bundle")
 	}
 
-	if manifest.Provenance.Signature != "" {
-		storedSig := manifest.Provenance.Signature
-		if strings.HasPrefix(storedSig, "sha256-fingerprint:") {
-			expected := strings.TrimPrefix(storedSig, "sha256-fingerprint:")
+	for _, required := range []string{"release-manifest.json", "sbom.json"} {
+		if _, exists := checksumsMap[required]; !exists {
+			bundleErrors = append(bundleErrors, fmt.Sprintf("checksums.txt missing required entry: %s", required))
+		}
+	}
+
+	if manifest.Provenance.Fingerprint != "" {
+		storedFp := manifest.Provenance.Fingerprint
+		if strings.HasPrefix(storedFp, "sha256:") {
+			expected := strings.TrimPrefix(storedFp, "sha256:")
 			fingerprintChecksums := make(map[string]string)
 			for k, v := range checksumsMap {
 				if k == "release-manifest.json" {
@@ -291,7 +298,7 @@ func ValidateBundle(bundleDir string) ([]string, error) {
 			}
 			fingerprint := computeFingerprintFromChecksums(fingerprintChecksums)
 			if fingerprint != expected {
-				bundleErrors = append(bundleErrors, "provenance signature fingerprint mismatch: manifest may have been tampered with")
+				bundleErrors = append(bundleErrors, "provenance fingerprint mismatch: bundle may have been tampered with")
 			}
 		}
 	}
