@@ -19,6 +19,7 @@ type Export struct {
 	PolicyAudit  *PolicyAudit        `json:"policy_audit,omitempty"`
 	Artifacts    []string            `json:"artifacts,omitempty"`
 	Verification *VerificationResult `json:"verification,omitempty"`
+	Packaging    *PackagingMetadata  `json:"packaging,omitempty"`
 	Redacted     bool                `json:"redacted"`
 }
 
@@ -51,6 +52,14 @@ type VerificationResult struct {
 	Checks  int    `json:"checks,omitempty"`
 	Passed  int    `json:"passed,omitempty"`
 	Failed  int    `json:"failed,omitempty"`
+}
+
+type PackagingMetadata struct {
+	BundleAvailable bool   `json:"bundle_available"`
+	ReleaseTag      string `json:"release_tag,omitempty"`
+	Platform        string `json:"platform,omitempty"`
+	Provenance      string `json:"provenance,omitempty"`
+	ComponentCount  int    `json:"component_count,omitempty"`
 }
 
 func NewExport(runID, repoRoot, profile string) *Export {
@@ -193,6 +202,31 @@ func ExportRun(repoRoot, runID, outputPath string) (*Export, error) {
 				vr.Failed = int(n)
 			}
 			export.Verification = vr
+		}
+	}
+
+	bundleDir := filepath.Join(repoRoot, ".omni", "bundle")
+	manifestPath := filepath.Join(bundleDir, "release-manifest.json")
+	manifestData, err := os.ReadFile(manifestPath)
+	if err == nil {
+		var manifest map[string]interface{}
+		if json.Unmarshal(manifestData, &manifest) == nil {
+			pkg := &PackagingMetadata{BundleAvailable: true}
+			if tag, ok := manifest["release_tag"].(string); ok {
+				pkg.ReleaseTag = tag
+			}
+			if plat, ok := manifest["platform"].(string); ok {
+				pkg.Platform = plat
+			}
+			if prov, ok := manifest["provenance"].(map[string]interface{}); ok {
+				if sig, ok := prov["signature"].(string); ok {
+					pkg.Provenance = sig
+				}
+			}
+			if comps, ok := manifest["components"].([]interface{}); ok {
+				pkg.ComponentCount = len(comps)
+			}
+			export.Packaging = pkg
 		}
 	}
 

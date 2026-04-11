@@ -79,7 +79,36 @@ print('  PASS: bundle validates successfully (create→validate round-trip)')
 " || fail "bundle validate round-trip"
 
 echo ""
-echo "--- Shipped Policy Packs ---"
+echo "--- Bundle Validation (corrupted checksums.txt) ---"
+CORRUPT_BUNDLE="$ARTIFACT_DIR/bundle-corrupt"
+cp -r "$ARTIFACT_DIR/bundle" "$CORRUPT_BUNDLE"
+echo "deadbeefdeadbeef  omni-sidecar" > "$CORRUPT_BUNDLE/checksums.txt"
+
+CORRUPT_RESULT=$(call_tool "omni_release_bundle" "{\"repo_root\":\"$REPO_ROOT\",\"action\":\"validate\",\"bundle_dir\":\"$CORRUPT_BUNDLE\"}")
+
+get_result_text "$CORRUPT_RESULT" | python3 -c "
+import sys, json
+t = json.loads(sys.stdin.read())
+assert t['valid'] == False, f'Expected valid=False for corrupted checksums, got {t}'
+print('  PASS: corrupted checksums.txt correctly detected')
+" || fail "corrupted checksums detection"
+rm -rf "$CORRUPT_BUNDLE"
+
+echo ""
+echo "--- Bundle Validation (missing component file) ---"
+MISSING_BUNDLE="$ARTIFACT_DIR/bundle-missing"
+cp -r "$ARTIFACT_DIR/bundle" "$MISSING_BUNDLE"
+rm -f "$MISSING_BUNDLE/omni-sidecar"
+
+MISSING_RESULT=$(call_tool "omni_release_bundle" "{\"repo_root\":\"$REPO_ROOT\",\"action\":\"validate\",\"bundle_dir\":\"$MISSING_BUNDLE\"}")
+
+get_result_text "$MISSING_RESULT" | python3 -c "
+import sys, json
+t = json.loads(sys.stdin.read())
+assert t['valid'] == False, f'Expected valid=False for missing component, got {t}'
+print('  PASS: missing component file correctly detected')
+" || fail "missing component detection"
+rm -rf "$MISSING_BUNDLE"
 for profile in strict standard permissive; do
     PACK="$REPO_ROOT/policies/$profile.json"
     [ -f "$PACK" ] && pass "policy pack $profile.json exists" || fail "policy pack $profile.json missing"
@@ -156,7 +185,10 @@ assert 'enterprise' in t, 'Missing enterprise info'
 assert 'policy_audit' in t, 'Missing policy_audit'
 pa = t.get('policy_audit')
 assert pa is not None, 'policy_audit is null'
-print('  PASS: audit export has phases, artifacts, policy audit, enterprise info')
+assert len(pa.get('decisions', [])) > 0, 'policy_audit has no decisions'
+assert pa['decisions'][0]['operation'] == 'decision', f'Expected operation=decision, got {pa[\"decisions\"][0]}'
+assert pa['decisions'][0]['allowed'] == True, 'Expected first decision to be allowed'
+print('  PASS: audit export has phases, artifacts, real policy decisions, enterprise info')
 " || fail "audit export with rich data"
 
 echo ""

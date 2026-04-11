@@ -4,7 +4,21 @@
 #
 # Installs a pre-built release bundle into a target directory without
 # requiring internet access. Validates checksums before installing.
+# Supports Linux and macOS. Windows install deferred to GA phase (Phase 6).
 set -euo pipefail
+
+sha256_hash() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$1" | awk '{print $NF}'
+    else
+        echo "ERROR: no sha256 tool found (tried sha256sum, shasum, openssl)" >&2
+        exit 1
+    fi
+}
 
 BUNDLE_DIR=""
 TARGET_DIR="/usr/local"
@@ -79,7 +93,7 @@ if [[ "$SKIP_VALIDATE" == false ]]; then
                 FAILED=1
                 continue
             fi
-            ACTUAL=$(sha256sum "$FILEPATH" | awk '{print $1}')
+            ACTUAL=$(sha256_hash "$FILEPATH")
             if [[ "$ACTUAL" != "$EXPECTED" ]]; then
                 echo "  FAIL: $FILE checksum mismatch (expected $EXPECTED, got $ACTUAL)"
                 FAILED=1
