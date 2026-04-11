@@ -211,15 +211,24 @@ func runStatus() {
 		os.Exit(1)
 	}
 
+	runsDir := filepath.Join(repoRoot(), ".omni", "runs")
+	runID, err := findLatestRunID(runsDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "No runs found: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Run 'omni run <prompt>' first to create a workflow.")
+		os.Exit(1)
+	}
+
 	result, err := mgr.CallTool(ctx, "omni_run_status", map[string]any{
 		"repo_root": repoRoot(),
+		"run_id":    runID,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "status check failed: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("Workflow status:")
+	fmt.Printf("Workflow status (run: %s):\n", runID)
 	fmt.Println(result)
 }
 
