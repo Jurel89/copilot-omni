@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -267,6 +268,28 @@ func ValidateBundle(bundleDir string) ([]string, error) {
 		bundleErrors = append(bundleErrors, "manifest has no components")
 	}
 
+	sbomPath := filepath.Join(bundleDir, "sbom.json")
+	if _, err := os.Stat(sbomPath); err != nil {
+		bundleErrors = append(bundleErrors, "sbom.json missing from bundle")
+	}
+
+	if manifest.Provenance.Signature != "" {
+		storedSig := manifest.Provenance.Signature
+		if strings.HasPrefix(storedSig, "sha256-fingerprint:") {
+			expected := strings.TrimPrefix(storedSig, "sha256-fingerprint:")
+			fingerprint := computeFingerprintFromChecksums(checksumsMap)
+			if fingerprint != expected {
+				bundleErrors = append(bundleErrors, "provenance signature fingerprint mismatch: manifest may have been tampered with")
+			}
+		}
+	}
+
+	for _, comp := range manifest.Components {
+		if _, exists := checksumsMap[comp.Path]; !exists {
+			bundleErrors = append(bundleErrors, fmt.Sprintf("component %s (%s) not covered by checksums.txt", comp.Name, comp.Path))
+		}
+	}
+
 	for _, comp := range manifest.Components {
 		compPath := filepath.Join(bundleDir, comp.Path)
 		if _, err := os.Stat(compPath); err != nil {
@@ -304,6 +327,29 @@ func ValidateBundle(bundleDir string) ([]string, error) {
 	}
 
 	return warnings, nil
+}
+
+func computeComponentFingerprint(m *Manifest) string {
+	h := sha256.New()
+	for _, comp := range m.Components {
+		h.Write([]byte(comp.Name))
+		h.Write([]byte(comp.Checksum))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func computeFingerprintFromChecksums(checksumsMap map[string]string) string {
+	keys := make([]string, 0, len(checksumsMap))
+	for k := range checksumsMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	for _, k := range keys {
+		h.Write([]byte(k))
+		h.Write([]byte(checksumsMap[k]))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func FileChecksum(path string) (string, error) {

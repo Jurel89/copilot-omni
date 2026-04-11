@@ -27,6 +27,14 @@ type PolicyRule struct {
 	Enabled     bool     `json:"enabled"`
 }
 
+type PolicyPackResult struct {
+	RuleID      string `json:"rule_id"`
+	Allowed     bool   `json:"allowed"`
+	ReasonCode  string `json:"reason_code"`
+	Message     string `json:"message,omitempty"`
+	MatchedRule string `json:"matched_rule,omitempty"`
+}
+
 type ValidationResult struct {
 	Valid       bool         `json:"valid"`
 	Errors      []string     `json:"errors,omitempty"`

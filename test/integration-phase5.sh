@@ -109,6 +109,59 @@ assert t['valid'] == False, f'Expected valid=False for missing component, got {t
 print('  PASS: missing component file correctly detected')
 " || fail "missing component detection"
 rm -rf "$MISSING_BUNDLE"
+
+echo ""
+echo "--- Bundle Validation (missing sbom.json) ---"
+NOSBOM_BUNDLE="$ARTIFACT_DIR/bundle-nosbom"
+cp -r "$ARTIFACT_DIR/bundle" "$NOSBOM_BUNDLE"
+rm -f "$NOSBOM_BUNDLE/sbom.json"
+
+NOSBOM_RESULT=$(call_tool "omni_release_bundle" "{\"repo_root\":\"$REPO_ROOT\",\"action\":\"validate\",\"bundle_dir\":\"$NOSBOM_BUNDLE\"}")
+
+get_result_text "$NOSBOM_RESULT" | python3 -c "
+import sys, json
+t = json.loads(sys.stdin.read())
+assert t['valid'] == False, f'Expected valid=False for missing sbom.json, got {t}'
+print('  PASS: missing sbom.json correctly detected')
+" || fail "missing sbom.json detection"
+rm -rf "$NOSBOM_BUNDLE"
+
+echo ""
+echo "--- Bundle Validation (tampered manifest components) ---"
+TAMPERED_BUNDLE="$ARTIFACT_DIR/bundle-tampered"
+cp -r "$ARTIFACT_DIR/bundle" "$TAMPERED_BUNDLE"
+python3 -c "
+import json
+m = json.load(open('$TAMPERED_BUNDLE/release-manifest.json'))
+for c in m.get('components', []):
+    if c['name'] == 'omni-sidecar':
+        c['checksum'] = 'deadbeef'
+json.dump(m, open('$TAMPERED_BUNDLE/release-manifest.json', 'w'), indent=2)
+"
+
+TAMPERED_RESULT=$(call_tool "omni_release_bundle" "{\"repo_root\":\"$REPO_ROOT\",\"action\":\"validate\",\"bundle_dir\":\"$TAMPERED_BUNDLE\"}")
+
+get_result_text "$TAMPERED_RESULT" | python3 -c "
+import sys, json
+t = json.loads(sys.stdin.read())
+assert t['valid'] == False, f'Expected valid=False for tampered component checksum, got {t}'
+print('  PASS: tampered manifest checksum correctly detected')
+" || fail "tampered manifest detection"
+rm -rf "$TAMPERED_BUNDLE"
+
+echo ""
+echo "--- Policy Pack Runtime Enforcement ---"
+STRICT_CHECK=$(call_tool "omni_policy_check" "{\"repo_root\":\"$REPO_ROOT\",\"operation\":\"command\",\"value\":\"sudo rm -rf /\"}")
+
+get_result_text "$STRICT_CHECK" | python3 -c "
+import sys, json
+t = json.loads(sys.stdin.read())
+assert t['allowed'] == False, f'Expected allowed=False for sudo rm -rf under strict profile, got {t}'
+print('  PASS: shipped policy pack denies dangerous command at runtime')
+" || fail "policy pack runtime enforcement"
+
+echo ""
+echo "--- Shipped Policy Packs ---"
 for profile in strict standard permissive; do
     PACK="$REPO_ROOT/policies/$profile.json"
     [ -f "$PACK" ] && pass "policy pack $profile.json exists" || fail "policy pack $profile.json missing"

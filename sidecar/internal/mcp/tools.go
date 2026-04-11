@@ -1812,6 +1812,15 @@ func (r *Registry) omniPolicyCheck(ctx context.Context, arguments map[string]int
 	if result.Profile == "" {
 		result.Profile = resolvedConfig.Profile
 	}
+
+	packResult := checkAgainstShippedPacks(repoRoot, resolvedConfig.Profile, operation, value)
+	if packResult != nil && !packResult.Allowed {
+		result.Allowed = false
+		result.ReasonCode = packResult.ReasonCode
+		result.Message = packResult.Message
+		result.MatchedRule = packResult.MatchedRule
+	}
+
 	return jsonToolResult(result)
 }
 
@@ -2746,6 +2755,64 @@ func (r *Registry) omniEnterpriseDiagnose(ctx context.Context, arguments map[str
 	}
 
 	return jsonToolResult(report)
+}
+
+func checkAgainstShippedPacks(repoRoot, profile, operation, value string) *policypack.PolicyPackResult {
+	packPath := filepath.Join(repoRoot, "policies", profile+".json")
+	if _, err := os.Stat(packPath); err != nil {
+		return nil
+	}
+
+	packData, err := os.ReadFile(packPath)
+	if err != nil {
+		return nil
+	}
+
+	var pack struct {
+		Rules []struct {
+			ID        string   `json:"id"`
+			Category  string   `json:"category"`
+			Severity  string   `json:"severity"`
+			CheckType string   `json:"check_type"`
+			Values    []string `json:"values"`
+			Enabled   bool     `json:"enabled"`
+		} `json:"rules"`
+	}
+	if json.Unmarshal(packData, &pack) != nil {
+		return nil
+	}
+
+	categoryMap := map[string]string{
+		"command": "commands", "commands": "commands",
+		"path": "paths", "paths": "paths",
+		"artifact": "paths",
+	}
+
+	targetCategory := categoryMap[strings.ToLower(operation)]
+	if targetCategory == "" {
+		return nil
+	}
+
+	for _, rule := range pack.Rules {
+		if !rule.Enabled || rule.Category != targetCategory {
+			continue
+		}
+		switch rule.CheckType {
+		case "deny_list":
+			for _, denied := range rule.Values {
+				if strings.Contains(strings.ToLower(value), strings.ToLower(denied)) {
+					return &policypack.PolicyPackResult{
+						RuleID:      rule.ID,
+						Allowed:     false,
+						ReasonCode:  "policy_pack_denied",
+						Message:     fmt.Sprintf("denied by policy pack rule %s (%s)", rule.ID, rule.Severity),
+						MatchedRule: rule.ID,
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func computeBundleFingerprint(m *release.Manifest) string {
