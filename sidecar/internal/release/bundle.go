@@ -192,16 +192,6 @@ func (m *Manifest) WriteBundle(outputDir string) (string, error) {
 		return "", fmt.Errorf("checksum manifest: %w", err)
 	}
 
-	checksumsPath := filepath.Join(outputDir, "checksums.txt")
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s  %s\n", manifestChecksum, "release-manifest.json"))
-	for relPath, checksum := range m.Checksums {
-		sb.WriteString(fmt.Sprintf("%s  %s\n", checksum, relPath))
-	}
-	if err := os.WriteFile(checksumsPath, []byte(sb.String()), 0o644); err != nil {
-		return "", fmt.Errorf("write checksums: %w", err)
-	}
-
 	sbomPayload, err := json.MarshalIndent(m.SBOM, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("marshal SBOM: %w", err)
@@ -209,6 +199,21 @@ func (m *Manifest) WriteBundle(outputDir string) (string, error) {
 	sbomPath := filepath.Join(outputDir, "sbom.json")
 	if err := os.WriteFile(sbomPath, sbomPayload, 0o644); err != nil {
 		return "", fmt.Errorf("write SBOM: %w", err)
+	}
+	sbomChecksum, err := FileChecksum(sbomPath)
+	if err != nil {
+		return "", fmt.Errorf("checksum SBOM: %w", err)
+	}
+
+	checksumsPath := filepath.Join(outputDir, "checksums.txt")
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%s  %s\n", manifestChecksum, "release-manifest.json"))
+	sb.WriteString(fmt.Sprintf("%s  %s\n", sbomChecksum, "sbom.json"))
+	for relPath, checksum := range m.Checksums {
+		sb.WriteString(fmt.Sprintf("%s  %s\n", checksum, relPath))
+	}
+	if err := os.WriteFile(checksumsPath, []byte(sb.String()), 0o644); err != nil {
+		return "", fmt.Errorf("write checksums: %w", err)
 	}
 
 	return manifestPath, nil
@@ -277,7 +282,14 @@ func ValidateBundle(bundleDir string) ([]string, error) {
 		storedSig := manifest.Provenance.Signature
 		if strings.HasPrefix(storedSig, "sha256-fingerprint:") {
 			expected := strings.TrimPrefix(storedSig, "sha256-fingerprint:")
-			fingerprint := computeFingerprintFromChecksums(checksumsMap)
+			fingerprintChecksums := make(map[string]string)
+			for k, v := range checksumsMap {
+				if k == "release-manifest.json" {
+					continue
+				}
+				fingerprintChecksums[k] = v
+			}
+			fingerprint := computeFingerprintFromChecksums(fingerprintChecksums)
 			if fingerprint != expected {
 				bundleErrors = append(bundleErrors, "provenance signature fingerprint mismatch: manifest may have been tampered with")
 			}
@@ -350,6 +362,33 @@ func computeFingerprintFromChecksums(checksumsMap map[string]string) string {
 		h.Write([]byte(checksumsMap[k]))
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func RegenerateChecksums(outputDir string) ([]byte, error) {
+	manifestPath := filepath.Join(outputDir, "release-manifest.json")
+	manifestChecksum, err := FileChecksum(manifestPath)
+	if err != nil {
+		return nil, err
+	}
+	sbomChecksum, err := FileChecksum(filepath.Join(outputDir, "sbom.json"))
+	if err != nil {
+		sbomChecksum = ""
+	}
+
+	manifest, err := ReadManifest(outputDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%s  %s\n", manifestChecksum, "release-manifest.json"))
+	if sbomChecksum != "" {
+		sb.WriteString(fmt.Sprintf("%s  %s\n", sbomChecksum, "sbom.json"))
+	}
+	for relPath, checksum := range manifest.Checksums {
+		sb.WriteString(fmt.Sprintf("%s  %s\n", checksum, relPath))
+	}
+	return []byte(sb.String()), nil
 }
 
 func FileChecksum(path string) (string, error) {

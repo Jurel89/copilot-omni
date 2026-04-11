@@ -1804,8 +1804,16 @@ func (r *Registry) omniPolicyCheck(ctx context.Context, arguments map[string]int
 		decision.Operation = policy.OpPathWrite
 	case "artifact":
 		decision.Operation = policy.OpArtifactMutation
+	case "tool", "tools":
+		decision.Operation = "tool"
+	case "network":
+		decision.Operation = "network"
+	case "memory":
+		decision.Operation = "memory"
+	case "update", "updates":
+		decision.Operation = "update"
 	default:
-		return ToolCallResult{}, fmt.Errorf("operation must be one of: command, path, artifact, prompt")
+		return ToolCallResult{}, fmt.Errorf("operation must be one of: command, path, artifact, prompt, tool, network, memory, update")
 	}
 
 	result := engine.Evaluate(decision)
@@ -2624,12 +2632,26 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 
 		if signingEnabled {
 			manifest.Provenance.Workflow = "enterprise-release"
-			manifest.Provenance.Signature = "sha256-fingerprint:" + computeBundleFingerprint(manifest)
 		}
 
 		manifestPath, writeErr := manifest.WriteBundle(outputDir)
 		if writeErr != nil {
 			return ToolCallResult{}, fmt.Errorf("create bundle: %w", writeErr)
+		}
+
+		sbomChecksum, _ := release.FileChecksum(filepath.Join(outputDir, "sbom.json"))
+		manifest.Checksums["sbom.json"] = sbomChecksum
+		// Compute fingerprint BEFORE including the manifest's own checksum.
+		// The manifest cannot sign itself (chicken-and-egg): rewriting the
+		// manifest after setting the signature changes its hash, which would
+		// invalidate the fingerprint.  Integrity of release-manifest.json is
+		// still enforced by checksums.txt during validation.
+		manifest.Provenance.Signature = "sha256-fingerprint:" + computeBundleFingerprint(manifest)
+		if payload, err := json.MarshalIndent(manifest, "", "  "); err == nil {
+			_ = os.WriteFile(manifestPath, payload, 0o644)
+		}
+		if checksumsContent, err := release.RegenerateChecksums(outputDir); err == nil {
+			_ = os.WriteFile(filepath.Join(outputDir, "checksums.txt"), checksumsContent, 0o644)
 		}
 
 		return jsonToolResult(map[string]interface{}{
@@ -2758,13 +2780,20 @@ func (r *Registry) omniEnterpriseDiagnose(ctx context.Context, arguments map[str
 }
 
 func checkAgainstShippedPacks(repoRoot, profile, operation, value string) *policypack.PolicyPackResult {
-	packPath := filepath.Join(repoRoot, "policies", profile+".json")
-	if _, err := os.Stat(packPath); err != nil {
-		return nil
+	searchPaths := []string{
+		filepath.Join(repoRoot, "policies", profile+".json"),
+		filepath.Join(repoRoot, "sidecar", "internal", "config", "profiles", profile, "policy-pack.json"),
 	}
 
-	packData, err := os.ReadFile(packPath)
-	if err != nil {
+	var packData []byte
+	for _, p := range searchPaths {
+		if data, err := os.ReadFile(p); err == nil {
+			packData = data
+			break
+		}
+	}
+
+	if packData == nil {
 		return nil
 	}
 
@@ -2786,6 +2815,10 @@ func checkAgainstShippedPacks(repoRoot, profile, operation, value string) *polic
 		"command": "commands", "commands": "commands",
 		"path": "paths", "paths": "paths",
 		"artifact": "paths",
+		"tool":     "tools", "tools": "tools",
+		"network": "network",
+		"memory":  "memory",
+		"update":  "updates", "updates": "updates",
 	}
 
 	targetCategory := categoryMap[strings.ToLower(operation)]
@@ -2816,10 +2849,15 @@ func checkAgainstShippedPacks(repoRoot, profile, operation, value string) *polic
 }
 
 func computeBundleFingerprint(m *release.Manifest) string {
+	keys := make([]string, 0, len(m.Checksums))
+	for k := range m.Checksums {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 	h := sha256.New()
-	for _, comp := range m.Components {
-		h.Write([]byte(comp.Name))
-		h.Write([]byte(comp.Checksum))
+	for _, k := range keys {
+		h.Write([]byte(k))
+		h.Write([]byte(m.Checksums[k]))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
