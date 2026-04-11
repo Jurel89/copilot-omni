@@ -72,8 +72,8 @@ This checklist ensures all Phase 6 requirements are met before declaring GA.
 - [ ] All budgets within targets
 
 #### PHASE-6-NFR-003: Upgrade/Downgrade Paths
-- [ ] Upgrade path tested (0.1.0 -> 1.0.0)
-- [ ] Downgrade path tested (1.0.0 -> 0.1.0)
+- [ ] Upgrade path tested (previous -> current)
+- [ ] Downgrade path tested (current -> previous)
 - [ ] Data integrity verified
 - [ ] Rollback procedure documented
 
