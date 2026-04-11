@@ -432,7 +432,21 @@ func isPathContained(base, rel string) bool {
 		return false
 	}
 	resolved := filepath.Join(base, cleaned)
-	absBase, _ := filepath.Abs(base)
-	absResolved, _ := filepath.Abs(resolved)
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return false
+	}
+	absBase, err = filepath.EvalSymlinks(absBase)
+	if err != nil {
+		return false
+	}
+	absResolved, err := filepath.Abs(resolved)
+	if err != nil {
+		return false
+	}
+	absResolved, err = filepath.EvalSymlinks(absResolved)
+	if err != nil {
+		return false
+	}
 	return strings.HasPrefix(absResolved, absBase+string(filepath.Separator)) || absResolved == absBase
 }

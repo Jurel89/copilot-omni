@@ -20,6 +20,29 @@ sha256_hash() {
     fi
 }
 
+resolve_path() {
+    if command -v realpath >/dev/null 2>&1; then
+        realpath "$1" 2>/dev/null || echo "$1"
+    elif command -v readlink >/dev/null 2>&1 && readlink -f / >/dev/null 2>&1; then
+        readlink -f "$1" 2>/dev/null || echo "$1"
+    else
+        echo "$1"
+    fi
+}
+
+path_contained() {
+    local base="$1"
+    local candidate="$2"
+    local abs_base
+    abs_base="$(resolve_path "$base")"
+    local abs_candidate
+    abs_candidate="$(resolve_path "$candidate")"
+    if [[ "$abs_candidate" != "$abs_base" && "$abs_candidate" != "$abs_base/"* ]]; then
+        return 1
+    fi
+    return 0
+}
+
 BUNDLE_DIR=""
 TARGET_DIR="/usr/local"
 SKIP_VALIDATE=false
@@ -97,14 +120,12 @@ if [[ "$SKIP_VALIDATE" == false ]]; then
         if [[ "$FILE" == "sbom.json" ]]; then
             HAS_SBOM_ENTRY=true
         fi
-        case "$FILE" in
-            ../*|/../*|/..|/*)
-                echo "  FAIL: $FILE path escapes bundle directory"
-                FAILED=1
-                continue
-                ;;
-        esac
         FILEPATH="$BUNDLE_DIR/$FILE"
+        if ! path_contained "$BUNDLE_DIR" "$FILEPATH"; then
+            echo "  FAIL: $FILE path escapes bundle directory"
+            FAILED=1
+            continue
+        fi
         if [[ ! -f "$FILEPATH" ]]; then
             echo "  FAIL: $FILE missing from bundle"
             FAILED=1
@@ -155,19 +176,21 @@ COMPONENTS=$(grep -o '"path"[[:space:]]*:[[:space:]]*"[^"]*"' "$MANIFEST" | sed 
 
 while IFS= read -r component; do
     [[ -z "$component" ]] && continue
-    case "$component" in
-        ../*|/../*|/..|/*)
-            echo "  SKIP: $component (path escapes bundle directory)" >&2
-            continue
-            ;;
-    esac
     SRC="$BUNDLE_DIR/$component"
+    DEST="$INSTALL_DIR/$component"
+    if ! path_contained "$BUNDLE_DIR" "$SRC"; then
+        echo "  SKIP: $component (source escapes bundle directory)" >&2
+        continue
+    fi
+    if ! path_contained "$INSTALL_DIR" "$DEST"; then
+        echo "  SKIP: $component (destination escapes install directory)" >&2
+        continue
+    fi
     if [[ ! -f "$SRC" ]]; then
         echo "  SKIP: $component (not found)"
         continue
     fi
 
-    DEST="$INSTALL_DIR/$component"
     mkdir -p "$(dirname "$DEST")"
     cp "$SRC" "$DEST"
     chmod 755 "$DEST"
