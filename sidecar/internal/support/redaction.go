@@ -123,9 +123,12 @@ func compileRules(rules ...RedactionRule) []compiledRule {
 
 func baseRules(includePaths bool) []RedactionRule {
 	rules := []RedactionRule{
-		{Name: "api_key", Pattern: `(?im)(api[_-]?key\s*[=:]\s*)(["']?)[^"'\s]+\2`, Replacement: `${1}[REDACTED]`},
-		{Name: "token", Pattern: `(?im)(token\s*[=:]\s*)(["']?)[^"'\s]+\2`, Replacement: `${1}[REDACTED]`},
-		{Name: "password", Pattern: `(?im)(password\s*[=:]\s*)(["']?)[^"'\s]+\2`, Replacement: `${1}[REDACTED]`},
+		{Name: "api_key_quoted", Pattern: `(?im)(api[_-]?key\s*[=:]\s*["'])[^"'\r\n]+["']`, Replacement: `${1}[REDACTED]`},
+		{Name: "api_key_unquoted", Pattern: `(?im)(api[_-]?key\s*[=:]\s*)[^"'\s\r\n]+`, Replacement: `${1}[REDACTED]`},
+		{Name: "token_quoted", Pattern: `(?im)(token\s*[=:]\s*["'])[^"'\r\n]+["']`, Replacement: `${1}[REDACTED]`},
+		{Name: "token_unquoted", Pattern: `(?im)(token\s*[=:]\s*)[^"'\s\r\n]+`, Replacement: `${1}[REDACTED]`},
+		{Name: "password_quoted", Pattern: `(?im)(password\s*[=:]\s*["'])[^"'\r\n]+["']`, Replacement: `${1}[REDACTED]`},
+		{Name: "password_unquoted", Pattern: `(?im)(password\s*[=:]\s*)[^"'\s\r\n]+`, Replacement: `${1}[REDACTED]`},
 		{Name: "bearer", Pattern: `(?i)bearer\s+[a-z0-9._\-]+`, Replacement: "Bearer [REDACTED]"},
 		{Name: "github_pat", Pattern: `\bgh[pousr]_[A-Za-z0-9_]{20,}\b`, Replacement: "[REDACTED_TOKEN]"},
 	}
