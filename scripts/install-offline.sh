@@ -127,23 +127,23 @@ while IFS= read -r component; do
         continue
     fi
 
-    BASENAME=$(basename "$component")
-    DEST="$INSTALL_DIR/$BASENAME"
-
+    DEST="$INSTALL_DIR/$component"
+    mkdir -p "$(dirname "$DEST")"
     cp "$SRC" "$DEST"
     chmod 755 "$DEST"
 
+    BASENAME=$(basename "$component")
     case "$BASENAME" in
         omni-sidecar)
             ln -sf "$DEST" "$BIN_DIR/omni-sidecar"
-            echo "  Installed: $BASENAME -> $BIN_DIR/omni-sidecar"
+            echo "  Installed: $component -> $BIN_DIR/omni-sidecar"
             ;;
         omni)
             ln -sf "$DEST" "$BIN_DIR/omni"
-            echo "  Installed: $BASENAME -> $BIN_DIR/omni"
+            echo "  Installed: $component -> $BIN_DIR/omni"
             ;;
         *)
-            echo "  Installed: $BASENAME"
+            echo "  Installed: $component"
             ;;
     esac
 done <<< "$COMPONENTS"

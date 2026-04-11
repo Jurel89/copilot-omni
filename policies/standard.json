@@ -39,6 +39,24 @@
       "check_type": "max_value",
       "values": ["90"],
       "enabled": true
+    },
+    {
+      "id": "allow-standard-network",
+      "category": "network",
+      "severity": "info",
+      "description": "Allow standard network access for package management",
+      "check_type": "allow_list",
+      "values": ["https://registry.npmjs.org", "https://pypi.org"],
+      "enabled": true
+    },
+    {
+      "id": "standard-update-check",
+      "category": "updates",
+      "severity": "low",
+      "description": "Allow update checks in standard mode",
+      "check_type": "allow_list",
+      "values": ["check_update"],
+      "enabled": true
     }
   ]
 }

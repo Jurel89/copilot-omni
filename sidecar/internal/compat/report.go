@@ -49,6 +49,9 @@ func RunDiagnostics(repoRoot string) (*Report, error) {
 	report.addCheck("sidecar_binary", checkSidecar(repoRoot))
 	report.addCheck("plugin_structure", checkPlugin(repoRoot))
 	report.addCheck("repo_writable", checkRepoWritable(repoRoot))
+	report.addCheck("github_settings", checkGitHubSettings(repoRoot))
+	report.addCheck("mcp_config", checkMCPConfig(repoRoot))
+	report.addCheck("enterprise_policy", checkEnterprisePolicy(repoRoot))
 
 	for _, check := range report.Checks {
 		if check.Status == "fail" {
@@ -152,4 +155,51 @@ func checkRepoWritable(repoRoot string) CompatCheck {
 	}
 	os.Remove(testFile)
 	return CompatCheck{Name: "repo_writable", Status: "pass", Detail: "writable"}
+}
+
+func checkGitHubSettings(repoRoot string) CompatCheck {
+	instructionsPath := filepath.Join(repoRoot, ".github", "copilot-instructions.md")
+	if _, err := os.Stat(instructionsPath); err != nil {
+		return CompatCheck{Name: "github_settings", Status: "warn", Detail: "copilot-instructions.md not found; GitHub Copilot integration may be incomplete"}
+	}
+	agentsPath := filepath.Join(repoRoot, "AGENTS.md")
+	if _, err := os.Stat(agentsPath); err != nil {
+		return CompatCheck{Name: "github_settings", Status: "warn", Detail: "AGENTS.md not found; agent instructions not configured"}
+	}
+	return CompatCheck{Name: "github_settings", Status: "pass", Detail: "GitHub Copilot instructions and agents configured"}
+}
+
+func checkMCPConfig(repoRoot string) CompatCheck {
+	mcpPath := filepath.Join(repoRoot, "plugin", ".mcp.json")
+	data, err := os.ReadFile(mcpPath)
+	if err != nil {
+		return CompatCheck{Name: "mcp_config", Status: "warn", Detail: "plugin .mcp.json not found"}
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return CompatCheck{Name: "mcp_config", Status: "fail", Detail: ".mcp.json is invalid JSON"}
+	}
+	servers, ok := parsed["mcpServers"].(map[string]interface{})
+	if !ok || len(servers) == 0 {
+		return CompatCheck{Name: "mcp_config", Status: "fail", Detail: ".mcp.json has no mcpServers defined"}
+	}
+	return CompatCheck{Name: "mcp_config", Status: "pass", Detail: fmt.Sprintf("%d MCP server(s) configured", len(servers))}
+}
+
+func checkEnterprisePolicy(repoRoot string) CompatCheck {
+	policiesDir := filepath.Join(repoRoot, "policies")
+	entries, err := os.ReadDir(policiesDir)
+	if err != nil {
+		return CompatCheck{Name: "enterprise_policy", Status: "warn", Detail: "no policies directory found"}
+	}
+	count := 0
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			count++
+		}
+	}
+	if count == 0 {
+		return CompatCheck{Name: "enterprise_policy", Status: "warn", Detail: "no policy pack files found"}
+	}
+	return CompatCheck{Name: "enterprise_policy", Status: "pass", Detail: fmt.Sprintf("%d policy pack(s) available", count)}
 }

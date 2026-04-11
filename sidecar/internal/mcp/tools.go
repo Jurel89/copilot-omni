@@ -2581,6 +2581,26 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 			_ = manifest.AddDirectoryComponent("plugin", pluginDir)
 		}
 
+		if mp, err := os.Stat(filepath.Join(repoRoot, "marketplace.json")); err == nil && !mp.IsDir() {
+			_ = manifest.AddExtraFile("marketplace.json", filepath.Join(repoRoot, "marketplace.json"), "marketplace.json")
+		}
+
+		policiesDir := filepath.Join(repoRoot, "policies")
+		if info, err := os.Stat(policiesDir); err == nil && info.IsDir() {
+			entries, _ := os.ReadDir(policiesDir)
+			for _, entry := range entries {
+				if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+					srcPath := filepath.Join(policiesDir, entry.Name())
+					_ = manifest.AddExtraFile("policies/"+entry.Name(), srcPath, filepath.Join("policies", entry.Name()))
+				}
+			}
+		}
+
+		installScript := filepath.Join(repoRoot, "scripts", "install-offline.sh")
+		if _, err := os.Stat(installScript); err == nil {
+			_ = manifest.AddExtraFile("install-offline.sh", installScript, "scripts/install-offline.sh")
+		}
+
 		if len(manifest.Components) == 0 {
 			return ToolCallResult{}, fmt.Errorf("no components found: build sidecar and wrapper binaries first")
 		}
@@ -2594,8 +2614,8 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 		}
 
 		if signingEnabled {
-			manifest.Provenance.Signature = "sha256-placeholder-signed"
 			manifest.Provenance.Workflow = "enterprise-release"
+			manifest.Provenance.Signature = "unsigned-hmac-sha256:" + computeBundleFingerprint(manifest)
 		}
 
 		manifestPath, writeErr := manifest.WriteBundle(outputDir)
@@ -2685,14 +2705,15 @@ func (r *Registry) omniAuditExport(ctx context.Context, arguments map[string]int
 	}
 
 	return jsonToolResult(map[string]interface{}{
-		"run_id":      exportResult.RunID,
-		"run_status":  exportResult.RunStatus,
-		"exported_at": exportResult.ExportedAt,
-		"path":        outputPath,
-		"phases":      exportResult.Phases,
-		"artifacts":   exportResult.Artifacts,
-		"redacted":    exportResult.Redacted,
-		"enterprise":  enterpriseInfo,
+		"run_id":       exportResult.RunID,
+		"run_status":   exportResult.RunStatus,
+		"exported_at":  exportResult.ExportedAt,
+		"path":         outputPath,
+		"phases":       exportResult.Phases,
+		"artifacts":    exportResult.Artifacts,
+		"policy_audit": exportResult.PolicyAudit,
+		"redacted":     exportResult.Redacted,
+		"enterprise":   enterpriseInfo,
 	})
 }
 
@@ -2725,6 +2746,15 @@ func (r *Registry) omniEnterpriseDiagnose(ctx context.Context, arguments map[str
 	}
 
 	return jsonToolResult(report)
+}
+
+func computeBundleFingerprint(m *release.Manifest) string {
+	h := sha256.New()
+	for _, comp := range m.Components {
+		h.Write([]byte(comp.Name))
+		h.Write([]byte(comp.Checksum))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func stringVal(arguments map[string]interface{}, key string) string {

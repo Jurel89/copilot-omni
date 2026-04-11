@@ -92,35 +92,65 @@ func (m *Manifest) AddComponent(name, srcPath, componentType, arch string) error
 }
 
 func (m *Manifest) AddDirectoryComponent(name, srcDir string) error {
+	return m.addDirRecursive(name, srcDir, name)
+}
+
+func (m *Manifest) addDirRecursive(name, srcDir, prefix string) error {
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
 		return fmt.Errorf("read directory %s: %w", name, err)
 	}
 
 	for _, entry := range entries {
+		fullPath := filepath.Join(srcDir, entry.Name())
+		relPath := filepath.Join(prefix, entry.Name())
+
 		if entry.IsDir() {
+			if err := m.addDirRecursive(name, fullPath, relPath); err != nil {
+				return err
+			}
 			continue
 		}
-		filePath := filepath.Join(srcDir, entry.Name())
-		checksum, err := FileChecksum(filePath)
+
+		checksum, err := FileChecksum(fullPath)
 		if err != nil {
 			continue
 		}
-		relPath := filepath.Join("plugin", entry.Name())
 		m.Components = append(m.Components, Component{
 			Name:       fmt.Sprintf("%s/%s", name, entry.Name()),
 			Path:       relPath,
 			Type:       "file",
 			Checksum:   checksum,
-			sourcePath: filePath,
+			sourcePath: fullPath,
 		})
 		m.Checksums[relPath] = checksum
 		m.SBOM = append(m.SBOM, SBOMEntry{
-			Name: entry.Name(),
+			Name: filepath.Base(fullPath),
 			Type: "plugin-file",
 			Hash: checksum,
 		})
 	}
+	return nil
+}
+
+func (m *Manifest) AddExtraFile(name, srcPath, bundleRelPath string) error {
+	checksum, err := FileChecksum(srcPath)
+	if err != nil {
+		return fmt.Errorf("checksum %s: %w", name, err)
+	}
+	m.Components = append(m.Components, Component{
+		Name:       name,
+		Path:       bundleRelPath,
+		Type:       "file",
+		Checksum:   checksum,
+		sourcePath: srcPath,
+	})
+	m.Checksums[bundleRelPath] = checksum
+	m.SBOM = append(m.SBOM, SBOMEntry{
+		Name: name,
+		Type: "metadata",
+		Hash: checksum,
+	})
 	return nil
 }
 
@@ -199,44 +229,49 @@ func ReadManifest(bundleDir string) (*Manifest, error) {
 
 func ValidateBundle(bundleDir string) ([]string, error) {
 	warnings := make([]string, 0)
-	errors := make([]string, 0)
+	bundleErrors := make([]string, 0)
+
+	checksumsPath := filepath.Join(bundleDir, "checksums.txt")
+	if _, err := os.Stat(checksumsPath); err != nil {
+		return warnings, fmt.Errorf("checksums.txt missing: %w", err)
+	}
 
 	manifest, err := ReadManifest(bundleDir)
 	if err != nil {
-		return nil, fmt.Errorf("read manifest: %w", err)
+		return warnings, fmt.Errorf("read manifest: %w", err)
 	}
 
 	if strings.TrimSpace(manifest.Product) == "" {
-		errors = append(errors, "manifest product is empty")
+		bundleErrors = append(bundleErrors, "manifest product is empty")
 	}
 	if strings.TrimSpace(manifest.ReleaseTag) == "" {
-		errors = append(errors, "manifest release_tag is empty")
+		bundleErrors = append(bundleErrors, "manifest release_tag is empty")
 	}
 	if strings.TrimSpace(manifest.BuildDate) == "" {
 		warnings = append(warnings, "manifest build_date is empty")
 	}
 	if len(manifest.Components) == 0 {
-		errors = append(errors, "manifest has no components")
+		bundleErrors = append(bundleErrors, "manifest has no components")
 	}
 
 	for _, comp := range manifest.Components {
 		compPath := filepath.Join(bundleDir, comp.Path)
 		if _, err := os.Stat(compPath); err != nil {
-			errors = append(errors, fmt.Sprintf("component %s file missing: %s", comp.Name, comp.Path))
+			bundleErrors = append(bundleErrors, fmt.Sprintf("component %s file missing: %s", comp.Name, comp.Path))
 			continue
 		}
 		actualChecksum, err := FileChecksum(compPath)
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("component %s checksum failed: %v", comp.Name, err))
+			bundleErrors = append(bundleErrors, fmt.Sprintf("component %s checksum failed: %v", comp.Name, err))
 			continue
 		}
 		if actualChecksum != comp.Checksum {
-			errors = append(errors, fmt.Sprintf("component %s checksum mismatch: expected %s got %s", comp.Name, comp.Checksum, actualChecksum))
+			bundleErrors = append(bundleErrors, fmt.Sprintf("component %s checksum mismatch: expected %s got %s", comp.Name, comp.Checksum, actualChecksum))
 		}
 	}
 
-	if len(errors) > 0 {
-		return warnings, fmt.Errorf("bundle validation failed: %s", strings.Join(errors, "; "))
+	if len(bundleErrors) > 0 {
+		return warnings, fmt.Errorf("bundle validation failed: %s", strings.Join(bundleErrors, "; "))
 	}
 
 	return warnings, nil

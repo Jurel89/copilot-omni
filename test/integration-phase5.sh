@@ -153,6 +153,9 @@ assert 'artifacts' in t, 'Missing artifacts list'
 assert 'run.json' in t['artifacts'], 'run.json not in artifacts'
 assert 'decisions.md' in t['artifacts'], 'decisions.md not in artifacts'
 assert 'enterprise' in t, 'Missing enterprise info'
+assert 'policy_audit' in t, 'Missing policy_audit'
+pa = t.get('policy_audit')
+assert pa is not None, 'policy_audit is null'
 print('  PASS: audit export has phases, artifacts, policy audit, enterprise info')
 " || fail "audit export with rich data"
 
@@ -161,6 +164,32 @@ echo "--- Audit Export Path Traversal Rejection ---"
 TRAVERSAL_RESULT=$(call_tool "omni_audit_export" "{\"repo_root\":\"$ARTIFACT_DIR\",\"run_id\":\"../../escape\"}")
 
 has_error "$TRAVERSAL_RESULT" && pass "audit path traversal rejected" || fail "audit path traversal NOT rejected"
+
+echo ""
+echo "--- Policy Pack Category Coverage ---"
+for profile in strict standard permissive; do
+    python3 -c "
+import json
+d = json.load(open('$REPO_ROOT/policies/$profile.json'))
+categories = set(r['category'] for r in d['rules'])
+required = {'commands', 'tools', 'network', 'paths', 'memory', 'updates'}
+missing = required - categories
+assert not missing, f'$profile policy pack missing categories: {missing}'
+print(f'  PASS: $profile policy pack covers all 6 categories')
+" || fail "$profile policy pack category coverage"
+done
+
+echo ""
+echo "--- Release Bundle Includes Extras ---"
+python3 -c "
+import json
+m = json.load(open('$ARTIFACT_DIR/bundle/release-manifest.json'))
+paths = [c['path'] for c in m['components']]
+assert any('marketplace.json' in p for p in paths), f'marketplace.json not in bundle: {paths}'
+assert any('policies/' in p for p in paths), f'policies/ not in bundle: {paths}'
+assert any('install-offline.sh' in p for p in paths), f'install-offline.sh not in bundle: {paths}'
+print('  PASS: bundle includes marketplace.json, policies, and install script')
+" || fail "bundle extras"
 
 echo ""
 echo "--- Enterprise Diagnostics ---"
@@ -172,13 +201,16 @@ t = json.loads(sys.stdin.read())
 assert 'platform' in t
 assert 'checks' in t
 assert isinstance(t['checks'], list)
-assert len(t['checks']) >= 6, f'Expected >= 6 checks, got {len(t[\"checks\"])}'
+assert len(t['checks']) >= 9, f'Expected >= 9 checks, got {len(t[\"checks\"])}'
 check_names = [c['name'] for c in t['checks']]
 assert 'platform' in check_names
 assert 'git' in check_names
 assert 'sidecar_binary' in check_names
 assert 'plugin_structure' in check_names
 assert 'repo_writable' in check_names
+assert 'github_settings' in check_names
+assert 'mcp_config' in check_names
+assert 'enterprise_policy' in check_names
 print('  PASS: enterprise diagnostics returns full compatibility report')
 " || fail "enterprise diagnostics"
 
