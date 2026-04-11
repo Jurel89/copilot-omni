@@ -62,15 +62,15 @@ assert r['result']['serverInfo']['name'] == 'copilot-omni-sidecar'
 print('  PASS: MCP initialize handshake')
 " || fail "MCP initialize"
 
-# Verify tools/list has all 28 tools
+# Verify tools/list has all 31 tools (28 original + 3 Phase 6)
 printf '%s\n' "$RESULT" | python3 -c "
 import sys, json
 lines = sys.stdin.read().strip().split('\n')
 tools = json.loads(lines[1])
 names = sorted([t['name'] for t in tools['result']['tools']])
-expected = ['omni_artifact_read', 'omni_artifact_write', 'omni_audit_export', 'omni_config_resolve', 'omni_doctor', 'omni_enterprise_diagnose', 'omni_guarded_patch', 'omni_health', 'omni_intent_route', 'omni_memory_capture', 'omni_memory_export', 'omni_memory_ingest', 'omni_memory_prune', 'omni_memory_search', 'omni_memory_wipe', 'omni_merge', 'omni_policy_check', 'omni_policy_pack_validate', 'omni_release_bundle', 'omni_repo_map', 'omni_research', 'omni_resume_context', 'omni_run_status', 'omni_subtask_create', 'omni_subtask_status', 'omni_verification_run', 'omni_workspace_create', 'omni_workspace_remove']
+expected = ['omni_artifact_read', 'omni_artifact_write', 'omni_audit_export', 'omni_benchmark', 'omni_config_resolve', 'omni_doctor', 'omni_enterprise_diagnose', 'omni_guarded_patch', 'omni_health', 'omni_intent_route', 'omni_memory_capture', 'omni_memory_export', 'omni_memory_ingest', 'omni_memory_prune', 'omni_memory_search', 'omni_memory_wipe', 'omni_merge', 'omni_migrate', 'omni_policy_check', 'omni_policy_pack_validate', 'omni_release_bundle', 'omni_repo_map', 'omni_research', 'omni_resume_context', 'omni_run_status', 'omni_subtask_create', 'omni_subtask_status', 'omni_support_bundle', 'omni_verification_run', 'omni_workspace_create', 'omni_workspace_remove']
 assert names == expected, f'Wrong tools: {names}'
-print('  PASS: All 28 MCP tools registered')
+print('  PASS: All 31 MCP tools registered')
 " || fail "tools/list"
 
 # Verify omni_health
