@@ -345,6 +345,56 @@ bash "$REPO_ROOT/scripts/install-offline.sh" --bundle-dir "$ARTIFACT_DIR/bundle"
 rm -rf "$INSTALL_TARGET"
 
 echo ""
+echo "--- Installer Path Traversal Rejection ---"
+TRAVERSAL_TARGET=$(mktemp -d)
+TRAVERSAL_BUNDLE=$(mktemp -d)/bundle
+mkdir -p "$TRAVERSAL_BUNDLE/subdir"
+echo "evil" > "$TRAVERSAL_BUNDLE/subdir/escape"
+echo '{"product":"test","release_tag":"v0","components":[{"name":"evil","path":"subdir/../../escape","checksum":"abc"}]}' > "$TRAVERSAL_BUNDLE/release-manifest.json"
+echo '[]' > "$TRAVERSAL_BUNDLE/sbom.json"
+ESCAPE_HASH=$(sha256sum "$TRAVERSAL_BUNDLE/subdir/escape" | awk '{print $1}')
+MANIFEST_HASH=$(sha256sum "$TRAVERSAL_BUNDLE/release-manifest.json" | awk '{print $1}')
+SBOM_HASH=$(sha256sum "$TRAVERSAL_BUNDLE/sbom.json" | awk '{print $1}')
+printf "%s  release-manifest.json\n%s  sbom.json\n%s  subdir/../../escape\n" "$MANIFEST_HASH" "$SBOM_HASH" "$ESCAPE_HASH" > "$TRAVERSAL_BUNDLE/checksums.txt"
+INSTALLER_TRAV_OUTPUT=$(bash "$REPO_ROOT/scripts/install-offline.sh" --bundle-dir "$TRAVERSAL_BUNDLE" --target "$TRAVERSAL_TARGET" 2>&1 || true)
+echo "$INSTALLER_TRAV_OUTPUT" | grep -qiE "escape|FAIL" && pass "installer rejects .. traversal in component path" || fail "installer allowed .. traversal"
+rm -rf "$TRAVERSAL_TARGET" "$(dirname "$TRAVERSAL_BUNDLE")"
+
+echo ""
+echo "--- Bundle Validation Path Traversal Rejection ---"
+TRAVERSAL_DIR2=$(mktemp -d)
+mkdir -p "$TRAVERSAL_DIR2/bundle"
+echo "evil content" > "$TRAVERSAL_DIR2/bundle/evil"
+python3 -c "
+import json, hashlib, os
+evil_path = os.path.join('$TRAVERSAL_DIR2', 'bundle', 'evil')
+evil_hash = hashlib.sha256(open(evil_path,'rb').read()).hexdigest()
+manifest = {
+    'product': 'test', 'release_tag': 'v0', 'platform': 'linux/amd64',
+    'components': [{'name': 'evil', 'path': 'subdir/../../etc/passwd', 'checksum': evil_hash}],
+    'checksums': {'subdir/../../etc/passwd': evil_hash},
+    'provenance': {'builder': 'test', 'fingerprint': 'sha256:abc'},
+    'sbom': []
+}
+json.dump(manifest, open(os.path.join('$TRAVERSAL_DIR2', 'bundle', 'release-manifest.json'), 'w'))
+json.dump([], open(os.path.join('$TRAVERSAL_DIR2', 'bundle', 'sbom.json'), 'w'))
+manifest_hash = hashlib.sha256(open(os.path.join('$TRAVERSAL_DIR2', 'bundle', 'release-manifest.json'), 'rb').read()).hexdigest()
+sbom_hash = hashlib.sha256(open(os.path.join('$TRAVERSAL_DIR2', 'bundle', 'sbom.json'), 'rb').read()).hexdigest()
+with open(os.path.join('$TRAVERSAL_DIR2', 'bundle', 'checksums.txt'), 'w') as f:
+    f.write(f'{manifest_hash}  release-manifest.json\n')
+    f.write(f'{sbom_hash}  sbom.json\n')
+    f.write(f'{evil_hash}  subdir/../../etc/passwd\n')
+"
+TRAVERSAL_RESULT=$(call_tool "omni_release_bundle" "{\"repo_root\":\"$REPO_ROOT\",\"action\":\"validate\",\"bundle_dir\":\"$TRAVERSAL_DIR2/bundle\"}")
+get_result_text "$TRAVERSAL_RESULT" | python3 -c "
+import sys, json
+t = json.loads(sys.stdin.read())
+assert t.get('valid') == False, f'Expected valid=False for traversal, got {t}'
+print('  PASS: bundle validator rejects path traversal')
+" || fail "bundle validator allowed path traversal"
+rm -rf "$TRAVERSAL_DIR2"
+
+echo ""
 echo "--- Wrapper Commands ---"
 "$REPO_ROOT/wrapper/omni" --help 2>&1 | grep -q "audit" && pass "wrapper audit command listed" || fail "wrapper audit command missing"
 "$REPO_ROOT/wrapper/omni" --help 2>&1 | grep -q "bundle" && pass "wrapper bundle command listed" || fail "wrapper bundle command missing"
@@ -356,6 +406,18 @@ for profile in strict standard permissive; do
 done
 
 python3 -c "import json; d=json.load(open('$REPO_ROOT/profiles/strict/config.json')); assert d['enterprise']['signing_enabled'] == True" && pass "strict profile has signing_enabled=true" || fail "strict profile signing_enabled wrong"
+
+echo ""
+echo "--- Strict Policy Pack Denies curl ---"
+STRICT_PACK_CHECK=$(call_tool "omni_policy_pack_validate" "{\"repo_root\":\"$REPO_ROOT\",\"pack_path\":\"$REPO_ROOT/policies/strict.json\"}")
+get_result_text "$STRICT_PACK_CHECK" | python3 -c "
+import sys, json
+t = json.loads(sys.stdin.read())
+assert t['valid'] == True, f'Strict pack should be valid, got {t}'
+rules = t.get('rule_results', [])
+assert len(rules) > 0, 'Strict pack should have rules'
+print('  PASS: strict policy pack validates and enforces rules')
+" || fail "strict policy pack enforcement"
 
 rm -rf "$ARTIFACT_DIR"
 
