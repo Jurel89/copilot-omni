@@ -30,7 +30,7 @@ for name in ['omni_research', 'omni_subtask_create', 'omni_subtask_status', 'omn
     assert name in tool_names, f'Missing tool: {name}'
 ")
 
-[ "$TOOL_COUNT" = "24" ] && pass "24 MCP tools registered (17 Phase 0-3 + 7 Phase 4)" || fail "expected 24 tools, got $TOOL_COUNT"
+[ "$TOOL_COUNT" = "28" ] && pass "28 MCP tools registered" || fail "expected 28 tools, got $TOOL_COUNT"
 
 echo ""
 echo "--- Intent Routing ---"

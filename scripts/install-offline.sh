@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$BUNDLE_DIR" ]]; then
-    BUNDLE_DIR="$(cd "$(dirname "$0")/.." && pwd)/bundle"
+    BUNDLE_DIR="$(cd "$(dirname "$0")/.." && pwd)/.omni/bundle"
 fi
 
 if [[ ! -d "$BUNDLE_DIR" ]]; then
@@ -62,7 +62,8 @@ echo ""
 if [[ "$SKIP_VALIDATE" == false ]]; then
     echo "Validating bundle checksums..."
 
-    CHECKSUMS_FILE="$BUNDLE_DIR/checksums.txt"    if [[ ! -f "$CHECKSUMS_FILE" ]]; then
+    CHECKSUMS_FILE="$BUNDLE_DIR/checksums.txt"
+    if [[ ! -f "$CHECKSUMS_FILE" ]]; then
         echo "WARNING: checksums.txt not found, skipping validation"
     else
         FAILED=0

@@ -30,6 +30,8 @@ type Component struct {
 	Type     string `json:"type"`
 	Arch     string `json:"arch,omitempty"`
 	Checksum string `json:"checksum"`
+
+	sourcePath string
 }
 
 type Provenance struct {
@@ -55,27 +57,73 @@ func NewManifest(releaseTag, platform, commitHash string) *Manifest {
 	}
 }
 
-func (m *Manifest) AddComponent(name, path, componentType, arch string) error {
-	checksum, err := FileChecksum(path)
+func (m *Manifest) AddComponent(name, srcPath, componentType, arch string) error {
+	checksum, err := FileChecksum(srcPath)
 	if err != nil {
 		return fmt.Errorf("checksum %s: %w", name, err)
 	}
 
-	relPath := filepath.Base(path)
+	relPath := filepath.Base(srcPath)
 	m.Components = append(m.Components, Component{
-		Name:     name,
-		Path:     relPath,
-		Type:     componentType,
-		Arch:     arch,
-		Checksum: checksum,
+		Name:       name,
+		Path:       relPath,
+		Type:       componentType,
+		Arch:       arch,
+		Checksum:   checksum,
+		sourcePath: srcPath,
 	})
 	m.Checksums[relPath] = checksum
+	return nil
+}
+
+func (m *Manifest) AddDirectoryComponent(name, srcDir string) error {
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return fmt.Errorf("read directory %s: %w", name, err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		filePath := filepath.Join(srcDir, entry.Name())
+		checksum, err := FileChecksum(filePath)
+		if err != nil {
+			continue
+		}
+		relPath := filepath.Join("plugin", entry.Name())
+		m.Components = append(m.Components, Component{
+			Name:       fmt.Sprintf("%s/%s", name, entry.Name()),
+			Path:       relPath,
+			Type:       "file",
+			Checksum:   checksum,
+			sourcePath: filePath,
+		})
+		m.Checksums[relPath] = checksum
+	}
 	return nil
 }
 
 func (m *Manifest) WriteBundle(outputDir string) (string, error) {
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return "", fmt.Errorf("create bundle directory: %w", err)
+	}
+
+	for _, comp := range m.Components {
+		if comp.sourcePath == "" {
+			continue
+		}
+		dest := filepath.Join(outputDir, comp.Path)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return "", fmt.Errorf("create component directory for %s: %w", comp.Name, err)
+		}
+		srcData, err := os.ReadFile(comp.sourcePath)
+		if err != nil {
+			return "", fmt.Errorf("read component %s: %w", comp.Name, err)
+		}
+		if err := os.WriteFile(dest, srcData, 0o755); err != nil {
+			return "", fmt.Errorf("write component %s: %w", comp.Name, err)
+		}
 	}
 
 	payload, err := json.MarshalIndent(m, "", "  ")

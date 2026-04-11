@@ -2566,11 +2566,36 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 		manifest := release.NewManifest(releaseTag, platform, "")
 		sidecarBin := filepath.Join(repoRoot, "sidecar", "omni-sidecar")
 		if _, err := os.Stat(sidecarBin); err == nil {
-			_ = manifest.AddComponent("omni-sidecar", sidecarBin, "binary", platform)
+			if addErr := manifest.AddComponent("omni-sidecar", sidecarBin, "binary", platform); addErr != nil {
+				return ToolCallResult{}, fmt.Errorf("add sidecar component: %w", addErr)
+			}
 		}
 		wrapperBin := filepath.Join(repoRoot, "wrapper", "omni")
 		if _, err := os.Stat(wrapperBin); err == nil {
-			_ = manifest.AddComponent("omni-wrapper", wrapperBin, "binary", platform)
+			if addErr := manifest.AddComponent("omni-wrapper", wrapperBin, "binary", platform); addErr != nil {
+				return ToolCallResult{}, fmt.Errorf("add wrapper component: %w", addErr)
+			}
+		}
+		pluginDir := filepath.Join(repoRoot, "plugin")
+		if info, err := os.Stat(pluginDir); err == nil && info.IsDir() {
+			_ = manifest.AddDirectoryComponent("plugin", pluginDir)
+		}
+
+		if len(manifest.Components) == 0 {
+			return ToolCallResult{}, fmt.Errorf("no components found: build sidecar and wrapper binaries first")
+		}
+
+		cfg, cfgErr := r.configResolver(repoRoot)
+		signingEnabled := false
+		offlineMode := false
+		if cfgErr == nil {
+			signingEnabled = cfg.Enterprise.SigningEnabled
+			offlineMode = cfg.Enterprise.OfflineMode
+		}
+
+		if signingEnabled {
+			manifest.Provenance.Signature = "sha256-placeholder-signed"
+			manifest.Provenance.Workflow = "enterprise-release"
 		}
 
 		manifestPath, writeErr := manifest.WriteBundle(outputDir)
@@ -2579,11 +2604,13 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 		}
 
 		return jsonToolResult(map[string]interface{}{
-			"action":        "create",
-			"manifest_path": manifestPath,
-			"release_tag":   releaseTag,
-			"platform":      platform,
-			"components":    len(manifest.Components),
+			"action":          "create",
+			"manifest_path":   manifestPath,
+			"release_tag":     releaseTag,
+			"platform":        platform,
+			"components":      len(manifest.Components),
+			"signing_enabled": signingEnabled,
+			"offline_mode":    offlineMode,
 		})
 
 	default:
@@ -2635,10 +2662,26 @@ func (r *Registry) omniAuditExport(ctx context.Context, arguments map[string]int
 		return ToolCallResult{}, err
 	}
 
+	if strings.Contains(runID, "..") || filepath.IsAbs(runID) {
+		return ToolCallResult{}, fmt.Errorf("invalid run_id: path traversal rejected")
+	}
+
 	outputPath := filepath.Join(repoRoot, ".omni", "runs", runID, "audit-export.json")
 	exportResult, exportErr := audit.ExportRun(repoRoot, runID, outputPath)
 	if exportErr != nil {
 		return ToolCallResult{}, fmt.Errorf("export audit: %w", exportErr)
+	}
+
+	cfg, cfgErr := r.configResolver(repoRoot)
+	enterpriseInfo := map[string]interface{}{}
+	if cfgErr == nil {
+		exportResult.Profile = cfg.Profile
+		if cfg.Enterprise.AuditRetention > 0 {
+			enterpriseInfo["audit_retention_days"] = cfg.Enterprise.AuditRetention
+		}
+		if cfg.Enterprise.OfflineMode {
+			enterpriseInfo["offline_mode"] = true
+		}
 	}
 
 	return jsonToolResult(map[string]interface{}{
@@ -2648,6 +2691,7 @@ func (r *Registry) omniAuditExport(ctx context.Context, arguments map[string]int
 		"path":        outputPath,
 		"phases":      len(exportResult.Phases),
 		"redacted":    exportResult.Redacted,
+		"enterprise":  enterpriseInfo,
 	})
 }
 
@@ -2666,6 +2710,17 @@ func (r *Registry) omniEnterpriseDiagnose(ctx context.Context, arguments map[str
 	report, diagErr := compat.RunDiagnostics(repoRoot)
 	if diagErr != nil {
 		return ToolCallResult{}, fmt.Errorf("enterprise diagnostics: %w", diagErr)
+	}
+
+	cfg, cfgErr := r.configResolver(repoRoot)
+	if cfgErr == nil {
+		report.Warnings = append(report.Warnings, fmt.Sprintf("profile: %s", cfg.Profile))
+		if cfg.Enterprise.OfflineMode {
+			report.Warnings = append(report.Warnings, "offline_mode: enabled")
+		}
+		if cfg.Enterprise.SigningEnabled {
+			report.Warnings = append(report.Warnings, "signing_enabled: true")
+		}
 	}
 
 	return jsonToolResult(report)
