@@ -1,0 +1,15 @@
+{
+  "name": "copilot-omni-marketplace",
+  "version": "1",
+  "description": "Local marketplace for Copilot Omni offline distribution",
+  "plugins": [
+    {
+      "name": "copilot-omni",
+      "version": "0.1.0",
+      "description": "Artifact-driven development workflows for Copilot CLI",
+      "path": "./plugin",
+      "sidecar": "./sidecar/omni-sidecar",
+      "wrapper": "./wrapper/omni"
+    }
+  ]
+}

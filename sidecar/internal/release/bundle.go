@@ -22,6 +22,7 @@ type Manifest struct {
 	Components []Component       `json:"components"`
 	Checksums  map[string]string `json:"checksums"`
 	Provenance Provenance        `json:"provenance"`
+	SBOM       []SBOMEntry       `json:"sbom"`
 }
 
 type Component struct {
@@ -41,6 +42,13 @@ type Provenance struct {
 	Repository string `json:"repository,omitempty"`
 }
 
+type SBOMEntry struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Type    string `json:"type"`
+	Hash    string `json:"hash,omitempty"`
+}
+
 func NewManifest(releaseTag, platform, commitHash string) *Manifest {
 	return &Manifest{
 		Version:    "1",
@@ -51,6 +59,7 @@ func NewManifest(releaseTag, platform, commitHash string) *Manifest {
 		Platform:   platform,
 		Components: make([]Component, 0),
 		Checksums:  make(map[string]string),
+		SBOM:       make([]SBOMEntry, 0),
 		Provenance: Provenance{
 			Builder: "copilot-omni-release",
 		},
@@ -73,6 +82,12 @@ func (m *Manifest) AddComponent(name, srcPath, componentType, arch string) error
 		sourcePath: srcPath,
 	})
 	m.Checksums[relPath] = checksum
+	m.SBOM = append(m.SBOM, SBOMEntry{
+		Name:    name,
+		Version: "",
+		Type:    componentType,
+		Hash:    checksum,
+	})
 	return nil
 }
 
@@ -100,6 +115,11 @@ func (m *Manifest) AddDirectoryComponent(name, srcDir string) error {
 			sourcePath: filePath,
 		})
 		m.Checksums[relPath] = checksum
+		m.SBOM = append(m.SBOM, SBOMEntry{
+			Name: entry.Name(),
+			Type: "plugin-file",
+			Hash: checksum,
+		})
 	}
 	return nil
 }
@@ -149,6 +169,15 @@ func (m *Manifest) WriteBundle(outputDir string) (string, error) {
 	}
 	if err := os.WriteFile(checksumsPath, []byte(sb.String()), 0o644); err != nil {
 		return "", fmt.Errorf("write checksums: %w", err)
+	}
+
+	sbomPayload, err := json.MarshalIndent(m.SBOM, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal SBOM: %w", err)
+	}
+	sbomPath := filepath.Join(outputDir, "sbom.json")
+	if err := os.WriteFile(sbomPath, sbomPayload, 0o644); err != nil {
+		return "", fmt.Errorf("write SBOM: %w", err)
 	}
 
 	return manifestPath, nil

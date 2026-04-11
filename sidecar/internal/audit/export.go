@@ -17,6 +17,7 @@ type Export struct {
 	RunStatus   string       `json:"run_status"`
 	Phases      []PhaseAudit `json:"phases"`
 	PolicyAudit *PolicyAudit `json:"policy_audit,omitempty"`
+	Artifacts   []string     `json:"artifacts,omitempty"`
 	Redacted    bool         `json:"redacted"`
 }
 
@@ -113,12 +114,71 @@ func ExportRun(repoRoot, runID, outputPath string) (*Export, error) {
 			if profile, ok := run["profile"].(string); ok {
 				export.Profile = profile
 			}
+			if phases, ok := run["phases"].([]interface{}); ok {
+				for _, p := range phases {
+					if pm, ok := p.(map[string]interface{}); ok {
+						pa := PhaseAudit{}
+						if v, ok := pm["phase"].(string); ok {
+							pa.Phase = v
+						}
+						if v, ok := pm["status"].(string); ok {
+							pa.Status = v
+						}
+						if v, ok := pm["started_at"].(string); ok {
+							pa.StartedAt = v
+						}
+						if v, ok := pm["ended_at"].(string); ok {
+							pa.EndedAt = v
+						}
+						if v, ok := pm["error"].(string); ok {
+							pa.Error = v
+						}
+						export.Phases = append(export.Phases, pa)
+					}
+				}
+			}
 		}
 	}
+
+	entries, err := os.ReadDir(runDir)
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				export.Artifacts = append(export.Artifacts, entry.Name())
+			}
+		}
+	}
+
+	_, err = os.ReadFile(filepath.Join(runDir, "decisions.md"))
+	if err == nil {
+		decision := PolicyDecision{
+			Operation:  "decisions",
+			Value:      "present",
+			Allowed:    true,
+			ReasonCode: "decisions_artifact_exists",
+		}
+		if export.Profile != "" {
+			decision.Profile = export.Profile
+		}
+		export.SetPolicyAudit(1, 1, 0, []PolicyDecision{decision})
+	}
+
+	redactSecrets(export)
 
 	if _, outputErr := export.Write(outputPath); outputErr != nil {
 		return nil, outputErr
 	}
 
 	return export, nil
+}
+
+func redactSecrets(export *Export) {
+	export.Redacted = true
+	for i := range export.Artifacts {
+		name := export.Artifacts[i]
+		lower := strings.ToLower(name)
+		if strings.Contains(lower, "secret") || strings.Contains(lower, "credential") || strings.Contains(lower, "token") {
+			export.Artifacts[i] = name + " [REDACTED]"
+		}
+	}
 }

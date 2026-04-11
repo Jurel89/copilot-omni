@@ -2689,7 +2689,8 @@ func (r *Registry) omniAuditExport(ctx context.Context, arguments map[string]int
 		"run_status":  exportResult.RunStatus,
 		"exported_at": exportResult.ExportedAt,
 		"path":        outputPath,
-		"phases":      len(exportResult.Phases),
+		"phases":      exportResult.Phases,
+		"artifacts":   exportResult.Artifacts,
 		"redacted":    exportResult.Redacted,
 		"enterprise":  enterpriseInfo,
 	})
