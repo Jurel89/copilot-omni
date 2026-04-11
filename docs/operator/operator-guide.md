@@ -110,13 +110,16 @@ Run performance benchmarks:
 
 ```bash
 # Run all benchmarks
-omni benchmark run
+omni benchmark
 
 # Run specific category
-omni benchmark run --category startup
+omni benchmark --category startup
 
-# Generate report
-omni benchmark report --format markdown
+# Run specific benchmark
+omni benchmark --benchmark cold_start
+
+# List available benchmarks
+omni benchmark --list
 ```
 
 ### Audit Logs
@@ -137,7 +140,7 @@ omni audit export --run-id <run-id>
 
 **Diagnosis**:
 ```bash
-omni benchmark run --category startup
+omni benchmark --category startup
 ```
 
 **Resolution**:
@@ -151,25 +154,29 @@ omni benchmark run --category startup
 
 **Diagnosis**:
 ```bash
-omni doctor --check memory
+omni doctor
 ```
 
 **Resolution**:
 - Check database file size: `ls -lh .omni/memory.db`
-- Rebuild indexes: `omni memory reindex`
-- Prune old records: `omni memory prune --max-age-days 30`
+- Prune old records by configuring retention in `.omni/config.json`:
+  ```json
+  {
+    "memory": {
+      "retention_days": 30
+    }
+  }
+  ```
 
 #### Issue: Policy violations blocking work
 
 **Symptoms**: Commands rejected unexpectedly
 
 **Diagnosis**:
-```bash
-omni policy check --operation command --value "<command>"
-```
+- Review blocked command in audit log: `omni audit <run-id>`
+- Check policy configuration in `.omni/config.json`
 
 **Resolution**:
-- Review blocked command in audit log
 - Update policy pack if needed
 - Use `permissive` profile temporarily for debugging
 
@@ -181,13 +188,16 @@ Generate a support bundle for troubleshooting:
 
 ```bash
 # Basic bundle
-omni support-bundle create
+omni support-bundle
 
 # Include logs (larger bundle)
-omni support-bundle create --include-logs
+omni support-bundle --include-logs
 
 # Maximum redaction
-omni support-bundle create --redaction-level aggressive
+omni support-bundle --redaction aggressive
+
+# Include specific run
+omni support-bundle --run-id <run-id>
 ```
 
 ### Bundle Contents
@@ -224,7 +234,7 @@ omni migrate up
 omni migrate up --dry-run
 
 # Migrate to specific version
-omni migrate up --target-version 1.2.0
+omni migrate up --target-version 2
 ```
 
 ### Rollback
@@ -234,7 +244,7 @@ omni migrate up --target-version 1.2.0
 omni migrate down
 
 # Rollback to specific version
-omni migrate down --target-version 1.1.0
+omni migrate down --target-version 1
 ```
 
 ### Migration Safety
@@ -270,27 +280,28 @@ Phase 6 defines these performance budgets:
 
 ```bash
 # Run benchmarks
-omni benchmark run
+omni benchmark
 
-# Compare to budgets
-omni benchmark report
+# Run specific category
+omni benchmark --category startup
 
-# Save for comparison
-omni benchmark run --save-results
+# List available benchmarks
+omni benchmark --list
 ```
 
 ## Enterprise Deployment
 
 ### Policy Packs
 
-Deploy organization-wide policy:
+Deploy organization-wide policy by distributing configuration files:
 
-```bash
-# Validate policy pack
-omni policy-pack validate --path policies/strict.json
-
-# Deploy to organization
-# (See enterprise documentation)
+```json
+{
+  "policy": {
+    "protected_paths": [".env", "*.key", "*.pem"],
+    "blocked_commands": ["rm -rf /", "mkfs.*"]
+  }
+}
 ```
 
 ### Offline Mode
@@ -341,11 +352,11 @@ omni init
 If database is corrupted:
 
 ```bash
-# Rebuild from artifacts
-omni memory rebuild --from-artifacts
-
 # Restore from backup
 cp .omni.backup.*/memory.db .omni/memory.db
+
+# Or start fresh (will lose memory data)
+rm .omni/memory.db
 ```
 
 ## Getting Help
