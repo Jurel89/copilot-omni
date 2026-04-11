@@ -38,7 +38,7 @@ For air-gapped environments:
 
 ```bash
 # Download offline bundle from release
-curl -L -o copilot-omni-offline.tar.gz https://github.com/copilot-omni/releases/download/v1.0.0/copilot-omni-offline.tar.gz
+curl -L -o copilot-omni-offline.tar.gz https://github.com/Jurel89/copilot-omni/releases/download/v0.1.0/copilot-omni-offline.tar.gz
 
 # Extract and run installer
 tar -xzf copilot-omni-offline.tar.gz
@@ -363,8 +363,8 @@ rm .omni/memory.db
 
 ### Support Channels
 
-- **Issues**: https://github.com/copilot-omni/issues
-- **Documentation**: https://docs.copilot-omni.io
+- **Issues**: https://github.com/Jurel89/copilot-omni/issues
+- **Documentation**: https://github.com/Jurel89/copilot-omni#readme
 - **Enterprise Support**: Contact your account manager
 
 ### Required Information
@@ -377,5 +377,5 @@ When reporting issues, include:
 
 ---
 
-**Version**: 1.0.0  
-**Last Updated**: 2024-04-11
+**Version**: 0.1.0  
+**Last Updated**: 2025-04-11

@@ -110,7 +110,7 @@ Copilot Omni integrates as a Copilot CLI plugin. After building:
 copilot-omni/
 ├── plugin/                 # Copilot CLI plugin manifest
 │   ├── agents/             # 5 orchestrating agents
-│   ├── skills/             # 9 workflow skills
+│   ├── skills/             # 8 workflow skills
 │   ├── hooks.json          # Security policy hooks
 │   └── plugin.json         # Plugin metadata
 ├── sidecar/                # MCP sidecar server (Go)
