@@ -18,12 +18,16 @@ import (
 	"time"
 
 	"github.com/copilot-omni/sidecar/internal/artifact"
+	"github.com/copilot-omni/sidecar/internal/audit"
+	"github.com/copilot-omni/sidecar/internal/compat"
 	"github.com/copilot-omni/sidecar/internal/config"
 	"github.com/copilot-omni/sidecar/internal/doctor"
 	"github.com/copilot-omni/sidecar/internal/execution"
 	"github.com/copilot-omni/sidecar/internal/memory"
 	"github.com/copilot-omni/sidecar/internal/merge"
 	"github.com/copilot-omni/sidecar/internal/policy"
+	"github.com/copilot-omni/sidecar/internal/policypack"
+	"github.com/copilot-omni/sidecar/internal/release"
 	"github.com/copilot-omni/sidecar/internal/research"
 	"github.com/copilot-omni/sidecar/internal/router"
 	runpkg "github.com/copilot-omni/sidecar/internal/run"
@@ -736,6 +740,106 @@ func NewRegistry(startedAt time.Time, resolver ConfigResolver) *Registry {
 			},
 		},
 		registry.omniIntentRoute,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_release_bundle",
+			Description: "Create or validate a release bundle with checksums, signatures, and provenance metadata",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"action": map[string]interface{}{
+						"type":        "string",
+						"description": "Action: create or validate",
+					},
+					"output_dir": map[string]interface{}{
+						"type":        "string",
+						"description": "Output directory for bundle (create action)",
+					},
+					"bundle_dir": map[string]interface{}{
+						"type":        "string",
+						"description": "Bundle directory to validate (validate action)",
+					},
+					"release_tag": map[string]interface{}{
+						"type":        "string",
+						"description": "Release tag for the bundle (create action)",
+					},
+					"platform": map[string]interface{}{
+						"type":        "string",
+						"description": "Target platform (e.g. linux/amd64)",
+					},
+				},
+				Required: []string{"repo_root", "action"},
+			},
+		},
+		registry.omniReleaseBundle,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_policy_pack_validate",
+			Description: "Validate a policy pack file against the schema and check rule consistency",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"pack_path": map[string]interface{}{
+						"type":        "string",
+						"description": "Path to the policy pack JSON file",
+					},
+				},
+				Required: []string{"repo_root", "pack_path"},
+			},
+		},
+		registry.omniPolicyPackValidate,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_audit_export",
+			Description: "Export audit trail for a run including policy decisions, verification outcomes, and phase history",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"run_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Run ID to export audit trail for",
+					},
+				},
+				Required: []string{"repo_root", "run_id"},
+			},
+		},
+		registry.omniAuditExport,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_enterprise_diagnose",
+			Description: "Run enterprise compatibility diagnostics checking platform, tools, plugin structure, and permissions",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+				},
+				Required: []string{"repo_root"},
+			},
+		},
+		registry.omniEnterpriseDiagnose,
 	)
 
 	return registry
@@ -1700,14 +1804,31 @@ func (r *Registry) omniPolicyCheck(ctx context.Context, arguments map[string]int
 		decision.Operation = policy.OpPathWrite
 	case "artifact":
 		decision.Operation = policy.OpArtifactMutation
+	case "tool", "tools":
+		decision.Operation = policy.OpTool
+	case "network":
+		decision.Operation = policy.OpNetwork
+	case "memory":
+		decision.Operation = policy.OpMemory
+	case "update", "updates":
+		decision.Operation = policy.OpUpdate
 	default:
-		return ToolCallResult{}, fmt.Errorf("operation must be one of: command, path, artifact, prompt")
+		return ToolCallResult{}, fmt.Errorf("operation must be one of: command, path, artifact, prompt, tool, network, memory, update")
 	}
 
 	result := engine.Evaluate(decision)
 	if result.Profile == "" {
 		result.Profile = resolvedConfig.Profile
 	}
+
+	packResult := checkAgainstShippedPacks(repoRoot, resolvedConfig.Profile, operation, value)
+	if packResult != nil && !packResult.Allowed {
+		result.Allowed = false
+		result.ReasonCode = packResult.ReasonCode
+		result.Message = packResult.Message
+		result.MatchedRule = packResult.MatchedRule
+	}
+
 	return jsonToolResult(result)
 }
 
@@ -2407,6 +2528,407 @@ func (r *Registry) omniIntentRoute(ctx context.Context, arguments map[string]int
 		"intent": string(intent),
 		"route":  route,
 	})
+}
+
+func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	action, err := requiredStringArg(arguments, "action")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	switch action {
+	case "validate":
+		bundleDir := stringVal(arguments, "bundle_dir")
+		if bundleDir == "" {
+			bundleDir = filepath.Join(repoRoot, ".omni", "bundle")
+		}
+		warnings, validateErr := release.ValidateBundle(bundleDir)
+		response := map[string]interface{}{
+			"action":     "validate",
+			"bundle_dir": bundleDir,
+			"valid":      validateErr == nil,
+		}
+		if validateErr != nil {
+			response["error"] = validateErr.Error()
+		}
+		if len(warnings) > 0 {
+			response["warnings"] = warnings
+		}
+		return jsonToolResult(response)
+
+	case "create":
+		outputDir := stringVal(arguments, "output_dir")
+		if outputDir == "" {
+			outputDir = filepath.Join(repoRoot, ".omni", "bundle")
+		}
+		releaseTag := stringVal(arguments, "release_tag")
+		if releaseTag == "" {
+			releaseTag = "v0.1.0"
+		}
+		platform := stringVal(arguments, "platform")
+		if platform == "" {
+			platform = "linux/amd64"
+		}
+
+		manifest := release.NewManifest(releaseTag, platform, "")
+		sidecarBin := filepath.Join(repoRoot, "sidecar", "omni-sidecar")
+		if _, err := os.Stat(sidecarBin); err == nil {
+			if addErr := manifest.AddComponent("omni-sidecar", sidecarBin, "binary", platform); addErr != nil {
+				return ToolCallResult{}, fmt.Errorf("add sidecar component: %w", addErr)
+			}
+		}
+		wrapperBin := filepath.Join(repoRoot, "wrapper", "omni")
+		if _, err := os.Stat(wrapperBin); err == nil {
+			if addErr := manifest.AddComponent("omni-wrapper", wrapperBin, "binary", platform); addErr != nil {
+				return ToolCallResult{}, fmt.Errorf("add wrapper component: %w", addErr)
+			}
+		}
+		pluginDir := filepath.Join(repoRoot, "plugin")
+		if info, err := os.Stat(pluginDir); err == nil && info.IsDir() {
+			_ = manifest.AddDirectoryComponent("plugin", pluginDir)
+		}
+
+		if mp, err := os.Stat(filepath.Join(repoRoot, "marketplace.json")); err == nil && !mp.IsDir() {
+			_ = manifest.AddExtraFile("marketplace.json", filepath.Join(repoRoot, "marketplace.json"), "marketplace.json")
+		}
+
+		policiesDir := filepath.Join(repoRoot, "policies")
+		if info, err := os.Stat(policiesDir); err == nil && info.IsDir() {
+			entries, _ := os.ReadDir(policiesDir)
+			for _, entry := range entries {
+				if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+					srcPath := filepath.Join(policiesDir, entry.Name())
+					_ = manifest.AddExtraFile("policies/"+entry.Name(), srcPath, filepath.Join("policies", entry.Name()))
+				}
+			}
+		}
+
+		installScript := filepath.Join(repoRoot, "scripts", "install-offline.sh")
+		if _, err := os.Stat(installScript); err == nil {
+			_ = manifest.AddExtraFile("install-offline.sh", installScript, "scripts/install-offline.sh")
+		}
+
+		if len(manifest.Components) == 0 {
+			return ToolCallResult{}, fmt.Errorf("no components found: build sidecar and wrapper binaries first")
+		}
+
+		cfg, cfgErr := r.configResolver(repoRoot)
+		signingEnabled := false
+		offlineMode := false
+		if cfgErr == nil {
+			signingEnabled = cfg.Enterprise.SigningEnabled
+			offlineMode = cfg.Enterprise.OfflineMode
+		}
+
+		if signingEnabled {
+			manifest.Provenance.Workflow = "enterprise-release"
+		}
+
+		manifestPath, writeErr := manifest.WriteBundle(outputDir)
+		if writeErr != nil {
+			return ToolCallResult{}, fmt.Errorf("create bundle: %w", writeErr)
+		}
+
+		sbomChecksum, _ := release.FileChecksum(filepath.Join(outputDir, "sbom.json"))
+		manifest.Checksums["sbom.json"] = sbomChecksum
+		manifest.Provenance.Fingerprint = "sha256:" + computeBundleFingerprint(manifest)
+		if payload, err := json.MarshalIndent(manifest, "", "  "); err == nil {
+			_ = os.WriteFile(manifestPath, payload, 0o644)
+		}
+		if checksumsContent, err := release.RegenerateChecksums(outputDir); err == nil {
+			_ = os.WriteFile(filepath.Join(outputDir, "checksums.txt"), checksumsContent, 0o644)
+		}
+
+		return jsonToolResult(map[string]interface{}{
+			"action":          "create",
+			"manifest_path":   manifestPath,
+			"release_tag":     releaseTag,
+			"platform":        platform,
+			"components":      len(manifest.Components),
+			"signing_enabled": signingEnabled,
+			"offline_mode":    offlineMode,
+		})
+
+	default:
+		return ToolCallResult{}, fmt.Errorf("action must be create or validate, got %q", action)
+	}
+}
+
+func (r *Registry) omniPolicyPackValidate(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	packPath, err := requiredStringArg(arguments, "pack_path")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	if !filepath.IsAbs(packPath) {
+		packPath = filepath.Join(repoRoot, packPath)
+	}
+
+	result, validateErr := policypack.ValidatePolicyPackFile(packPath)
+	if validateErr != nil {
+		return ToolCallResult{}, fmt.Errorf("validate policy pack: %w", validateErr)
+	}
+
+	return jsonToolResult(result)
+}
+
+func (r *Registry) omniAuditExport(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	runID, err := requiredStringArg(arguments, "run_id")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	if strings.Contains(runID, "..") || filepath.IsAbs(runID) {
+		return ToolCallResult{}, fmt.Errorf("invalid run_id: path traversal rejected")
+	}
+
+	outputPath := filepath.Join(repoRoot, ".omni", "runs", runID, "audit-export.json")
+	exportResult, exportErr := audit.ExportRun(repoRoot, runID, outputPath)
+	if exportErr != nil {
+		return ToolCallResult{}, fmt.Errorf("export audit: %w", exportErr)
+	}
+
+	cfg, cfgErr := r.configResolver(repoRoot)
+	enterpriseInfo := map[string]interface{}{}
+	if cfgErr == nil {
+		exportResult.Profile = cfg.Profile
+		if cfg.Enterprise.AuditRetention > 0 {
+			enterpriseInfo["audit_retention_days"] = cfg.Enterprise.AuditRetention
+		}
+		if cfg.Enterprise.OfflineMode {
+			enterpriseInfo["offline_mode"] = true
+		}
+	}
+
+	return jsonToolResult(map[string]interface{}{
+		"run_id":       exportResult.RunID,
+		"run_status":   exportResult.RunStatus,
+		"exported_at":  exportResult.ExportedAt,
+		"path":         outputPath,
+		"phases":       exportResult.Phases,
+		"artifacts":    exportResult.Artifacts,
+		"policy_audit": exportResult.PolicyAudit,
+		"redacted":     exportResult.Redacted,
+		"enterprise":   enterpriseInfo,
+	})
+}
+
+func (r *Registry) omniEnterpriseDiagnose(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	report, diagErr := compat.RunDiagnostics(repoRoot)
+	if diagErr != nil {
+		return ToolCallResult{}, fmt.Errorf("enterprise diagnostics: %w", diagErr)
+	}
+
+	cfg, cfgErr := r.configResolver(repoRoot)
+	if cfgErr == nil {
+		report.Warnings = append(report.Warnings, fmt.Sprintf("profile: %s", cfg.Profile))
+		if cfg.Enterprise.OfflineMode {
+			report.Warnings = append(report.Warnings, "offline_mode: enabled")
+		}
+		if cfg.Enterprise.SigningEnabled {
+			report.Warnings = append(report.Warnings, "signing_enabled: true")
+		}
+	}
+
+	return jsonToolResult(report)
+}
+
+func checkAgainstShippedPacks(repoRoot, profile, operation, value string) *policypack.PolicyPackResult {
+	exePath, _ := os.Executable()
+	if resolved, err := filepath.EvalSymlinks(exePath); err == nil && resolved != "" {
+		exePath = resolved
+	}
+	exeDir := filepath.Dir(exePath)
+	searchPaths := []string{
+		filepath.Join(repoRoot, "policies", profile+".json"),
+		filepath.Join(exeDir, "..", "share", "copilot-omni", "policies", profile+".json"),
+		filepath.Join(exeDir, "policies", profile+".json"),
+	}
+
+	var packData []byte
+	for _, p := range searchPaths {
+		if data, err := os.ReadFile(p); err == nil {
+			packData = data
+			break
+		}
+	}
+
+	if packData == nil {
+		return nil
+	}
+
+	var pack struct {
+		Rules []struct {
+			ID        string   `json:"id"`
+			Category  string   `json:"category"`
+			Severity  string   `json:"severity"`
+			CheckType string   `json:"check_type"`
+			Values    []string `json:"values"`
+			Enabled   bool     `json:"enabled"`
+		} `json:"rules"`
+	}
+	if json.Unmarshal(packData, &pack) != nil {
+		return nil
+	}
+
+	categoryMap := map[string]string{
+		"command": "commands", "commands": "commands",
+		"path": "paths", "paths": "paths",
+		"artifact": "paths",
+		"tool":     "tools", "tools": "tools",
+		"network": "network",
+		"memory":  "memory",
+		"update":  "updates", "updates": "updates",
+	}
+
+	targetCategory := categoryMap[strings.ToLower(operation)]
+	if targetCategory == "" {
+		return nil
+	}
+
+	for _, rule := range pack.Rules {
+		if !rule.Enabled || rule.Category != targetCategory {
+			continue
+		}
+		switch rule.CheckType {
+		case "deny_list":
+			for _, denied := range rule.Values {
+				if strings.Contains(strings.ToLower(value), strings.ToLower(denied)) {
+					return &policypack.PolicyPackResult{
+						RuleID:      rule.ID,
+						Allowed:     false,
+						ReasonCode:  "policy_pack_denied",
+						Message:     fmt.Sprintf("denied by policy pack rule %s (%s)", rule.ID, rule.Severity),
+						MatchedRule: rule.ID,
+					}
+				}
+			}
+		case "allow_list":
+			isAllowAll := false
+			matched := false
+			for _, a := range rule.Values {
+				if a == "*" {
+					isAllowAll = true
+					break
+				}
+				if strings.EqualFold(strings.TrimSpace(value), strings.TrimSpace(a)) {
+					matched = true
+					break
+				}
+			}
+			if !isAllowAll && !matched {
+				return &policypack.PolicyPackResult{
+					RuleID:      rule.ID,
+					Allowed:     false,
+					ReasonCode:  "policy_pack_not_allowed",
+					Message:     fmt.Sprintf("not in allow_list for rule %s (%s)", rule.ID, rule.Severity),
+					MatchedRule: rule.ID,
+				}
+			}
+		case "max_value":
+			if len(rule.Values) > 0 {
+				limitStr := rule.Values[0]
+				limit := 0
+				if _, err := fmt.Sscanf(limitStr, "%d", &limit); err == nil {
+					val := 0
+					if _, err := fmt.Sscanf(value, "%d", &val); err == nil && val > limit {
+						return &policypack.PolicyPackResult{
+							RuleID:      rule.ID,
+							Allowed:     false,
+							ReasonCode:  "policy_pack_max_exceeded",
+							Message:     fmt.Sprintf("value %d exceeds max %d for rule %s (%s)", val, limit, rule.ID, rule.Severity),
+							MatchedRule: rule.ID,
+						}
+					}
+				}
+			}
+		case "must_exist":
+			found := false
+			for _, req := range rule.Values {
+				if strings.EqualFold(strings.TrimSpace(value), strings.TrimSpace(req)) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return &policypack.PolicyPackResult{
+					RuleID:      rule.ID,
+					Allowed:     false,
+					ReasonCode:  "policy_pack_missing_required",
+					Message:     fmt.Sprintf("required value missing for rule %s (%s)", rule.ID, rule.Severity),
+					MatchedRule: rule.ID,
+				}
+			}
+		case "must_not_exist":
+			for _, forbidden := range rule.Values {
+				if strings.Contains(strings.ToLower(value), strings.ToLower(forbidden)) {
+					return &policypack.PolicyPackResult{
+						RuleID:      rule.ID,
+						Allowed:     false,
+						ReasonCode:  "policy_pack_forbidden_present",
+						Message:     fmt.Sprintf("forbidden value %q found for rule %s (%s)", forbidden, rule.ID, rule.Severity),
+						MatchedRule: rule.ID,
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func computeBundleFingerprint(m *release.Manifest) string {
+	keys := make([]string, 0, len(m.Checksums))
+	for k := range m.Checksums {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	for _, k := range keys {
+		h.Write([]byte(k))
+		h.Write([]byte(m.Checksums[k]))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func stringVal(arguments map[string]interface{}, key string) string {

@@ -1,0 +1,62 @@
+{
+  "name": "copilot-omni-standard",
+  "version": "1",
+  "profile": "standard",
+  "description": "Standard policy: balanced security with reasonable flexibility",
+  "rules": [
+    {
+      "id": "deny-dangerous-commands",
+      "category": "commands",
+      "severity": "critical",
+      "description": "Block destructive commands",
+      "check_type": "deny_list",
+      "values": ["sudo", "rm -rf /", "mkfs", "dd"],
+      "enabled": true
+    },
+    {
+      "id": "protect-source-paths",
+      "category": "paths",
+      "severity": "high",
+      "description": "Protect source paths from unguarded modification",
+      "check_type": "must_not_exist",
+      "values": ["src/"],
+      "enabled": true
+    },
+    {
+      "id": "limit-autopilot-turns",
+      "category": "tools",
+      "severity": "medium",
+      "description": "Cap autopilot turns at 15",
+      "check_type": "max_value",
+      "values": ["15"],
+      "enabled": true
+    },
+    {
+      "id": "standard-memory-retention",
+      "category": "memory",
+      "severity": "low",
+      "description": "90-day retention for standard mode",
+      "check_type": "max_value",
+      "values": ["90"],
+      "enabled": true
+    },
+    {
+      "id": "allow-standard-network",
+      "category": "network",
+      "severity": "info",
+      "description": "Allow standard network access for package management",
+      "check_type": "allow_list",
+      "values": ["https://registry.npmjs.org", "https://pypi.org"],
+      "enabled": true
+    },
+    {
+      "id": "standard-update-check",
+      "category": "updates",
+      "severity": "low",
+      "description": "Allow update checks in standard mode",
+      "check_type": "allow_list",
+      "values": ["check_update"],
+      "enabled": true
+    }
+  ]
+}

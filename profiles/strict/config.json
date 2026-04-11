@@ -20,5 +20,10 @@
     "max_subtasks": 2,
     "parallel_read": true,
     "parallel_write": false
+  },
+  "enterprise": {
+    "offline_mode": false,
+    "audit_retention_days": 30,
+    "signing_enabled": true
   }
 }

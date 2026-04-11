@@ -1,0 +1,71 @@
+{
+  "name": "copilot-omni-strict",
+  "version": "1",
+  "profile": "strict",
+  "description": "Strict enterprise policy: minimal trust, no external access, full audit",
+  "rules": [
+    {
+      "id": "deny-dangerous-commands",
+      "category": "commands",
+      "severity": "critical",
+      "description": "Block destructive and privilege-escalation commands",
+      "check_type": "deny_list",
+      "values": ["sudo", "rm -rf", "mkfs", "dd", "format", "curl.*|.*sh", "wget.*|.*sh"],
+      "enabled": true
+    },
+    {
+      "id": "deny-network-tools",
+      "category": "network",
+      "severity": "critical",
+      "description": "Block network tool execution in offline environments",
+      "check_type": "deny_list",
+      "values": ["curl", "wget", "nc", "ncat", "socat"],
+      "enabled": true
+    },
+    {
+      "id": "protect-critical-paths",
+      "category": "paths",
+      "severity": "high",
+      "description": "Protect source, library, and CI paths from modification",
+      "check_type": "must_not_exist",
+      "values": ["src/", "lib/", ".github/", ".omni/"],
+      "enabled": true
+    },
+    {
+      "id": "limit-autopilot-turns",
+      "category": "tools",
+      "severity": "high",
+      "description": "Cap autopilot turns at 5 in strict mode",
+      "check_type": "max_value",
+      "values": ["5"],
+      "enabled": true
+    },
+    {
+      "id": "require-memory-retention",
+      "category": "memory",
+      "severity": "medium",
+      "description": "Enforce short retention in strict mode",
+      "check_type": "max_value",
+      "values": ["30"],
+      "enabled": true
+    },
+    {
+      "id": "block-auto-update",
+      "category": "updates",
+      "severity": "high",
+      "description": "Disable auto-update in offline environments",
+      "check_type": "deny_list",
+      "values": ["auto_update", "check_update"],
+      "enabled": true
+    },
+    {
+      "id": "require-fingerprinted-bundles",
+      "category": "tools",
+      "severity": "critical",
+      "description": "Require fingerprinted release bundles",
+      "check_type": "must_exist",
+      "values": ["fingerprint"],
+      "enabled": true
+    }
+  ]
+}

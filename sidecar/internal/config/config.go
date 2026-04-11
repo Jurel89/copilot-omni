@@ -3,12 +3,13 @@ package config
 import "encoding/json"
 
 type Config struct {
-	Version  string         `json:"version"`
-	Profile  string         `json:"profile,omitempty"`
-	Policy   PolicyConfig   `json:"policy"`
-	Memory   MemoryConfig   `json:"memory"`
-	Sidecar  SidecarConfig  `json:"sidecar"`
-	Research ResearchConfig `json:"research"`
+	Version    string           `json:"version"`
+	Profile    string           `json:"profile,omitempty"`
+	Policy     PolicyConfig     `json:"policy"`
+	Memory     MemoryConfig     `json:"memory"`
+	Sidecar    SidecarConfig    `json:"sidecar"`
+	Research   ResearchConfig   `json:"research"`
+	Enterprise EnterpriseConfig `json:"enterprise"`
 
 	versionSet bool
 	profileSet bool
@@ -58,13 +59,24 @@ type ResearchConfig struct {
 	parallelWriteSet bool
 }
 
+type EnterpriseConfig struct {
+	OfflineMode    bool `json:"offline_mode"`
+	AuditRetention int  `json:"audit_retention_days"`
+	SigningEnabled bool `json:"signing_enabled"`
+
+	offlineModeSet    bool
+	auditRetentionSet bool
+	signingEnabledSet bool
+}
+
 type configJSON struct {
-	Version  *string             `json:"version"`
-	Profile  *string             `json:"profile"`
-	Policy   *policyConfigJSON   `json:"policy"`
-	Memory   *memoryConfigJSON   `json:"memory"`
-	Sidecar  *sidecarConfigJSON  `json:"sidecar"`
-	Research *researchConfigJSON `json:"research"`
+	Version    *string               `json:"version"`
+	Profile    *string               `json:"profile"`
+	Policy     *policyConfigJSON     `json:"policy"`
+	Memory     *memoryConfigJSON     `json:"memory"`
+	Sidecar    *sidecarConfigJSON    `json:"sidecar"`
+	Research   *researchConfigJSON   `json:"research"`
+	Enterprise *enterpriseConfigJSON `json:"enterprise"`
 }
 
 type policyConfigJSON struct {
@@ -91,6 +103,12 @@ type researchConfigJSON struct {
 	MaxSubtasks   *int  `json:"max_subtasks"`
 	ParallelRead  *bool `json:"parallel_read"`
 	ParallelWrite *bool `json:"parallel_write"`
+}
+
+type enterpriseConfigJSON struct {
+	OfflineMode    *bool `json:"offline_mode"`
+	AuditRetention *int  `json:"audit_retention_days"`
+	SigningEnabled *bool `json:"signing_enabled"`
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
@@ -125,6 +143,10 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 
 	if payload.Research != nil {
 		payload.Research.apply(&c.Research)
+	}
+
+	if payload.Enterprise != nil {
+		payload.Enterprise.apply(&c.Enterprise)
 	}
 
 	return nil
@@ -205,5 +227,22 @@ func (payload *researchConfigJSON) apply(target *ResearchConfig) {
 	if payload.ParallelWrite != nil {
 		target.ParallelWrite = *payload.ParallelWrite
 		target.parallelWriteSet = true
+	}
+}
+
+func (payload *enterpriseConfigJSON) apply(target *EnterpriseConfig) {
+	if payload.OfflineMode != nil {
+		target.OfflineMode = *payload.OfflineMode
+		target.offlineModeSet = true
+	}
+
+	if payload.AuditRetention != nil {
+		target.AuditRetention = *payload.AuditRetention
+		target.auditRetentionSet = true
+	}
+
+	if payload.SigningEnabled != nil {
+		target.SigningEnabled = *payload.SigningEnabled
+		target.signingEnabledSet = true
 	}
 }

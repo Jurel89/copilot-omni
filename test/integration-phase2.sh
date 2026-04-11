@@ -30,7 +30,7 @@ for name in ['omni_guarded_patch', 'omni_verification_run', 'omni_repo_map', 'om
     assert name in tool_names, f'Missing tool: {name}'
 ")
 
-[ "$TOOL_COUNT" = "24" ] && pass "24 MCP tools registered (11 Phase 0-2 + 6 Phase 3 + 7 Phase 4)" || fail "expected 24 tools, got $TOOL_COUNT"
+[ "$TOOL_COUNT" = "28" ] && pass "28 MCP tools registered" || fail "expected 28 tools, got $TOOL_COUNT"
 
 echo ""
 echo "--- Policy Engine ---"

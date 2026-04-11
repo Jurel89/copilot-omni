@@ -18,7 +18,7 @@ import (
 	"github.com/copilot-omni/wrapper/internal/workflow"
 )
 
-const usage = "Usage: omni <command> [options] [arguments]\n\nCommands:\n  init      Bootstrap repository for Omni\n  doctor    Run diagnostics\n  run       Start a full workflow\n  plan      Plan only (no execution)\n  execute   Execute an approved plan with guarded file writes\n  resume    Resume an interrupted run\n  research  Conduct structured research and produce a report\n  version   Print version\n"
+const usage = "Usage: omni <command> [options] [arguments]\n\nCommands:\n  init      Bootstrap repository for Omni\n  doctor    Run diagnostics\n  run       Start a full workflow\n  plan      Plan only (no execution)\n  execute   Execute an approved plan with guarded file writes\n  resume    Resume an interrupted run\n  research  Conduct structured research and produce a report\n  audit     Export audit trail for a run\n  bundle    Create or validate a release bundle\n  version   Print version\n"
 
 func main() {
 	args := os.Args[1:]
@@ -42,6 +42,10 @@ func main() {
 		runResume(args[1:])
 	case "research":
 		runResearch(args[1:])
+	case "audit":
+		runAudit(args[1:])
+	case "bundle":
+		runBundle(args[1:])
 	case "version":
 		fmt.Printf("omni v%s\n", version.Version)
 	case "--help", "-h":
@@ -303,6 +307,96 @@ func runResearch(args []string) {
 	fmt.Println("Research report:")
 	fmt.Println(result)
 	fmt.Printf("\nRun ID: %s\n", runID)
+}
+
+func runAudit(args []string) {
+	runID := ""
+	if len(args) > 0 {
+		runID = strings.TrimSpace(args[0])
+	}
+	if runID == "" {
+		fmt.Fprintln(os.Stderr, "audit requires a run ID")
+		os.Exit(1)
+	}
+
+	sidecarPath, err := sidecar.FindSidecar()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar binary: not found (%v)\n", err)
+		os.Exit(1)
+	}
+
+	mgr := sidecar.NewManager(sidecarPath)
+	defer stopManager(mgr)
+
+	ctx := context.Background()
+	if err := mgr.Start(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar start: failed (%v)\n", err)
+		os.Exit(1)
+	}
+	if err := mgr.HealthCheck(ctx, 5*time.Second); err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar health: failed (%v)\n", err)
+		os.Exit(1)
+	}
+
+	result, err := mgr.CallTool(ctx, "omni_audit_export", map[string]any{
+		"repo_root": repoRoot(),
+		"run_id":    runID,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "audit export failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Audit export:")
+	fmt.Println(result)
+}
+
+func runBundle(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "bundle requires an action: create or validate")
+		os.Exit(1)
+	}
+	action := strings.TrimSpace(args[0])
+
+	sidecarPath, err := sidecar.FindSidecar()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar binary: not found (%v)\n", err)
+		os.Exit(1)
+	}
+
+	mgr := sidecar.NewManager(sidecarPath)
+	defer stopManager(mgr)
+
+	ctx := context.Background()
+	if err := mgr.Start(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar start: failed (%v)\n", err)
+		os.Exit(1)
+	}
+	if err := mgr.HealthCheck(ctx, 5*time.Second); err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar health: failed (%v)\n", err)
+		os.Exit(1)
+	}
+
+	toolArgs := map[string]any{
+		"repo_root": repoRoot(),
+		"action":    action,
+	}
+
+	if action == "create" && len(args) > 1 {
+		toolArgs["output_dir"] = args[1]
+	}
+	if action == "validate" && len(args) > 1 {
+		toolArgs["bundle_dir"] = args[1]
+	}
+
+	result, err := mgr.CallTool(ctx, "omni_release_bundle", toolArgs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bundle %s failed: %v\n", action, err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Bundle %s:\n", action)
+	fmt.Println(result)
 }
 
 func runResume(args []string) {
