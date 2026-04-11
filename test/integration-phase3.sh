@@ -15,7 +15,7 @@ echo "--- Sidecar Build ---"
 (cd "$REPO_ROOT/sidecar" && go build ./cmd/omni-sidecar/) && pass "sidecar builds" || fail "sidecar build failed"
 
 echo ""
-echo "--- Tool Registry (24 tools) ---"
+echo "--- Tool Registry (31 tools) ---"
 
 TOOL_COUNT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
@@ -30,7 +30,7 @@ for name in ['omni_memory_search', 'omni_memory_capture', 'omni_memory_ingest', 
     assert name in tool_names, f'Missing tool: {name}'
 ")
 
-[ "$TOOL_COUNT" = "28" ] && pass "28 MCP tools registered" || fail "expected 28 tools, got $TOOL_COUNT"
+[ "$TOOL_COUNT" = "31" ] && pass "31 MCP tools registered" || fail "expected 31 tools, got $TOOL_COUNT"
 
 echo ""
 echo "--- Memory Capture ---"

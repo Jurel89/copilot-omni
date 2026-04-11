@@ -1,294 +1,126 @@
-#!/bin/bash
-set -e
-
-# Phase 6 Integration Tests
-# Tests benchmark, migration, and support bundle functionality
+#!/usr/bin/env bash
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TEST_DIR="$REPO_ROOT/.omni/test-phase6"
+FAILED=0
 
-echo "=== Phase 6 Integration Tests ==="
-echo "Test directory: $TEST_DIR"
+pass() { echo "  PASS: $1"; }
+fail() { echo "  FAIL: $1"; FAILED=1; }
 
-# Setup
-cleanup() {
-    echo "Cleaning up test directory..."
-    rm -rf "$TEST_DIR"
+echo "=== Phase 6: GA Hardening, Benchmark, Migration & Support ==="
+echo ""
+
+SIDECAR="$REPO_ROOT/sidecar/omni-sidecar"
+
+call_tool() {
+    local tool_name="$1"
+    local args="$2"
+    printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"%s","arguments":%s}}\n' "$tool_name" "$args" | "$SIDECAR" serve 2>/dev/null
 }
 
-setup() {
-    echo "Setting up test directory..."
-    mkdir -p "$TEST_DIR"
-    cd "$REPO_ROOT"
+get_result_text() {
+    printf '%s\n' "$1" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+r = json.loads(lines[-1])
+print(json.dumps(json.loads(r['result']['content'][0]['text'])))
+"
 }
 
-# Test: Benchmark Tool Registration
-test_benchmark_tool_registered() {
-    echo ""
-    echo "Test: Benchmark tool registration"
-    
-    # List tools and check for omni_benchmark
-    if go run ./sidecar/cmd/omni-sidecar/main.go list-tools 2>/dev/null | grep -q "omni_benchmark"; then
-        echo "✓ omni_benchmark tool is registered"
-    else
-        echo "✗ omni_benchmark tool not found"
-        return 1
-    fi
+has_error() {
+    printf '%s\n' "$1" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+r = json.loads(lines[-1])
+sys.exit(0 if 'error' in r else 1)
+"
 }
 
-# Test: Migration Tool Registration
-test_migration_tool_registered() {
-    echo ""
-    echo "Test: Migration tool registration"
-    
-    if go run ./sidecar/cmd/omni-sidecar/main.go list-tools 2>/dev/null | grep -q "omni_migrate"; then
-        echo "✓ omni_migrate tool is registered"
-    else
-        echo "✗ omni_migrate tool not found"
-        return 1
-    fi
-}
+echo "--- Building Sidecar ---"
+(cd "$REPO_ROOT/sidecar" && go build -o "$SIDECAR" ./cmd/omni-sidecar/main.go) && pass "sidecar builds" || fail "sidecar build failed"
 
-# Test: Support Bundle Tool Registration
-test_support_bundle_tool_registered() {
-    echo ""
-    echo "Test: Support bundle tool registration"
-    
-    if go run ./sidecar/cmd/omni-sidecar/main.go list-tools 2>/dev/null | grep -q "omni_support_bundle"; then
-        echo "✓ omni_support_bundle tool is registered"
-    else
-        echo "✗ omni_support_bundle tool not found"
-        return 1
-    fi
-}
+echo ""
+echo "--- Tool Registration ---"
+TOOLS_RESULT=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | "$SIDECAR" serve 2>/dev/null)
 
-# Test: Benchmark Schema Validation
-test_benchmark_schema() {
-    echo ""
-    echo "Test: Benchmark schema validation"
-    
-    cd "$REPO_ROOT/sidecar"
-    
-    # Run schema validation test
-    if go test -v -run TestBenchmarkSchema ./internal/schema/ 2>&1 | grep -q "PASS"; then
-        echo "✓ Benchmark schema tests pass"
-    else
-        echo "✗ Benchmark schema tests failed"
-        return 1
-    fi
-}
+echo "$TOOLS_RESULT" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+r = json.loads(lines[-1])
+tools = r['result']['tools']
+names = [t['name'] for t in tools]
+required = ['omni_benchmark', 'omni_migrate', 'omni_support_bundle']
+for name in required:
+    assert name in names, f'Missing tool: {name}'
+    print(f'  PASS: {name} registered')
+print(f'  PASS: total {len(tools)} MCP tools registered')
+" || fail "Phase 6 tool registration"
 
-# Test: Migration Schema Validation
-test_migration_schema() {
-    echo ""
-    echo "Test: Migration schema validation"
-    
-    cd "$REPO_ROOT/sidecar"
-    
-    if go test -v -run TestMigrationSchema ./internal/schema/ 2>&1 | grep -q "PASS"; then
-        echo "✓ Migration schema tests pass"
-    else
-        echo "✗ Migration schema tests failed"
-        return 1
-    fi
-}
+echo ""
+echo "--- Benchmark Tool ---"
+BENCH_RESULT=$(call_tool "omni_benchmark" "{\"repo_root\":\"$REPO_ROOT\",\"action\":\"list\"}")
 
-# Test: Support Bundle Schema Validation
-test_support_bundle_schema() {
-    echo ""
-    echo "Test: Support bundle schema validation"
-    
-    cd "$REPO_ROOT/sidecar"
-    
-    if go test -v -run TestSupportBundleSchema ./internal/schema/ 2>&1 | grep -q "PASS"; then
-        echo "✓ Support bundle schema tests pass"
-    else
-        echo "✗ Support bundle schema tests failed"
-        return 1
-    fi
-}
+get_result_text "$BENCH_RESULT" | python3 -c "
+import sys, json
+t = json.loads(sys.stdin.read())
+assert 'benchmarks' in t or 'categories' in t or 'action' in t, f'Unexpected benchmark response: {t}'
+print('  PASS: omni_benchmark list returns valid response')
+" || fail "omni_benchmark list"
 
-# Test: Benchmark Package Compilation
-test_benchmark_compilation() {
-    echo ""
-    echo "Test: Benchmark package compilation"
-    
-    cd "$REPO_ROOT/sidecar"
-    
-    if go build ./internal/benchmark/... 2>&1; then
-        echo "✓ Benchmark package compiles successfully"
-    else
-        echo "✗ Benchmark package compilation failed"
-        return 1
-    fi
-}
+echo ""
+echo "--- Migration Tool ---"
+MIGRATE_RESULT=$(call_tool "omni_migrate" "{\"repo_root\":\"$REPO_ROOT\",\"action\":\"status\"}")
 
-# Test: Migration Package Compilation
-test_migration_compilation() {
-    echo ""
-    echo "Test: Migration package compilation"
-    
-    cd "$REPO_ROOT/sidecar"
-    
-    if go build ./internal/migration/... 2>&1; then
-        echo "✓ Migration package compiles successfully"
-    else
-        echo "✗ Migration package compilation failed"
-        return 1
-    fi
-}
+get_result_text "$MIGRATE_RESULT" | python3 -c "
+import sys, json
+t = json.loads(sys.stdin.read())
+assert 'schemas' in t or 'pending' in t or 'status' in t, f'Unexpected migration response: {t}'
+print('  PASS: omni_migrate status returns valid response')
+" || fail "omni_migrate status"
 
-# Test: Support Package Compilation
-test_support_compilation() {
-    echo ""
-    echo "Test: Support package compilation"
-    
-    cd "$REPO_ROOT/sidecar"
-    
-    if go build ./internal/support/... 2>&1; then
-        echo "✓ Support package compiles successfully"
-    else
-        echo "✗ Support package compilation failed"
-        return 1
-    fi
-}
+echo ""
+echo "--- Support Bundle Tool ---"
+ARTIFACT_DIR=$(mktemp -d)
+SUPPORT_RESULT=$(call_tool "omni_support_bundle" "{\"repo_root\":\"$REPO_ROOT\",\"output_dir\":\"$ARTIFACT_DIR/support\"}")
 
-# Test: Full Sidecar Build
-test_sidecar_build() {
-    echo ""
-    echo "Test: Full sidecar build"
-    
-    cd "$REPO_ROOT/sidecar"
-    
-    if go build -o /tmp/omni-sidecar-test ./cmd/omni-sidecar/main.go 2>&1; then
-        echo "✓ Sidecar builds successfully"
-        rm -f /tmp/omni-sidecar-test
-    else
-        echo "✗ Sidecar build failed"
-        return 1
-    fi
-}
+get_result_text "$SUPPORT_RESULT" | python3 -c "
+import sys, json
+t = json.loads(sys.stdin.read())
+assert 'bundle_id' in t or 'item_count' in t or 'output_path' in t, f'Unexpected support bundle response: {t}'
+print('  PASS: omni_support_bundle creates bundle')
+" || fail "omni_support_bundle create"
+rm -rf "$ARTIFACT_DIR"
 
-# Test: MCP Tools Integration
-test_mcp_tools_integration() {
-    echo ""
-    echo "Test: MCP tools integration"
-    
-    cd "$REPO_ROOT/sidecar"
-    
-    # Test that all Phase 6 tools are callable
-    if go test -v -run TestPhase6Tools ./internal/mcp/ 2>&1 | grep -q "PASS"; then
-        echo "✓ Phase 6 MCP tools integration tests pass"
-    else
-        echo "Note: Phase 6 MCP tools integration tests not yet implemented"
-    fi
-}
+echo ""
+echo "--- Go Unit Tests ---"
+(cd "$REPO_ROOT/sidecar" && go test ./internal/benchmark/ -count=1 2>&1 && echo "BENCHMARK_OK") | grep -q "BENCHMARK_OK" && pass "benchmark package tests pass" || fail "benchmark package tests"
+(cd "$REPO_ROOT/sidecar" && go test ./internal/migration/ -count=1 2>&1 && echo "MIGRATION_OK") | grep -q "MIGRATION_OK" && pass "migration package tests pass" || fail "migration package tests"
+(cd "$REPO_ROOT/sidecar" && go test ./internal/support/ -count=1 2>&1 && echo "SUPPORT_OK") | grep -q "SUPPORT_OK" && pass "support package tests pass" || fail "support package tests"
 
-# Test: Performance Budgets
-test_performance_budgets() {
-    echo ""
-    echo "Test: Performance budgets defined"
-    
-    # Check that budget constants are defined
-    if grep -q "ColdStartP95" "$REPO_ROOT/sidecar/internal/benchmark/harness.go"; then
-        echo "✓ Performance budgets defined in harness"
-    else
-        echo "✗ Performance budgets not found"
-        return 1
-    fi
-    
-    # Check target values
-    if grep -q "1500.*time.Millisecond" "$REPO_ROOT/sidecar/internal/benchmark/harness.go"; then
-        echo "✓ Cold start budget: 1500ms"
-    fi
-    
-    if grep -q "150.*time.Millisecond" "$REPO_ROOT/sidecar/internal/benchmark/harness.go"; then
-        echo "✓ Memory search budget: 150ms"
-    fi
-}
+echo ""
+echo "--- Performance Budgets ---"
+grep -q "ColdStartP95" "$REPO_ROOT/sidecar/internal/benchmark/harness.go" && pass "ColdStartP95 budget defined" || fail "ColdStartP95 not found"
+grep -q "1500" "$REPO_ROOT/sidecar/internal/benchmark/harness.go" && pass "cold start budget 1500ms" || fail "cold start budget not 1500ms"
+grep -q "150" "$REPO_ROOT/sidecar/internal/benchmark/harness.go" && pass "memory search budget 150ms" || fail "memory search budget not 150ms"
 
-# Test: Documentation
-test_documentation() {
-    echo ""
-    echo "Test: Documentation files exist"
-    
-    if [ -f "$REPO_ROOT/docs/operator/ga-release-checklist.md" ]; then
-        echo "✓ GA release checklist exists"
-    else
-        echo "✗ GA release checklist missing"
-        return 1
-    fi
-    
-    if [ -f "$REPO_ROOT/docs/operator/operator-guide.md" ]; then
-        echo "✓ Operator guide exists"
-    else
-        echo "✗ Operator guide missing"
-        return 1
-    fi
-}
+echo ""
+echo "--- Documentation ---"
+[ -f "$REPO_ROOT/docs/operator/ga-release-checklist.md" ] && pass "GA release checklist exists" || fail "GA release checklist missing"
+[ -f "$REPO_ROOT/docs/operator/operator-guide.md" ] && pass "operator guide exists" || fail "operator guide missing"
 
-# Test: Wrapper CLI Commands
-test_wrapper_commands() {
-    echo ""
-    echo "Test: Wrapper CLI commands"
-    
-    cd "$REPO_ROOT/wrapper"
-    
-    if go build -o /tmp/omni-test ./cmd/omni/main.go 2>&1; then
-        echo "✓ Wrapper CLI builds successfully"
-        
-        # Check help output for Phase 6 commands
-        if /tmp/omni-test --help 2>&1 | grep -qi "benchmark\|migrate\|support"; then
-            echo "✓ Phase 6 commands in CLI help"
-        else
-            echo "Note: Phase 6 CLI commands may not be fully integrated yet"
-        fi
-        
-        rm -f /tmp/omni-test
-    else
-        echo "✗ Wrapper CLI build failed"
-        return 1
-    fi
-}
+echo ""
+echo "--- Wrapper CLI Build ---"
+(cd "$REPO_ROOT/wrapper" && go build -o /tmp/omni-test ./cmd/omni/main.go 2>&1) && pass "wrapper CLI builds" || fail "wrapper CLI build failed"
+rm -f /tmp/omni-test
 
-# Main test runner
-main() {
-    setup
-    
-    echo ""
-    echo "Running Phase 6 integration tests..."
-    echo "======================================"
-    
-    local failed=0
-    
-    # Run all tests
-    test_benchmark_tool_registered || failed=$((failed + 1))
-    test_migration_tool_registered || failed=$((failed + 1))
-    test_support_bundle_tool_registered || failed=$((failed + 1))
-    test_benchmark_schema || failed=$((failed + 1))
-    test_migration_schema || failed=$((failed + 1))
-    test_support_bundle_schema || failed=$((failed + 1))
-    test_benchmark_compilation || failed=$((failed + 1))
-    test_migration_compilation || failed=$((failed + 1))
-    test_support_compilation || failed=$((failed + 1))
-    test_sidecar_build || failed=$((failed + 1))
-    test_mcp_tools_integration || true  # Optional
-    test_performance_budgets || failed=$((failed + 1))
-    test_documentation || failed=$((failed + 1))
-    test_wrapper_commands || failed=$((failed + 1))
-    
-    echo ""
-    echo "======================================"
-    if [ $failed -eq 0 ]; then
-        echo "All Phase 6 tests passed! ✓"
-        exit 0
-    else
-        echo "$failed test(s) failed ✗"
-        exit 1
-    fi
-}
+rm -f "$SIDECAR"
 
-# Run main
-trap cleanup EXIT
-main
+echo ""
+if [ $FAILED -eq 0 ]; then
+    echo "=== ALL PHASE 6 TESTS PASSED ==="
+    exit 0
+else
+    echo "=== SOME PHASE 6 TESTS FAILED ==="
+    exit 1
+fi

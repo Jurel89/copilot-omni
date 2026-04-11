@@ -1,4 +1,4 @@
-# Copilot Omni v1.0 GA Release Checklist
+# Copilot Omni GA Release Checklist
 
 This checklist ensures all Phase 6 requirements are met before declaring GA.
 
@@ -72,8 +72,8 @@ This checklist ensures all Phase 6 requirements are met before declaring GA.
 - [ ] All budgets within targets
 
 #### PHASE-6-NFR-003: Upgrade/Downgrade Paths
-- [ ] Upgrade path tested (0.1.0 -> 1.0.0)
-- [ ] Downgrade path tested (1.0.0 -> 0.1.0)
+- [ ] Upgrade path tested (previous -> current)
+- [ ] Downgrade path tested (current -> previous)
 - [ ] Data integrity verified
 - [ ] Rollback procedure documented
 
@@ -119,7 +119,7 @@ This checklist ensures all Phase 6 requirements are met before declaring GA.
 
 ## Release Artifacts
 
-- [ ] Version tagged (v1.0.0)
+- [ ] Version tagged (v0.1.0)
 - [ ] Release notes drafted
 - [ ] Binaries built for all platforms
 - [ ] Checksums generated

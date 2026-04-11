@@ -1,8 +1,25 @@
+# Build artifacts
 sidecar/omni-sidecar
 wrapper/omni
 *.exe
 *.dll
 *.so
 *.dylib
+
+# Runtime state
 .omni/
 .sisyphus/
+wrapper/.omni/
+
+# Internal development docs
+docs/internal/
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Benchmark results
+benchmark-results.txt
+dist/
