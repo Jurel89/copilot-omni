@@ -219,7 +219,9 @@ func ExportRun(repoRoot, runID, outputPath string) (*Export, error) {
 				pkg.Platform = plat
 			}
 			if prov, ok := manifest["provenance"].(map[string]interface{}); ok {
-				if sig, ok := prov["signature"].(string); ok {
+				if fp, ok := prov["fingerprint"].(string); ok {
+					pkg.Provenance = fp
+				} else if sig, ok := prov["signature"].(string); ok {
 					pkg.Provenance = sig
 				}
 			}

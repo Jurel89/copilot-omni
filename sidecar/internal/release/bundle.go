@@ -304,12 +304,19 @@ func ValidateBundle(bundleDir string) ([]string, error) {
 	}
 
 	for _, comp := range manifest.Components {
+		if !isPathContained(bundleDir, comp.Path) {
+			bundleErrors = append(bundleErrors, fmt.Sprintf("component %s path %q escapes bundle directory", comp.Name, comp.Path))
+			continue
+		}
 		if _, exists := checksumsMap[comp.Path]; !exists {
 			bundleErrors = append(bundleErrors, fmt.Sprintf("component %s (%s) not covered by checksums.txt", comp.Name, comp.Path))
 		}
 	}
 
 	for _, comp := range manifest.Components {
+		if !isPathContained(bundleDir, comp.Path) {
+			continue
+		}
 		compPath := filepath.Join(bundleDir, comp.Path)
 		if _, err := os.Stat(compPath); err != nil {
 			bundleErrors = append(bundleErrors, fmt.Sprintf("component %s file missing: %s", comp.Name, comp.Path))
@@ -330,6 +337,10 @@ func ValidateBundle(bundleDir string) ([]string, error) {
 	}
 
 	for fileName, expectedHash := range checksumsMap {
+		if !isPathContained(bundleDir, fileName) {
+			bundleErrors = append(bundleErrors, fmt.Sprintf("checksums.txt entry %q escapes bundle directory", fileName))
+			continue
+		}
 		filePath := filepath.Join(bundleDir, fileName)
 		actualHash, err := FileChecksum(filePath)
 		if err != nil {
@@ -410,4 +421,18 @@ func FileChecksum(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func isPathContained(base, rel string) bool {
+	if filepath.IsAbs(rel) {
+		return false
+	}
+	cleaned := filepath.Clean(rel)
+	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return false
+	}
+	resolved := filepath.Join(base, cleaned)
+	absBase, _ := filepath.Abs(base)
+	absResolved, _ := filepath.Abs(resolved)
+	return strings.HasPrefix(absResolved, absBase+string(filepath.Separator)) || absResolved == absBase
 }

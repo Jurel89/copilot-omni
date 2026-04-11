@@ -78,37 +78,62 @@ if [[ "$SKIP_VALIDATE" == false ]]; then
 
     CHECKSUMS_FILE="$BUNDLE_DIR/checksums.txt"
     if [[ ! -f "$CHECKSUMS_FILE" ]]; then
-        echo "WARNING: checksums.txt not found, skipping validation"
-    else
-        FAILED=0
-        while IFS= read -r line; do
-            EXPECTED=$(echo "$line" | awk '{print $1}')
-            FILE=$(echo "$line" | awk '{print $2}')
-            if [[ -z "$FILE" ]]; then
-                continue
-            fi
-            FILEPATH="$BUNDLE_DIR/$FILE"
-            if [[ ! -f "$FILEPATH" ]]; then
-                echo "  FAIL: $FILE missing from bundle"
-                FAILED=1
-                continue
-            fi
-            ACTUAL=$(sha256_hash "$FILEPATH")
-            if [[ "$ACTUAL" != "$EXPECTED" ]]; then
-                echo "  FAIL: $FILE checksum mismatch (expected $EXPECTED, got $ACTUAL)"
-                FAILED=1
-            else
-                echo "  OK: $FILE"
-            fi
-        done < "$CHECKSUMS_FILE"
-
-        if [[ $FAILED -ne 0 ]]; then
-            echo "" >&2
-            echo "ERROR: Bundle validation failed. Aborting installation." >&2
-            exit 1
-        fi
-        echo "All checksums verified."
+        echo "ERROR: checksums.txt not found in bundle" >&2
+        exit 1
     fi
+
+    HAS_MANIFEST_ENTRY=false
+    HAS_SBOM_ENTRY=false
+    FAILED=0
+    while IFS= read -r line; do
+        EXPECTED=$(echo "$line" | awk '{print $1}')
+        FILE=$(echo "$line" | awk '{print $2}')
+        if [[ -z "$FILE" ]]; then
+            continue
+        fi
+        if [[ "$FILE" == "release-manifest.json" ]]; then
+            HAS_MANIFEST_ENTRY=true
+        fi
+        if [[ "$FILE" == "sbom.json" ]]; then
+            HAS_SBOM_ENTRY=true
+        fi
+        case "$FILE" in
+            ../*|/../*|/..|/*)
+                echo "  FAIL: $FILE path escapes bundle directory"
+                FAILED=1
+                continue
+                ;;
+        esac
+        FILEPATH="$BUNDLE_DIR/$FILE"
+        if [[ ! -f "$FILEPATH" ]]; then
+            echo "  FAIL: $FILE missing from bundle"
+            FAILED=1
+            continue
+        fi
+        ACTUAL=$(sha256_hash "$FILEPATH")
+        if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "  FAIL: $FILE checksum mismatch (expected $EXPECTED, got $ACTUAL)"
+            FAILED=1
+        else
+            echo "  OK: $FILE"
+        fi
+    done < "$CHECKSUMS_FILE"
+
+    if [[ "$HAS_MANIFEST_ENTRY" == false ]]; then
+        echo "  FAIL: checksums.txt missing required entry: release-manifest.json" >&2
+        FAILED=1
+    fi
+    if [[ "$HAS_SBOM_ENTRY" == false ]]; then
+        echo "  FAIL: checksums.txt missing required entry: sbom.json" >&2
+        FAILED=1
+    fi
+
+    if [[ $FAILED -ne 0 ]]; then
+        echo "" >&2
+        echo "ERROR: Bundle validation failed. Aborting installation." >&2
+        exit 1
+    fi
+    echo "All checksums verified."
 fi
 
 echo ""
@@ -130,6 +155,12 @@ COMPONENTS=$(grep -o '"path"[[:space:]]*:[[:space:]]*"[^"]*"' "$MANIFEST" | sed 
 
 while IFS= read -r component; do
     [[ -z "$component" ]] && continue
+    case "$component" in
+        ../*|/../*|/..|/*)
+            echo "  SKIP: $component (path escapes bundle directory)" >&2
+            continue
+            ;;
+    esac
     SRC="$BUNDLE_DIR/$component"
     if [[ ! -f "$SRC" ]]; then
         echo "  SKIP: $component (not found)"

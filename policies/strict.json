@@ -59,12 +59,12 @@
       "enabled": true
     },
     {
-      "id": "require-signed-bundles",
+      "id": "require-fingerprinted-bundles",
       "category": "tools",
       "severity": "critical",
-      "description": "Require signed release bundles",
+      "description": "Require fingerprinted release bundles",
       "check_type": "must_exist",
-      "values": ["signature"],
+      "values": ["fingerprint"],
       "enabled": true
     }
   ]

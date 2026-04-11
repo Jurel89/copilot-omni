@@ -2776,9 +2776,14 @@ func (r *Registry) omniEnterpriseDiagnose(ctx context.Context, arguments map[str
 
 func checkAgainstShippedPacks(repoRoot, profile, operation, value string) *policypack.PolicyPackResult {
 	exePath, _ := os.Executable()
+	if resolved, err := filepath.EvalSymlinks(exePath); err == nil && resolved != "" {
+		exePath = resolved
+	}
+	exeDir := filepath.Dir(exePath)
 	searchPaths := []string{
 		filepath.Join(repoRoot, "policies", profile+".json"),
-		filepath.Join(filepath.Dir(exePath), "..", "share", "copilot-omni", "policies", profile+".json"),
+		filepath.Join(exeDir, "..", "share", "copilot-omni", "policies", profile+".json"),
+		filepath.Join(exeDir, "policies", profile+".json"),
 	}
 
 	var packData []byte
@@ -2840,14 +2845,19 @@ func checkAgainstShippedPacks(repoRoot, profile, operation, value string) *polic
 				}
 			}
 		case "allow_list":
-			allowed := false
+			isAllowAll := false
+			matched := false
 			for _, a := range rule.Values {
+				if a == "*" {
+					isAllowAll = true
+					break
+				}
 				if strings.EqualFold(strings.TrimSpace(value), strings.TrimSpace(a)) {
-					allowed = true
+					matched = true
 					break
 				}
 			}
-			if !allowed {
+			if !isAllowAll && !matched {
 				return &policypack.PolicyPackResult{
 					RuleID:      rule.ID,
 					Allowed:     false,
@@ -2874,23 +2884,21 @@ func checkAgainstShippedPacks(repoRoot, profile, operation, value string) *polic
 				}
 			}
 		case "must_exist":
+			found := false
 			for _, req := range rule.Values {
 				if strings.EqualFold(strings.TrimSpace(value), strings.TrimSpace(req)) {
-					return &policypack.PolicyPackResult{
-						RuleID:      rule.ID,
-						Allowed:     true,
-						ReasonCode:  "policy_pack_requirement_met",
-						Message:     fmt.Sprintf("required value %q present for rule %s", req, rule.ID),
-						MatchedRule: rule.ID,
-					}
+					found = true
+					break
 				}
 			}
-			return &policypack.PolicyPackResult{
-				RuleID:      rule.ID,
-				Allowed:     false,
-				ReasonCode:  "policy_pack_missing_required",
-				Message:     fmt.Sprintf("required value missing for rule %s (%s)", rule.ID, rule.Severity),
-				MatchedRule: rule.ID,
+			if !found {
+				return &policypack.PolicyPackResult{
+					RuleID:      rule.ID,
+					Allowed:     false,
+					ReasonCode:  "policy_pack_missing_required",
+					Message:     fmt.Sprintf("required value missing for rule %s (%s)", rule.ID, rule.Severity),
+					MatchedRule: rule.ID,
+				}
 			}
 		case "must_not_exist":
 			for _, forbidden := range rule.Values {
