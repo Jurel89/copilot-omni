@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -211,15 +212,24 @@ func runStatus() {
 		os.Exit(1)
 	}
 
+	runsDir := filepath.Join(repoRoot(), ".omni", "runs")
+	runID, err := findLatestRunID(runsDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "No runs found: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Run 'omni run <prompt>' first to create a workflow.")
+		os.Exit(1)
+	}
+
 	result, err := mgr.CallTool(ctx, "omni_run_status", map[string]any{
 		"repo_root": repoRoot(),
+		"run_id":    runID,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "status check failed: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("Workflow status:")
+	fmt.Printf("Workflow status (run: %s):\n", runID)
 	fmt.Println(result)
 }
 
@@ -283,6 +293,11 @@ func runBenchmark(args []string) {
 	result, err := mgr.CallTool(ctx, "omni_benchmark", toolArgs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "benchmark failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	if failed := parseBenchmarkFailures(result); failed > 0 {
+		fmt.Fprintf(os.Stderr, "benchmark failed: %d benchmark(s) exceeded performance budgets\n", failed)
 		os.Exit(1)
 	}
 
@@ -767,6 +782,21 @@ func generateFromTemplate(src, dest, markerStart, markerEnd string) error {
 	}
 
 	return os.WriteFile(dest, data, 0o644)
+}
+
+func parseBenchmarkFailures(result string) int {
+	type summary struct {
+		Failed int `json:"failed"`
+	}
+	type resultStruct struct {
+		Summary summary `json:"summary"`
+	}
+
+	var r resultStruct
+	if err := json.Unmarshal([]byte(result), &r); err != nil {
+		return 0
+	}
+	return r.Summary.Failed
 }
 
 func stopManager(mgr *sidecar.Manager) {

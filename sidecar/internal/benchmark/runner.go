@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -30,7 +31,10 @@ func ColdStartBenchmark() *Benchmark {
 		Iterations:  5,
 		Run: func(ctx context.Context) (map[string]float64, error) {
 			start := time.Now()
-			_ = make([]byte, 1024*1024)
+			data := make([]byte, 1024*1024)
+			for i := range data {
+				data[i] = byte(i % 256)
+			}
 			elapsed := float64(time.Since(start).Milliseconds())
 			return map[string]float64{
 				"total_ms": elapsed,
@@ -103,9 +107,9 @@ func ArtifactLoadBenchmark(store *artifact.Store) *Benchmark {
 				return map[string]float64{"skipped_ms": 0}, fmt.Errorf("artifact store not available")
 			}
 			start := time.Now()
-			_, err := store.ListRunArtifacts("nonexistent-run")
+			_, err := store.ListRunArtifacts("benchmark-test-run")
 			elapsed := float64(time.Since(start).Milliseconds())
-			if err != nil {
+			if err != nil && err.Error() != "run not found" {
 				return map[string]float64{"list_ms": elapsed}, err
 			}
 			return map[string]float64{
@@ -124,8 +128,24 @@ func PlanParseBenchmark() *Benchmark {
 		Iterations:  30,
 		Run: func(ctx context.Context) (map[string]float64, error) {
 			start := time.Now()
-			planData := []byte(`{"version":"1","plan_id":"test","phases":["discuss","spec","plan","execute","verify"]}`)
-			_ = len(planData)
+			planJSON := []byte(`{
+				"version": "1",
+				"plan_id": "benchmark-plan",
+				"title": "Benchmark Test Plan",
+				"description": "A test plan for benchmarking",
+				"phases": ["discuss", "spec", "plan", "execute", "verify"],
+				"tasks": [
+					{"id": "1", "title": "Task 1", "status": "pending"},
+					{"id": "2", "title": "Task 2", "status": "pending"},
+					{"id": "3", "title": "Task 3", "status": "pending"}
+				],
+				"dependencies": [
+					{"from": "1", "to": "2"},
+					{"from": "2", "to": "3"}
+				]
+			}`)
+			var plan map[string]interface{}
+			_ = json.Unmarshal(planJSON, &plan)
 			elapsed := float64(time.Since(start).Milliseconds())
 			return map[string]float64{
 				"parse_ms": elapsed,

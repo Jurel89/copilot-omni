@@ -98,11 +98,12 @@ func (c *Creator) Create(opts CreateOptions) (*Bundle, error) {
 	}
 
 	diagnostics := doctor.RunAll(opts.RepoRoot).Diagnostics
+	redactedRepoRoot, _ := c.redactor.RedactPath(opts.RepoRoot, opts.RedactionLevel)
 	bundle := &Bundle{
 		Version:        "1",
 		BundleID:       bundleID,
 		GeneratedAt:    time.Now().UTC(),
-		RepoRoot:       opts.RepoRoot,
+		RepoRoot:       redactedRepoRoot,
 		RunID:          opts.RunID,
 		Format:         bundleFormatFromOutputPath(opts.OutputPath),
 		Status:         statusFromDiagnostics(diagnostics),
