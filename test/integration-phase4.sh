@@ -15,7 +15,7 @@ echo "--- Sidecar Build ---"
 (cd "$REPO_ROOT/sidecar" && go build ./cmd/omni-sidecar/) && pass "sidecar builds" || fail "sidecar build failed"
 
 echo ""
-echo "--- Tool Registry (24 tools) ---"
+echo "--- Tool Registry (31 tools) ---"
 
 TOOL_COUNT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}

@@ -25,8 +25,8 @@ This guide is for operators who need to deploy, monitor, and troubleshoot Copilo
 ### Standard Installation
 
 ```bash
-# Install from marketplace
-copilot plugin install github.com/copilot-omni/copilot-omni
+# Install from source
+go install github.com/Jurel89/copilot-omni/wrapper/cmd/omni@latest
 
 # Or install from local build
 copilot plugin install ./plugin

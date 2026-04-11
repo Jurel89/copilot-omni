@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Phase 6 Integration Tests
-# Tests benchmark, migration, and support bundle functionality via MCP protocol
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FAILED=0
@@ -19,9 +16,7 @@ SIDECAR="$REPO_ROOT/sidecar/omni-sidecar"
 call_tool() {
     local tool_name="$1"
     local args="$2"
-    echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}
-{"jsonrpc":"2.0","method":"notifications/initialized"}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"'"$tool_name"'","arguments":'"$args"'}}' | "$SIDECAR" serve 2>/dev/null
+    printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"%s","arguments":%s}}\n' "$tool_name" "$args" | "$SIDECAR" serve 2>/dev/null
 }
 
 get_result_text() {
@@ -42,17 +37,12 @@ sys.exit(0 if 'error' in r else 1)
 "
 }
 
-# Build sidecar binary
 echo "--- Building Sidecar ---"
 (cd "$REPO_ROOT/sidecar" && go build -o "$SIDECAR" ./cmd/omni-sidecar/main.go) && pass "sidecar builds" || fail "sidecar build failed"
 
 echo ""
 echo "--- Tool Registration ---"
-
-# Check tool registration via MCP tools/list
-TOOLS_RESULT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}
-{"jsonrpc":"2.0","method":"notifications/initialized"}
-{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | "$SIDECAR" serve 2>/dev/null)
+TOOLS_RESULT=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | "$SIDECAR" serve 2>/dev/null)
 
 echo "$TOOLS_RESULT" | python3 -c "
 import sys, json
@@ -69,7 +59,7 @@ print(f'  PASS: total {len(tools)} MCP tools registered')
 
 echo ""
 echo "--- Benchmark Tool ---"
-BENCH_RESULT=$(call_tool "omni_benchmark "{\"repo_root\":\"$REPO_ROOT\",\"action\":\"list\"}")
+BENCH_RESULT=$(call_tool "omni_benchmark" "{\"repo_root\":\"$REPO_ROOT\",\"action\":\"list\"}")
 
 get_result_text "$BENCH_RESULT" | python3 -c "
 import sys, json
@@ -80,7 +70,7 @@ print('  PASS: omni_benchmark list returns valid response')
 
 echo ""
 echo "--- Migration Tool ---"
-MIGRATE_RESULT=$(call_tool "omni_migrate "{\"repo_root\":\"$REPO_ROOT\",\"action\":\"status\"}")
+MIGRATE_RESULT=$(call_tool "omni_migrate" "{\"repo_root\":\"$REPO_ROOT\",\"action\":\"status\"}")
 
 get_result_text "$MIGRATE_RESULT" | python3 -c "
 import sys, json
@@ -92,7 +82,7 @@ print('  PASS: omni_migrate status returns valid response')
 echo ""
 echo "--- Support Bundle Tool ---"
 ARTIFACT_DIR=$(mktemp -d)
-SUPPORT_RESULT=$(call_tool "omni_support_bundle "{\"repo_root\":\"$REPO_ROOT\",\"output_dir\":\"$ARTIFACT_DIR/support\"}")
+SUPPORT_RESULT=$(call_tool "omni_support_bundle" "{\"repo_root\":\"$REPO_ROOT\",\"output_dir\":\"$ARTIFACT_DIR/support\"}")
 
 get_result_text "$SUPPORT_RESULT" | python3 -c "
 import sys, json
@@ -124,7 +114,6 @@ echo "--- Wrapper CLI Build ---"
 (cd "$REPO_ROOT/wrapper" && go build -o /tmp/omni-test ./cmd/omni/main.go 2>&1) && pass "wrapper CLI builds" || fail "wrapper CLI build failed"
 rm -f /tmp/omni-test
 
-# Clean up built binary
 rm -f "$SIDECAR"
 
 echo ""
