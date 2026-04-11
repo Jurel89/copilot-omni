@@ -18,7 +18,23 @@ import (
 	"github.com/copilot-omni/wrapper/internal/workflow"
 )
 
-const usage = "Usage: omni <command> [options] [arguments]\n\nCommands:\n  init      Bootstrap repository for Omni\n  doctor    Run diagnostics\n  run       Start a full workflow\n  plan      Plan only (no execution)\n  execute   Execute an approved plan with guarded file writes\n  resume    Resume an interrupted run\n  research  Conduct structured research and produce a report\n  audit     Export audit trail for a run\n  bundle    Create or validate a release bundle\n  version   Print version\n"
+const usage = `Usage: omni <command> [options] [arguments]
+
+Commands:
+  init              Bootstrap repository for Omni
+  doctor            Run diagnostics
+  run               Start a full workflow
+  plan              Plan only (no execution)
+  execute           Execute an approved plan with guarded file writes
+  resume            Resume an interrupted run
+  research          Conduct structured research and produce a report
+  audit             Export audit trail for a run
+  bundle            Create or validate a release bundle
+  benchmark         Run performance benchmarks (Phase 6)
+  migrate           Run database and config migrations (Phase 6)
+  support-bundle    Generate support bundle with diagnostics (Phase 6)
+  version           Print version
+`
 
 func main() {
 	args := os.Args[1:]
@@ -46,6 +62,12 @@ func main() {
 		runAudit(args[1:])
 	case "bundle":
 		runBundle(args[1:])
+	case "benchmark":
+		runBenchmark(args[1:])
+	case "migrate":
+		runMigrate(args[1:])
+	case "support-bundle":
+		runSupportBundle(args[1:])
 	case "version":
 		fmt.Printf("omni v%s\n", version.Version)
 	case "--help", "-h":
@@ -162,6 +184,199 @@ func runDoctor() {
 
 	fmt.Printf("Copilot CLI: %s\n", copilotStatus)
 	fmt.Printf("Plugin directory: %s\n", pluginStatus)
+}
+
+func runBenchmark(args []string) {
+	action := "run"
+	category := ""
+	benchmark := ""
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--list", "-l":
+			action = "list"
+		case "--report", "-r":
+			action = "report"
+		case "--category", "-c":
+			if i+1 < len(args) {
+				category = args[i+1]
+				i++
+			}
+		case "--benchmark", "-b":
+			if i+1 < len(args) {
+				benchmark = args[i+1]
+				i++
+			}
+		default:
+			if !strings.HasPrefix(args[i], "-") {
+				action = args[i]
+			}
+		}
+	}
+
+	sidecarPath, err := sidecar.FindSidecar()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar binary: not found (%v)\n", err)
+		os.Exit(1)
+	}
+
+	mgr := sidecar.NewManager(sidecarPath)
+	defer stopManager(mgr)
+
+	ctx := context.Background()
+	if err := mgr.Start(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar start: failed (%v)\n", err)
+		os.Exit(1)
+	}
+	if err := mgr.HealthCheck(ctx, 5*time.Second); err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar health: failed (%v)\n", err)
+		os.Exit(1)
+	}
+
+	toolArgs := map[string]any{
+		"action": action,
+	}
+	if category != "" {
+		toolArgs["category"] = category
+	}
+	if benchmark != "" {
+		toolArgs["benchmark"] = benchmark
+	}
+
+	result, err := mgr.CallTool(ctx, "omni_benchmark", toolArgs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "benchmark failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Benchmark results:")
+	fmt.Println(result)
+}
+
+func runMigrate(args []string) {
+	action := "status"
+	targetVersion := ""
+	dryRun := false
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "status", "up", "down", "validate":
+			action = args[i]
+		case "--target-version", "-t":
+			if i+1 < len(args) {
+				targetVersion = args[i+1]
+				i++
+			}
+		case "--dry-run", "-d":
+			dryRun = true
+		}
+	}
+
+	sidecarPath, err := sidecar.FindSidecar()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar binary: not found (%v)\n", err)
+		os.Exit(1)
+	}
+
+	mgr := sidecar.NewManager(sidecarPath)
+	defer stopManager(mgr)
+
+	ctx := context.Background()
+	if err := mgr.Start(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar start: failed (%v)\n", err)
+		os.Exit(1)
+	}
+	if err := mgr.HealthCheck(ctx, 5*time.Second); err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar health: failed (%v)\n", err)
+		os.Exit(1)
+	}
+
+	toolArgs := map[string]any{
+		"action":    action,
+		"repo_root": repoRoot(),
+		"dry_run":   dryRun,
+	}
+	if targetVersion != "" {
+		toolArgs["target_version"] = targetVersion
+	}
+
+	result, err := mgr.CallTool(ctx, "omni_migrate", toolArgs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "migrate failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Migration %s:\n", action)
+	fmt.Println(result)
+}
+
+func runSupportBundle(args []string) {
+	outputPath := ""
+	includeLogs := false
+	redactionLevel := "standard"
+	runID := ""
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--output", "-o":
+			if i+1 < len(args) {
+				outputPath = args[i+1]
+				i++
+			}
+		case "--include-logs", "-l":
+			includeLogs = true
+		case "--redaction", "-r":
+			if i+1 < len(args) {
+				redactionLevel = args[i+1]
+				i++
+			}
+		case "--run-id":
+			if i+1 < len(args) {
+				runID = args[i+1]
+				i++
+			}
+		}
+	}
+
+	sidecarPath, err := sidecar.FindSidecar()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar binary: not found (%v)\n", err)
+		os.Exit(1)
+	}
+
+	mgr := sidecar.NewManager(sidecarPath)
+	defer stopManager(mgr)
+
+	ctx := context.Background()
+	if err := mgr.Start(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar start: failed (%v)\n", err)
+		os.Exit(1)
+	}
+	if err := mgr.HealthCheck(ctx, 5*time.Second); err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar health: failed (%v)\n", err)
+		os.Exit(1)
+	}
+
+	toolArgs := map[string]any{
+		"repo_root":       repoRoot(),
+		"include_logs":    includeLogs,
+		"redaction_level": redactionLevel,
+	}
+	if outputPath != "" {
+		toolArgs["output_path"] = outputPath
+	}
+	if runID != "" {
+		toolArgs["run_id"] = runID
+	}
+
+	result, err := mgr.CallTool(ctx, "omni_support_bundle", toolArgs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "support bundle failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Support bundle created:")
+	fmt.Println(result)
 }
 
 func runWorkflow(args []string) {

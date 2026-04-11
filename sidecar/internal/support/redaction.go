@@ -139,7 +139,7 @@ func baseRules(includePaths bool) []RedactionRule {
 	}
 
 	if user := strings.TrimSpace(os.Getenv("USER")); user != "" {
-		rules = append(rules, RedactionRule{Name: "username", Pattern: fmt.Sprintf(`(?i)(/Users/|/home/)%s\b`, regexp.QuoteMeta(user)), Replacement: `${1}[USER]`})
+		rules = append(rules, RedactionRule{Name: "username", Pattern: fmt.Sprintf(`(?i)(/Users/|/home/)%s\b`, regexp.QuoteMeta(user)), Replacement: "/$1/[USER]"})
 	}
 
 	return rules
