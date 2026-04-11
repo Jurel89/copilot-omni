@@ -10,15 +10,16 @@ import (
 )
 
 type Export struct {
-	RunID       string       `json:"run_id"`
-	RepoRoot    string       `json:"repo_root"`
-	ExportedAt  string       `json:"exported_at"`
-	Profile     string       `json:"profile,omitempty"`
-	RunStatus   string       `json:"run_status"`
-	Phases      []PhaseAudit `json:"phases"`
-	PolicyAudit *PolicyAudit `json:"policy_audit,omitempty"`
-	Artifacts   []string     `json:"artifacts,omitempty"`
-	Redacted    bool         `json:"redacted"`
+	RunID        string              `json:"run_id"`
+	RepoRoot     string              `json:"repo_root"`
+	ExportedAt   string              `json:"exported_at"`
+	Profile      string              `json:"profile,omitempty"`
+	RunStatus    string              `json:"run_status"`
+	Phases       []PhaseAudit        `json:"phases"`
+	PolicyAudit  *PolicyAudit        `json:"policy_audit,omitempty"`
+	Artifacts    []string            `json:"artifacts,omitempty"`
+	Verification *VerificationResult `json:"verification,omitempty"`
+	Redacted     bool                `json:"redacted"`
 }
 
 type PhaseAudit struct {
@@ -42,6 +43,14 @@ type PolicyDecision struct {
 	Allowed    bool   `json:"allowed"`
 	ReasonCode string `json:"reason_code,omitempty"`
 	Profile    string `json:"profile,omitempty"`
+}
+
+type VerificationResult struct {
+	Status  string `json:"status"`
+	Summary string `json:"summary,omitempty"`
+	Checks  int    `json:"checks,omitempty"`
+	Passed  int    `json:"passed,omitempty"`
+	Failed  int    `json:"failed,omitempty"`
 }
 
 func NewExport(runID, repoRoot, profile string) *Export {
@@ -149,18 +158,42 @@ func ExportRun(repoRoot, runID, outputPath string) (*Export, error) {
 		}
 	}
 
-	_, err = os.ReadFile(filepath.Join(runDir, "decisions.md"))
+	decisionsData, err := os.ReadFile(filepath.Join(runDir, "decisions.md"))
 	if err == nil {
-		decision := PolicyDecision{
-			Operation:  "decisions",
-			Value:      "present",
-			Allowed:    true,
-			ReasonCode: "decisions_artifact_exists",
+		decisions := parseDecisionsFromMarkdown(string(decisionsData), export.Profile)
+		if len(decisions) > 0 {
+			allowed := 0
+			for _, d := range decisions {
+				if d.Allowed {
+					allowed++
+				}
+			}
+			export.SetPolicyAudit(len(decisions), allowed, len(decisions)-allowed, decisions)
 		}
-		if export.Profile != "" {
-			decision.Profile = export.Profile
+	}
+
+	verifData, err := os.ReadFile(filepath.Join(runDir, "verification-report.json"))
+	if err == nil {
+		var verif map[string]interface{}
+		if json.Unmarshal(verifData, &verif) == nil {
+			vr := &VerificationResult{}
+			if s, ok := verif["status"].(string); ok {
+				vr.Status = s
+			}
+			if s, ok := verif["summary"].(string); ok {
+				vr.Summary = s
+			}
+			if n, ok := verif["checks"].(float64); ok {
+				vr.Checks = int(n)
+			}
+			if n, ok := verif["passed"].(float64); ok {
+				vr.Passed = int(n)
+			}
+			if n, ok := verif["failed"].(float64); ok {
+				vr.Failed = int(n)
+			}
+			export.Verification = vr
 		}
-		export.SetPolicyAudit(1, 1, 0, []PolicyDecision{decision})
 	}
 
 	redactSecrets(export)
@@ -181,4 +214,29 @@ func redactSecrets(export *Export) {
 			export.Artifacts[i] = name + " [REDACTED]"
 		}
 	}
+}
+
+func parseDecisionsFromMarkdown(content, profile string) []PolicyDecision {
+	decisions := make([]PolicyDecision, 0)
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") {
+			text := strings.TrimPrefix(line, "- ")
+			text = strings.TrimPrefix(text, "* ")
+			allowed := !strings.Contains(strings.ToLower(text), "denied") && !strings.Contains(strings.ToLower(text), "blocked") && !strings.Contains(strings.ToLower(text), "rejected")
+			reasonCode := "allowed"
+			if !allowed {
+				reasonCode = "denied"
+			}
+			decisions = append(decisions, PolicyDecision{
+				Operation:  "decision",
+				Value:      text,
+				Allowed:    allowed,
+				ReasonCode: reasonCode,
+				Profile:    profile,
+			})
+		}
+	}
+	return decisions
 }

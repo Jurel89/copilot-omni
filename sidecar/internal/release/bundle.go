@@ -232,8 +232,21 @@ func ValidateBundle(bundleDir string) ([]string, error) {
 	bundleErrors := make([]string, 0)
 
 	checksumsPath := filepath.Join(bundleDir, "checksums.txt")
-	if _, err := os.Stat(checksumsPath); err != nil {
+	checksumsData, err := os.ReadFile(checksumsPath)
+	if err != nil {
 		return warnings, fmt.Errorf("checksums.txt missing: %w", err)
+	}
+
+	checksumsMap := make(map[string]string)
+	for _, line := range strings.Split(string(checksumsData), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "  ", 2)
+		if len(parts) == 2 {
+			checksumsMap[parts[1]] = parts[0]
+		}
 	}
 
 	manifest, err := ReadManifest(bundleDir)
@@ -267,6 +280,22 @@ func ValidateBundle(bundleDir string) ([]string, error) {
 		}
 		if actualChecksum != comp.Checksum {
 			bundleErrors = append(bundleErrors, fmt.Sprintf("component %s checksum mismatch: expected %s got %s", comp.Name, comp.Checksum, actualChecksum))
+		}
+	}
+
+	if len(bundleErrors) > 0 {
+		return warnings, fmt.Errorf("bundle validation failed: %s", strings.Join(bundleErrors, "; "))
+	}
+
+	for fileName, expectedHash := range checksumsMap {
+		filePath := filepath.Join(bundleDir, fileName)
+		actualHash, err := FileChecksum(filePath)
+		if err != nil {
+			bundleErrors = append(bundleErrors, fmt.Sprintf("checksums.txt entry %s: file not found", fileName))
+			continue
+		}
+		if actualHash != expectedHash {
+			bundleErrors = append(bundleErrors, fmt.Sprintf("checksums.txt entry %s: hash mismatch expected %s got %s", fileName, expectedHash, actualHash))
 		}
 	}
 

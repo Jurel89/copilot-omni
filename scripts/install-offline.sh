@@ -100,8 +100,8 @@ fi
 echo ""
 echo "Installing components..."
 
-PRODUCT=$(python3 -c "import json; print(json.load(open('$MANIFEST'))['product'])" 2>/dev/null || echo "unknown")
-VERSION=$(python3 -c "import json; print(json.load(open('$MANIFEST'))['release_tag'])" 2>/dev/null || echo "unknown")
+PRODUCT=$(grep -o '"product"[[:space:]]*:[[:space:]]*"[^"]*"' "$MANIFEST" | head -1 | sed 's/.*:.*"\([^"]*\)"/\1/' 2>/dev/null || echo "unknown")
+VERSION=$(grep -o '"release_tag"[[:space:]]*:[[:space:]]*"[^"]*"' "$MANIFEST" | head -1 | sed 's/.*:.*"\([^"]*\)"/\1/' 2>/dev/null || echo "unknown")
 
 echo "Product: $PRODUCT"
 echo "Version: $VERSION"
@@ -112,12 +112,7 @@ BIN_DIR="$TARGET_DIR/bin"
 
 mkdir -p "$INSTALL_DIR" "$BIN_DIR"
 
-COMPONENTS=$(python3 -c "
-import json
-m = json.load(open('$MANIFEST'))
-for c in m.get('components', []):
-    print(c['path'])
-" 2>/dev/null || true)
+COMPONENTS=$(grep -o '"path"[[:space:]]*:[[:space:]]*"[^"]*"' "$MANIFEST" | sed 's/.*:.*"\([^"]*\)"/\1/' 2>/dev/null || true)
 
 while IFS= read -r component; do
     [[ -z "$component" ]] && continue
