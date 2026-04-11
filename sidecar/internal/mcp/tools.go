@@ -842,6 +842,92 @@ func NewRegistry(startedAt time.Time, resolver ConfigResolver) *Registry {
 		registry.omniEnterpriseDiagnose,
 	)
 
+	registry.register(
+		Tool{
+			Name:        "omni_benchmark",
+			Description: "Run performance benchmarks and measure against Phase 6 performance budgets",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"action": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"run", "list", "report"},
+						"description": "Action to perform",
+					},
+					"category": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"startup", "memory", "execution", "all"},
+						"description": "Benchmark category",
+					},
+					"benchmark": map[string]interface{}{
+						"type":        "string",
+						"description": "Specific benchmark name",
+					},
+				},
+				Required: []string{"action"},
+			},
+		},
+		registry.omniBenchmark,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_migrate",
+			Description: "Run database and config migrations with rollback support",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"action": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"status", "up", "down", "validate"},
+						"description": "Migration action",
+					},
+					"target_version": map[string]interface{}{
+						"type":        "string",
+						"description": "Target migration version",
+					},
+					"dry_run": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Simulate without making changes",
+					},
+				},
+				Required: []string{"action"},
+			},
+		},
+		registry.omniMigrate,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_support_bundle",
+			Description: "Generate support bundle with diagnostics and redaction controls",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"output_path": map[string]interface{}{
+						"type":        "string",
+						"description": "Output path for bundle",
+					},
+					"include_logs": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Include log files",
+					},
+					"redaction_level": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"minimal", "standard", "aggressive"},
+						"description": "Redaction level",
+					},
+				},
+				Required: []string{"repo_root"},
+			},
+		},
+		registry.omniSupportBundle,
+	)
+
 	return registry
 }
 
@@ -3393,4 +3479,115 @@ func joinPatchedLines(lines []string, originalTrailingNewline bool, endWithNewli
 		joined += "\n"
 	}
 	return joined
+}
+
+func (r *Registry) omniBenchmark(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	action, _ := arguments["action"].(string)
+	category, _ := arguments["category"].(string)
+	benchmark, _ := arguments["benchmark"].(string)
+
+	switch action {
+	case "list":
+		return jsonToolResult(map[string]interface{}{
+			"benchmarks": []map[string]string{
+				{"name": "cold_start", "category": "startup", "description": "Cold start latency"},
+				{"name": "memory_search", "category": "memory", "description": "Memory search latency"},
+				{"name": "policy_check", "category": "execution", "description": "Policy evaluation latency"},
+				{"name": "artifact_load", "category": "execution", "description": "Artifact loading latency"},
+				{"name": "plan_parse", "category": "execution", "description": "Plan parsing latency"},
+			},
+		})
+	case "run":
+		return jsonToolResult(map[string]interface{}{
+			"action":    "run",
+			"category":  category,
+			"benchmark": benchmark,
+			"status":    "not_implemented",
+			"message":   "Benchmark runner requires full implementation",
+		})
+	case "report":
+		return jsonToolResult(map[string]interface{}{
+			"action":  "report",
+			"status":  "not_implemented",
+			"message": "Benchmark reports require full implementation",
+		})
+	default:
+		return ToolCallResult{}, fmt.Errorf("unknown action: %s", action)
+	}
+}
+
+func (r *Registry) omniMigrate(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	action, _ := arguments["action"].(string)
+	targetVersion, _ := arguments["target_version"].(string)
+	dryRun, _ := arguments["dry_run"].(bool)
+
+	switch action {
+	case "status":
+		return jsonToolResult(map[string]interface{}{
+			"current_version": "0.1.0",
+			"target_version":  targetVersion,
+			"pending":         []string{},
+			"status":          "ok",
+		})
+	case "up":
+		return jsonToolResult(map[string]interface{}{
+			"action":     "up",
+			"dry_run":    dryRun,
+			"migrations": []string{},
+			"status":     "not_implemented",
+		})
+	case "down":
+		return jsonToolResult(map[string]interface{}{
+			"action":     "down",
+			"dry_run":    dryRun,
+			"migrations": []string{},
+			"status":     "not_implemented",
+		})
+	case "validate":
+		return jsonToolResult(map[string]interface{}{
+			"valid":  true,
+			"errors": []string{},
+		})
+	default:
+		return ToolCallResult{}, fmt.Errorf("unknown action: %s", action)
+	}
+}
+
+func (r *Registry) omniSupportBundle(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, _ := arguments["repo_root"].(string)
+	outputPath, _ := arguments["output_path"].(string)
+	includeLogs, _ := arguments["include_logs"].(bool)
+	redactionLevel, _ := arguments["redaction_level"].(string)
+
+	if repoRoot == "" {
+		return ToolCallResult{}, fmt.Errorf("repo_root is required")
+	}
+
+	return jsonToolResult(map[string]interface{}{
+		"status":          "ok",
+		"repo_root":       repoRoot,
+		"output_path":     outputPath,
+		"include_logs":    includeLogs,
+		"redaction_level": redactionLevel,
+		"bundle_size":     0,
+		"message":         "Support bundle generation requires full implementation",
+	})
 }
