@@ -48,18 +48,20 @@ Each phase produces a versioned artifact (spec, plan, decisions, transcripts) st
 
 ## Features
 
-- **Spec-Driven Development** — Formal specification artifacts before any code changes
-- **Guarded Execution** — File-scope enforcement against approved plan targets
-- **Policy Engine** — Three security profiles (strict, standard, permissive) with 6 rule categories
-- **Local Memory** — SQLite-backed persistent memory with full-text search and auto-ingestion
-- **Research Subagents** — Structured multi-source research with provenance tracking
-- **Workflow Resumption** — Resume interrupted workflows from any phase
-- **Audit Trail** — Complete run tracking with export and redaction
-- **Offline Distribution** — Air-gapped installation with signed release bundles and SBOM
-- **Performance Benchmarking** — Budget-based performance gates with regression detection
-- **Schema Migration** — Versioned schema upgrades with rollback safety checks
-- **Support Bundles** — Automated diagnostic collection with secret redaction
-- **Cross-Platform** — Linux, macOS, and Windows; AMD64 and ARM64
+| Feature | Description |
+|---------|-------------|
+| **Spec-Driven Development** | Formal specification artifacts before any code changes |
+| **Guarded Execution** | File-scope enforcement against approved plan targets |
+| **Policy Engine** | Three security profiles (strict, standard, permissive) with 6 rule categories |
+| **Local Memory** | SQLite-backed persistent memory with full-text search and auto-ingestion |
+| **Research Subagents** | Structured multi-source research with provenance tracking |
+| **Workflow Resumption** | Resume interrupted workflows from any phase |
+| **Audit Trail** | Complete run tracking with export and redaction |
+| **Offline Distribution** | Air-gapped installation with signed release bundles and SBOM |
+| **Performance Benchmarking** | Budget-based performance gates with regression detection |
+| **Schema Migration** | Versioned schema upgrades with rollback safety checks |
+| **Support Bundles** | Automated diagnostic collection with secret redaction |
+| **Cross-Platform** | Linux, macOS, and Windows; AMD64 and ARM64 |
 
 ## Quick Start
 
