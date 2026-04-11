@@ -70,6 +70,11 @@ func DefaultConfig() *Config {
 			ParallelRead:  true,
 			ParallelWrite: false,
 		},
+		Enterprise: EnterpriseConfig{
+			OfflineMode:    false,
+			AuditRetention: 90,
+			SigningEnabled: false,
+		},
 	}
 }
 
@@ -164,6 +169,18 @@ func Merge(base, overlay *Config) *Config {
 
 	if overlay.Research.parallelWriteSet {
 		merged.Research.ParallelWrite = overlay.Research.ParallelWrite
+	}
+
+	if overlay.Enterprise.offlineModeSet {
+		merged.Enterprise.OfflineMode = overlay.Enterprise.OfflineMode
+	}
+
+	if overlay.Enterprise.auditRetentionSet {
+		merged.Enterprise.AuditRetention = overlay.Enterprise.AuditRetention
+	}
+
+	if overlay.Enterprise.signingEnabledSet {
+		merged.Enterprise.SigningEnabled = overlay.Enterprise.SigningEnabled
 	}
 
 	return &merged

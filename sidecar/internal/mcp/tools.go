@@ -18,12 +18,16 @@ import (
 	"time"
 
 	"github.com/copilot-omni/sidecar/internal/artifact"
+	"github.com/copilot-omni/sidecar/internal/audit"
+	"github.com/copilot-omni/sidecar/internal/compat"
 	"github.com/copilot-omni/sidecar/internal/config"
 	"github.com/copilot-omni/sidecar/internal/doctor"
 	"github.com/copilot-omni/sidecar/internal/execution"
 	"github.com/copilot-omni/sidecar/internal/memory"
 	"github.com/copilot-omni/sidecar/internal/merge"
 	"github.com/copilot-omni/sidecar/internal/policy"
+	"github.com/copilot-omni/sidecar/internal/policypack"
+	"github.com/copilot-omni/sidecar/internal/release"
 	"github.com/copilot-omni/sidecar/internal/research"
 	"github.com/copilot-omni/sidecar/internal/router"
 	runpkg "github.com/copilot-omni/sidecar/internal/run"
@@ -736,6 +740,106 @@ func NewRegistry(startedAt time.Time, resolver ConfigResolver) *Registry {
 			},
 		},
 		registry.omniIntentRoute,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_release_bundle",
+			Description: "Create or validate a release bundle with checksums, signatures, and provenance metadata",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"action": map[string]interface{}{
+						"type":        "string",
+						"description": "Action: create or validate",
+					},
+					"output_dir": map[string]interface{}{
+						"type":        "string",
+						"description": "Output directory for bundle (create action)",
+					},
+					"bundle_dir": map[string]interface{}{
+						"type":        "string",
+						"description": "Bundle directory to validate (validate action)",
+					},
+					"release_tag": map[string]interface{}{
+						"type":        "string",
+						"description": "Release tag for the bundle (create action)",
+					},
+					"platform": map[string]interface{}{
+						"type":        "string",
+						"description": "Target platform (e.g. linux/amd64)",
+					},
+				},
+				Required: []string{"repo_root", "action"},
+			},
+		},
+		registry.omniReleaseBundle,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_policy_pack_validate",
+			Description: "Validate a policy pack file against the schema and check rule consistency",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"pack_path": map[string]interface{}{
+						"type":        "string",
+						"description": "Path to the policy pack JSON file",
+					},
+				},
+				Required: []string{"repo_root", "pack_path"},
+			},
+		},
+		registry.omniPolicyPackValidate,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_audit_export",
+			Description: "Export audit trail for a run including policy decisions, verification outcomes, and phase history",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+					"run_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Run ID to export audit trail for",
+					},
+				},
+				Required: []string{"repo_root", "run_id"},
+			},
+		},
+		registry.omniAuditExport,
+	)
+
+	registry.register(
+		Tool{
+			Name:        "omni_enterprise_diagnose",
+			Description: "Run enterprise compatibility diagnostics checking platform, tools, plugin structure, and permissions",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"repo_root": map[string]interface{}{
+						"type":        "string",
+						"description": "Repository root path",
+					},
+				},
+				Required: []string{"repo_root"},
+			},
+		},
+		registry.omniEnterpriseDiagnose,
 	)
 
 	return registry
@@ -2407,6 +2511,164 @@ func (r *Registry) omniIntentRoute(ctx context.Context, arguments map[string]int
 		"intent": string(intent),
 		"route":  route,
 	})
+}
+
+func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	action, err := requiredStringArg(arguments, "action")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	switch action {
+	case "validate":
+		bundleDir := stringVal(arguments, "bundle_dir")
+		if bundleDir == "" {
+			bundleDir = filepath.Join(repoRoot, ".omni", "bundle")
+		}
+		warnings, validateErr := release.ValidateBundle(bundleDir)
+		response := map[string]interface{}{
+			"action":     "validate",
+			"bundle_dir": bundleDir,
+			"valid":      validateErr == nil,
+		}
+		if validateErr != nil {
+			response["error"] = validateErr.Error()
+		}
+		if len(warnings) > 0 {
+			response["warnings"] = warnings
+		}
+		return jsonToolResult(response)
+
+	case "create":
+		outputDir := stringVal(arguments, "output_dir")
+		if outputDir == "" {
+			outputDir = filepath.Join(repoRoot, ".omni", "bundle")
+		}
+		releaseTag := stringVal(arguments, "release_tag")
+		if releaseTag == "" {
+			releaseTag = "v0.1.0"
+		}
+		platform := stringVal(arguments, "platform")
+		if platform == "" {
+			platform = "linux/amd64"
+		}
+
+		manifest := release.NewManifest(releaseTag, platform, "")
+		sidecarBin := filepath.Join(repoRoot, "sidecar", "omni-sidecar")
+		if _, err := os.Stat(sidecarBin); err == nil {
+			_ = manifest.AddComponent("omni-sidecar", sidecarBin, "binary", platform)
+		}
+		wrapperBin := filepath.Join(repoRoot, "wrapper", "omni")
+		if _, err := os.Stat(wrapperBin); err == nil {
+			_ = manifest.AddComponent("omni-wrapper", wrapperBin, "binary", platform)
+		}
+
+		manifestPath, writeErr := manifest.WriteBundle(outputDir)
+		if writeErr != nil {
+			return ToolCallResult{}, fmt.Errorf("create bundle: %w", writeErr)
+		}
+
+		return jsonToolResult(map[string]interface{}{
+			"action":        "create",
+			"manifest_path": manifestPath,
+			"release_tag":   releaseTag,
+			"platform":      platform,
+			"components":    len(manifest.Components),
+		})
+
+	default:
+		return ToolCallResult{}, fmt.Errorf("action must be create or validate, got %q", action)
+	}
+}
+
+func (r *Registry) omniPolicyPackValidate(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	packPath, err := requiredStringArg(arguments, "pack_path")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	if !filepath.IsAbs(packPath) {
+		packPath = filepath.Join(repoRoot, packPath)
+	}
+
+	result, validateErr := policypack.ValidatePolicyPackFile(packPath)
+	if validateErr != nil {
+		return ToolCallResult{}, fmt.Errorf("validate policy pack: %w", validateErr)
+	}
+
+	return jsonToolResult(result)
+}
+
+func (r *Registry) omniAuditExport(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+	runID, err := requiredStringArg(arguments, "run_id")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	outputPath := filepath.Join(repoRoot, ".omni", "runs", runID, "audit-export.json")
+	exportResult, exportErr := audit.ExportRun(repoRoot, runID, outputPath)
+	if exportErr != nil {
+		return ToolCallResult{}, fmt.Errorf("export audit: %w", exportErr)
+	}
+
+	return jsonToolResult(map[string]interface{}{
+		"run_id":      exportResult.RunID,
+		"run_status":  exportResult.RunStatus,
+		"exported_at": exportResult.ExportedAt,
+		"path":        outputPath,
+		"phases":      len(exportResult.Phases),
+		"redacted":    exportResult.Redacted,
+	})
+}
+
+func (r *Registry) omniEnterpriseDiagnose(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
+	select {
+	case <-ctx.Done():
+		return ToolCallResult{}, ctx.Err()
+	default:
+	}
+
+	repoRoot, err := requiredStringArg(arguments, "repo_root")
+	if err != nil {
+		return ToolCallResult{}, err
+	}
+
+	report, diagErr := compat.RunDiagnostics(repoRoot)
+	if diagErr != nil {
+		return ToolCallResult{}, fmt.Errorf("enterprise diagnostics: %w", diagErr)
+	}
+
+	return jsonToolResult(report)
 }
 
 func stringVal(arguments map[string]interface{}, key string) string {
