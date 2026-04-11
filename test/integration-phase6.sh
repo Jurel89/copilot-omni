@@ -75,7 +75,7 @@ MIGRATE_RESULT=$(call_tool "omni_migrate" "{\"repo_root\":\"$REPO_ROOT\",\"actio
 get_result_text "$MIGRATE_RESULT" | python3 -c "
 import sys, json
 t = json.loads(sys.stdin.read())
-assert 'current_version' in t or 'action' in t or 'migrations' in t, f'Unexpected migration response: {t}'
+assert 'schemas' in t or 'pending' in t or 'status' in t, f'Unexpected migration response: {t}'
 print('  PASS: omni_migrate status returns valid response')
 " || fail "omni_migrate status"
 
@@ -87,16 +87,16 @@ SUPPORT_RESULT=$(call_tool "omni_support_bundle" "{\"repo_root\":\"$REPO_ROOT\",
 get_result_text "$SUPPORT_RESULT" | python3 -c "
 import sys, json
 t = json.loads(sys.stdin.read())
-assert 'bundle_path' in t or 'files' in t or 'action' in t, f'Unexpected support bundle response: {t}'
+assert 'bundle_id' in t or 'item_count' in t or 'output_path' in t, f'Unexpected support bundle response: {t}'
 print('  PASS: omni_support_bundle creates bundle')
 " || fail "omni_support_bundle create"
 rm -rf "$ARTIFACT_DIR"
 
 echo ""
 echo "--- Go Unit Tests ---"
-(cd "$REPO_ROOT/sidecar" && go test ./internal/benchmark/ -v -count=1 2>&1) | grep -q "PASS" && pass "benchmark package tests pass" || fail "benchmark package tests"
-(cd "$REPO_ROOT/sidecar" && go test ./internal/migration/ -v -count=1 2>&1) | grep -q "PASS" && pass "migration package tests pass" || fail "migration package tests"
-(cd "$REPO_ROOT/sidecar" && go test ./internal/support/ -v -count=1 2>&1) | grep -q "PASS" && pass "support package tests pass" || fail "support package tests"
+(cd "$REPO_ROOT/sidecar" && go test ./internal/benchmark/ -count=1 2>&1 && echo "BENCHMARK_OK") | grep -q "BENCHMARK_OK" && pass "benchmark package tests pass" || fail "benchmark package tests"
+(cd "$REPO_ROOT/sidecar" && go test ./internal/migration/ -count=1 2>&1 && echo "MIGRATION_OK") | grep -q "MIGRATION_OK" && pass "migration package tests pass" || fail "migration package tests"
+(cd "$REPO_ROOT/sidecar" && go test ./internal/support/ -count=1 2>&1 && echo "SUPPORT_OK") | grep -q "SUPPORT_OK" && pass "support package tests pass" || fail "support package tests"
 
 echo ""
 echo "--- Performance Budgets ---"
