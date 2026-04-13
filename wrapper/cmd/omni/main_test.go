@@ -16,7 +16,10 @@ func TestTrustedPluginDirUsesAssetLocator(t *testing.T) {
 		t.Fatalf("trustedPluginDir() error = %v", err)
 	}
 
-	want := filepath.Join(assetRoot, "plugin")
+	want, err := filepath.EvalSymlinks(filepath.Join(assetRoot, "plugin"))
+	if err != nil {
+		t.Fatalf("EvalSymlinks(plugin dir) error = %v", err)
+	}
 	if pluginDir != want {
 		t.Fatalf("trustedPluginDir() = %q, want %q", pluginDir, want)
 	}

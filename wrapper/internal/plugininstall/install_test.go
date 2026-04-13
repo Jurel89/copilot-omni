@@ -129,7 +129,7 @@ func buildFakeCopilot(t *testing.T) string {
 	script := "#!/bin/sh\nset -eu\n[ \"$1\" = \"plugin\" ]\n[ \"$2\" = \"install\" ]\nprintf '%s' \"$3\" > \"$FAKE_COPILOT_INSTALL_RECORD\"\n"
 	if runtime.GOOS == "windows" {
 		path = filepath.Join(root, "copilot.bat")
-		script = "@echo off\r\nif not \"%1\"==\"plugin\" exit /b 1\r\nif not \"%2\"==\"install\" exit /b 1\r\n<nul set /p =%3 > %FAKE_COPILOT_INSTALL_RECORD%\r\n"
+		script = "@echo off\r\nif not \"%1\"==\"plugin\" exit /b 1\r\nif not \"%2\"==\"install\" exit /b 1\r\n<nul set /p =%~f3 > %FAKE_COPILOT_INSTALL_RECORD%\r\n"
 	}
 	mustWriteFile(t, path, []byte(script), 0o755)
 	return path

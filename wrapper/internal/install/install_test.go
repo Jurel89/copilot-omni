@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -325,6 +326,9 @@ func assertInstalledMode(t *testing.T, filePath string, mask os.FileMode, want b
 	info, err := os.Stat(filePath)
 	if err != nil {
 		t.Fatalf("Stat(%q) error = %v", filePath, err)
+	}
+	if runtime.GOOS == "windows" {
+		return
 	}
 	got := info.Mode().Perm()&mask != 0
 	if got != want {
