@@ -13,7 +13,8 @@ try {
     $sidecarExe = Join-Path $repoRoot 'sidecar/omni-sidecar.exe'
     $wrapperExe = Join-Path $repoRoot 'wrapper/omni.exe'
     $fakeCopilotSource = Join-Path $fakeBin 'copilot.go'
-    $fakeCopilot = Join-Path $fakeBin 'copilot.exe'
+    $fakeCopilotExe = Join-Path $fakeBin 'copilot-real.exe'
+    $fakeCopilot = Join-Path $fakeBin 'copilot.cmd'
 
     if (-not (Test-Path $sidecarExe)) { throw "Missing sidecar binary: $sidecarExe" }
     if (-not (Test-Path $wrapperExe)) { throw "Missing wrapper binary: $wrapperExe" }
@@ -49,7 +50,8 @@ func main() {
     os.Exit(1)
 }
 '@
-    & go build -o $fakeCopilot $fakeCopilotSource | Out-Host
+    & go build -o $fakeCopilotExe $fakeCopilotSource | Out-Host
+    Set-Content -Path $fakeCopilot -Value "@echo off`r`n`"$fakeCopilotExe`" %*`r`n"
     $env:PATH = "$fakeBin;$env:PATH"
     $env:FAKE_COPILOT_PLUGIN_INSTALL_RECORD = $pluginInstallRecord
     $env:FAKE_COPILOT_PLUGIN_MCP_SNAPSHOT = $pluginInstallMcpSnapshot

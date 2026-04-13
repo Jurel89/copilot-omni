@@ -19,7 +19,8 @@ try {
     if (-not (Test-Path $wrapperExe)) { throw "Missing wrapper binary: $wrapperExe" }
 
     $fakeCopilotSource = Join-Path $fakeBin 'copilot.go'
-    $fakeCopilot = Join-Path $fakeBin 'copilot.exe'
+    $fakeCopilotExe = Join-Path $fakeBin 'copilot-real.exe'
+    $fakeCopilot = Join-Path $fakeBin 'copilot.cmd'
     Set-Content -Path $fakeCopilotSource -Value @'
 package main
 
@@ -70,7 +71,8 @@ func main() {
     fmt.Print("DISCUSS OR SPEC OK")
 }
 '@
-    & go build -o $fakeCopilot $fakeCopilotSource | Out-Host
+    & go build -o $fakeCopilotExe $fakeCopilotSource | Out-Host
+    Set-Content -Path $fakeCopilot -Value "@echo off`r`n`"$fakeCopilotExe`" %*`r`n"
     $env:PATH = "$fakeBin;$env:PATH"
     $env:FAKE_COPILOT_PLUGIN_INSTALL_RECORD = $pluginInstallRecord
     $env:FAKE_COPILOT_PLUGIN_MCP_SNAPSHOT = $pluginInstallMcpSnapshot
