@@ -18,37 +18,59 @@ New-Item -ItemType Directory -Path $fakeBin | Out-Null
 try {
     if (-not (Test-Path $wrapperExe)) { throw "Missing wrapper binary: $wrapperExe" }
 
-    $fakeCopilot = Join-Path $fakeBin 'copilot.bat'
-    Set-Content -Path $fakeCopilot -Value @"
-@echo off
-if "%1"=="plugin" if "%2"=="install" (
-  > "%FAKE_COPILOT_PLUGIN_INSTALL_RECORD%" <nul set /p =%3
-  copy /Y "%3\.mcp.json" "%FAKE_COPILOT_PLUGIN_MCP_SNAPSHOT%" >nul
-  exit /b 0
+    $fakeCopilotSource = Join-Path $fakeBin 'copilot.go'
+    $fakeCopilot = Join-Path $fakeBin 'copilot.exe'
+    Set-Content -Path $fakeCopilotSource -Value @"
+package main
+
+import (
+    "fmt"
+    "io"
+    "os"
+    "path/filepath"
+    "strings"
 )
 
->> "%FAKE_COPILOT_WORKFLOW_ARGS_RECORD%" echo %*
-echo %* | findstr /C:"-p" >nul
-if not errorlevel 1 (
-  echo DISCUSS OK
-  exit /b 0
-)
+func main() {
+    args := os.Args[1:]
+    joined := strings.Join(args, " ")
+    if record := os.Getenv("FAKE_COPILOT_WORKFLOW_ARGS_RECORD"); record != "" {
+        _ = os.WriteFile(record, []byte(joined), 0o644)
+    }
 
-echo %* | findstr /C:"--agent=omni-planner" >nul
-if not errorlevel 1 (
-  echo {"version":"1","run_id":"fake-run","tasks":[{"id":"task-1","title":"verify installed workflow","description":"ensure installed workflow can use trusted plugin assets","dependencies":[],"file_targets":[],"verification_cmd":"echo ok","rollback_note":"none"}]}
-  exit /b 0
-)
+    if len(args) >= 3 && args[0] == "plugin" && args[1] == "install" {
+        target := args[2]
+        if err := os.WriteFile(os.Getenv("FAKE_COPILOT_PLUGIN_INSTALL_RECORD"), []byte(target), 0o644); err != nil {
+            fmt.Fprintln(os.Stderr, err)
+            os.Exit(1)
+        }
+        src, err := os.Open(filepath.Join(target, ".mcp.json"))
+        if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
+        defer src.Close()
+        dst, err := os.Create(os.Getenv("FAKE_COPILOT_PLUGIN_MCP_SNAPSHOT"))
+        if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
+        defer dst.Close()
+        if _, err := io.Copy(dst, src); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
+        return
+    }
 
-echo %* | findstr /C:"--agent=omni-reviewer" >nul
-if not errorlevel 1 (
-  echo REVIEW OK
-  exit /b 0
-)
+    if strings.Contains(joined, "--agent=omni-planner") {
+        fmt.Print(`{"version":"1","run_id":"fake-run","tasks":[{"id":"task-1","title":"verify installed workflow","description":"ensure installed workflow can use trusted plugin assets","dependencies":[],"file_targets":[],"verification_cmd":"echo ok","rollback_note":"none"}]}`)
+        return
+    }
+    if strings.Contains(joined, "--agent=omni-reviewer") {
+        fmt.Print("REVIEW OK")
+        return
+    }
+    if len(args) > 0 && args[0] == "-p" {
+        fmt.Print("DISCUSS OK")
+        return
+    }
 
-echo DISCUSS OR SPEC OK
-exit /b 0
+    fmt.Print("DISCUSS OR SPEC OK")
+}
 "@
+    & go build -o $fakeCopilot $fakeCopilotSource | Out-Host
     $env:PATH = "$fakeBin;$env:PATH"
     $env:FAKE_COPILOT_PLUGIN_INSTALL_RECORD = $pluginInstallRecord
     $env:FAKE_COPILOT_PLUGIN_MCP_SNAPSHOT = $pluginInstallMcpSnapshot
