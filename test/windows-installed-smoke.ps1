@@ -55,7 +55,7 @@ func main() {
     }
 
     if strings.Contains(joined, "--agent=omni-planner") {
-        fmt.Print(`{"version":"1","run_id":"fake-run","tasks":[{"id":"task-1","title":"verify installed workflow","description":"ensure installed workflow can use trusted plugin assets","dependencies":[],"file_targets":[],"verification_cmd":"echo ok","rollback_note":"none"}]}`)
+        fmt.Print(`{"version":"1","run_id":"fake-run","tasks":[{"id":"task-1","title":"verify installed workflow","description":"ensure installed workflow can use trusted plugin assets","dependencies":[],"file_targets":["AGENTS.md"],"verification_cmd":"echo ok","rollback_note":"none"}]}`)
         return
     }
     if strings.Contains(joined, "--agent=omni-reviewer") {
