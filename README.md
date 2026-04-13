@@ -120,6 +120,13 @@ Set-Location ..
 ./wrapper/omni bundle install --bundle-dir ./dist --target /usr/local
 ```
 
+Windows PowerShell:
+
+```powershell
+.\wrapper\omni.exe bundle create .\dist
+.\wrapper\omni.exe bundle install --bundle-dir .\dist --target C:\copilot-omni
+```
+
 ### Use with GitHub Copilot CLI
 
 Copilot Omni integrates as a Copilot CLI plugin through the wrapper-managed install flow. After building or installing:

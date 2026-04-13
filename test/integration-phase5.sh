@@ -323,11 +323,11 @@ echo ""
 echo "--- Marketplace Paths Match Bundle Layout ---"
 python3 -c "
 import json
-mp = json.load(open('$REPO_ROOT/marketplace.json'))
+mp = json.load(open('$ARTIFACT_DIR/bundle/marketplace.json'))
 plugin = mp['plugins'][0]
 assert plugin['sidecar'] == './omni-sidecar', f'Expected ./omni-sidecar, got {plugin[\"sidecar\"]}'
 assert plugin['wrapper'] == './omni', f'Expected ./omni, got {plugin[\"wrapper\"]}'
-print('  PASS: marketplace.json paths match bundle binary layout')
+print('  PASS: bundled marketplace.json paths match bundle binary layout')
 " || fail "marketplace.json path layout"
 
 echo ""

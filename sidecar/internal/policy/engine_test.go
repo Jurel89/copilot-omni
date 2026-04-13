@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -461,6 +462,9 @@ func TestNormalizePath(t *testing.T) {
 	outsideRoot := t.TempDir()
 	linkPath := filepath.Join(repoRoot, "escape-link")
 	if err := os.Symlink(outsideRoot, linkPath); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink creation unavailable on Windows test environment: %v", err)
+		}
 		t.Fatalf("failed to create symlink: %v", err)
 	}
 

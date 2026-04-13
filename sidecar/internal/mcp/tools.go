@@ -2702,7 +2702,12 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 		}
 
 		if mp, err := os.Stat(filepath.Join(repoRoot, "marketplace.json")); err == nil && !mp.IsDir() {
-			if addErr := manifest.AddExtraFile("marketplace.json", filepath.Join(repoRoot, "marketplace.json"), "marketplace.json"); addErr != nil {
+			marketplacePath, marketplaceErr := writeBundleMarketplaceFile(repoRoot, platform)
+			if marketplaceErr != nil {
+				return ToolCallResult{}, fmt.Errorf("generate marketplace metadata: %w", marketplaceErr)
+			}
+			defer os.Remove(marketplacePath)
+			if addErr := manifest.AddExtraFile("marketplace.json", marketplacePath, "marketplace.json"); addErr != nil {
 				return ToolCallResult{}, fmt.Errorf("add marketplace metadata: %w", addErr)
 			}
 		}
@@ -2799,6 +2804,58 @@ func (r *Registry) omniPolicyPackValidate(ctx context.Context, arguments map[str
 	}
 
 	return jsonToolResult(result)
+}
+
+func writeBundleMarketplaceFile(repoRoot string, platform string) (string, error) {
+	content, err := os.ReadFile(filepath.Join(repoRoot, "marketplace.json"))
+	if err != nil {
+		return "", err
+	}
+
+	var payload struct {
+		Name        string `json:"name"`
+		Version     string `json:"version"`
+		Description string `json:"description"`
+		Plugins     []struct {
+			Name        string `json:"name"`
+			Version     string `json:"version"`
+			Description string `json:"description"`
+			Path        string `json:"path"`
+			Sidecar     string `json:"sidecar"`
+			Wrapper     string `json:"wrapper"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal(content, &payload); err != nil {
+		return "", err
+	}
+
+	wrapperName := "./omni"
+	sidecarName := "./omni-sidecar"
+	if strings.HasPrefix(platform, "windows/") {
+		wrapperName = "./omni.exe"
+		sidecarName = "./omni-sidecar.exe"
+	}
+	for i := range payload.Plugins {
+		payload.Plugins[i].Wrapper = wrapperName
+		payload.Plugins[i].Sidecar = sidecarName
+	}
+
+	tempFile, err := os.CreateTemp("", "copilot-omni-marketplace-*.json")
+	if err != nil {
+		return "", err
+	}
+	defer tempFile.Close()
+
+	encoded, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	encoded = append(encoded, '\n')
+	if _, err := tempFile.Write(encoded); err != nil {
+		return "", err
+	}
+
+	return tempFile.Name(), nil
 }
 
 func (r *Registry) omniAuditExport(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {

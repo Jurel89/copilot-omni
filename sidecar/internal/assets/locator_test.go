@@ -3,6 +3,7 @@ package assets
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -10,7 +11,7 @@ import (
 func TestResolveFromExecutableSourceLayout(t *testing.T) {
 	repoRoot := t.TempDir()
 	createAssetRoot(t, repoRoot)
-	execPath := createExecutable(t, filepath.Join(repoRoot, "sidecar", "omni-sidecar"))
+	execPath := createExecutable(t, filepath.Join(repoRoot, "sidecar", platformBinaryName()))
 
 	location, err := ResolveFromExecutable(execPath)
 	if err != nil {
@@ -24,7 +25,7 @@ func TestResolveFromExecutableInstalledLayout(t *testing.T) {
 	prefix := t.TempDir()
 	assetRoot := filepath.Join(prefix, "share", "copilot-omni")
 	createAssetRoot(t, assetRoot)
-	execPath := createExecutable(t, filepath.Join(prefix, "bin", "omni-sidecar"))
+	execPath := createExecutable(t, filepath.Join(prefix, "bin", platformBinaryName()))
 
 	location, err := ResolveFromExecutable(execPath)
 	if err != nil {
@@ -37,7 +38,7 @@ func TestResolveFromExecutableInstalledLayout(t *testing.T) {
 func TestResolveFromExecutableEnvOverride(t *testing.T) {
 	assetRoot := t.TempDir()
 	createAssetRoot(t, assetRoot)
-	customExecPath := createExecutable(t, filepath.Join(t.TempDir(), "custom", "omni-sidecar"))
+	customExecPath := createExecutable(t, filepath.Join(t.TempDir(), "custom", platformBinaryName()))
 	t.Setenv(assetRootEnv, assetRoot)
 
 	location, err := ResolveFromExecutable(customExecPath)
@@ -53,7 +54,7 @@ func TestResolveFromExecutableMissingAssetFailure(t *testing.T) {
 	mustMkdirAll(t, filepath.Join(repoRoot, "templates"))
 	mustMkdirAll(t, filepath.Join(repoRoot, "policies"))
 	mustWriteFile(t, filepath.Join(repoRoot, "marketplace.json"), []byte("{}"))
-	execPath := createExecutable(t, filepath.Join(repoRoot, "sidecar", "omni-sidecar"))
+	execPath := createExecutable(t, filepath.Join(repoRoot, "sidecar", platformBinaryName()))
 
 	_, err := ResolveFromExecutable(execPath)
 	if err == nil {
@@ -121,6 +122,13 @@ func createExecutable(t *testing.T, path string) string {
 	mustWriteFile(t, path, []byte("#!/bin/sh\n"))
 
 	return path
+}
+
+func platformBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return "omni-sidecar.exe"
+	}
+	return "omni-sidecar"
 }
 
 func mustMkdirAll(t *testing.T, path string) {

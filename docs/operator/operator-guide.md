@@ -71,6 +71,14 @@ cd copilot-omni-offline
 ./omni bundle install --bundle-dir . --target /usr/local
 ```
 
+Windows PowerShell:
+
+```powershell
+Expand-Archive .\copilot-omni-offline.zip -DestinationPath .\copilot-omni-offline
+Set-Location .\copilot-omni-offline
+.\omni.exe bundle install --bundle-dir . --target C:\copilot-omni
+```
+
 Installed layout:
 
 - binaries: `<prefix>/bin`

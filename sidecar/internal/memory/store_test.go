@@ -784,8 +784,8 @@ func TestStoreClose(t *testing.T) {
 }
 
 func TestDBPath(t *testing.T) {
-	repoRoot := filepath.Join(string(os.PathSeparator), "repo", "root")
-	absOverride := filepath.Join(string(os.PathSeparator), "tmp", "memory-override.db")
+	repoRoot := t.TempDir()
+	absOverride := filepath.Join(t.TempDir(), "memory-override.db")
 
 	tests := []struct {
 		name       string
