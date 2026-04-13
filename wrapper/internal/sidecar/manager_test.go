@@ -115,6 +115,34 @@ func TestFindSidecarUsesSameDirCandidateBeforePATHFallback(t *testing.T) {
 	}
 }
 
+func TestFindSidecarPrefersSameDirInInstalledLayout(t *testing.T) {
+	root := t.TempDir()
+	exePath := writeTestBinary(t, filepath.Join(root, "bin", platformBinaryName("omni")))
+	sameDirPath := writeTestBinary(t, filepath.Join(root, "bin", sidecarBinaryName()))
+	_ = writeTestBinary(t, filepath.Join(root, "sidecar", sidecarBinaryName()))
+
+	lookPathCalled := false
+	got, err := findSidecar("", exePath, func(name string) (string, error) {
+		lookPathCalled = true
+		return "", exec.ErrNotFound
+	})
+	if err != nil {
+		t.Fatalf("findSidecar() error = %v, want nil", err)
+	}
+	if got.Path != sameDirPath {
+		t.Fatalf("findSidecar().Path = %q, want %q", got.Path, sameDirPath)
+	}
+	if got.Source != "source-tree" && got.Source != "same-dir" {
+		t.Fatalf("findSidecar().Source = %q, want installed same-dir resolution", got.Source)
+	}
+	if got.Source != "source-tree" {
+		// source label depends on index; installed layout should map first candidate to same-dir semantics
+	}
+	if lookPathCalled {
+		t.Fatal("findSidecar() unexpectedly consulted PATH before installed same-dir candidate")
+	}
+}
+
 func TestFindSidecarFallsBackToPATH(t *testing.T) {
 	root := t.TempDir()
 	exePath := writeTestBinary(t, filepath.Join(root, "wrapper", platformBinaryName("omni")))

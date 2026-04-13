@@ -107,11 +107,12 @@ func findSidecar(envPath, executablePath string, lookPath func(string) (string, 
 	if err != nil {
 		return Resolution{}, err
 	}
+	installedLayout := filepath.Base(filepath.Dir(executablePath)) == "bin"
 
 	for idx, candidate := range candidates {
 		if path, err := validateBinaryPath(candidate); err == nil {
 			source := "same-dir"
-			if idx == 0 {
+			if idx == 0 && !installedLayout {
 				source = "source-tree"
 			}
 			return Resolution{Path: path, Source: source}, nil
@@ -157,10 +158,15 @@ func sidecarCandidatePaths(executablePath string) ([]string, error) {
 
 	exeDir := filepath.Dir(resolvedExecutablePath)
 	binaryName := sidecarBinaryName()
+	sameDirCandidate := filepath.Join(exeDir, binaryName)
+	sourceTreeCandidate := filepath.Join(exeDir, "..", "sidecar", binaryName)
+	if filepath.Base(exeDir) == "bin" {
+		return []string{sameDirCandidate, sourceTreeCandidate}, nil
+	}
 
 	return []string{
-		filepath.Join(exeDir, "..", "sidecar", binaryName),
-		filepath.Join(exeDir, binaryName),
+		sourceTreeCandidate,
+		sameDirCandidate,
 	}, nil
 }
 

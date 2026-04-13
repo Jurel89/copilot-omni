@@ -174,6 +174,24 @@ func TestInstallRejectsInvalidBundleValidation(t *testing.T) {
 			t.Fatalf("Install() error = %v, want manifest release tag failure", err)
 		}
 	})
+
+	t.Run("unexpected bundle file", func(t *testing.T) {
+		t.Parallel()
+
+		bundleDir := t.TempDir()
+		writeValidBundle(t, bundleDir, "linux/amd64")
+		if err := os.WriteFile(filepath.Join(bundleDir, "unexpected.txt"), []byte("rogue"), 0o644); err != nil {
+			t.Fatalf("WriteFile(unexpected.txt) error = %v", err)
+		}
+
+		_, err := Install(Options{BundleDir: bundleDir, Target: t.TempDir()})
+		if err == nil {
+			t.Fatal("Install() error = nil, want unexpected-file failure")
+		}
+		if !strings.Contains(err.Error(), "unexpected file") {
+			t.Fatalf("Install() error = %v, want unexpected-file failure", err)
+		}
+	})
 }
 
 type bundleFixture struct {
