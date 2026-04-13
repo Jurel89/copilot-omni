@@ -460,6 +460,9 @@ func TestNormalizeCommand(t *testing.T) {
 func TestNormalizePath(t *testing.T) {
 	repoRoot := t.TempDir()
 	outsideRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "docs"), 0o755); err != nil {
+		t.Fatalf("failed to create docs dir: %v", err)
+	}
 	linkPath := filepath.Join(repoRoot, "escape-link")
 	if err := os.Symlink(outsideRoot, linkPath); err != nil {
 		if runtime.GOOS == "windows" {

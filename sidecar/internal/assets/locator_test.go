@@ -62,11 +62,12 @@ func TestResolveFromExecutableMissingAssetFailure(t *testing.T) {
 	}
 
 	missingPath := filepath.Join(repoRoot, "plugin")
+	resolvedMissingPath := mustResolvePath(t, missingPath)
 	if !strings.Contains(err.Error(), "source asset root") {
 		t.Fatalf("error %q does not mention source asset root", err)
 	}
-	if !strings.Contains(err.Error(), missingPath) {
-		t.Fatalf("error %q does not mention missing path %q", err, missingPath)
+	if !strings.Contains(err.Error(), resolvedMissingPath) {
+		t.Fatalf("error %q does not mention missing path %q", err, resolvedMissingPath)
 	}
 	if !strings.Contains(err.Error(), "missing required directory") {
 		t.Fatalf("error %q does not mention missing required directory", err)
