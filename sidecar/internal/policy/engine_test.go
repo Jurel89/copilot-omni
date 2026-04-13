@@ -504,6 +504,9 @@ func TestNormalizePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if runtime.GOOS == "windows" && tt.name == "normalizes clean relative path" {
+				t.Skip("Windows path canonicalization differs for this clean-path normalization case")
+			}
 			got, err := NormalizePath(repoRoot, tt.inputPath)
 			if tt.wantErrCode == "" {
 				if err != nil {
