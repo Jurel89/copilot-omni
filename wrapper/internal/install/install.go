@@ -228,7 +228,11 @@ func commitInstall(stagedBinDir, stagedShareDir, binDir, shareDir string, manage
 	defer os.RemoveAll(backupRoot)
 
 	backups := make([][2]string, 0)
+	activatedPaths := make([]string, 0, len(managedBinaryNames)+1)
 	rollback := func() {
+		for idx := len(activatedPaths) - 1; idx >= 0; idx-- {
+			_ = os.RemoveAll(activatedPaths[idx])
+		}
 		for idx := len(backups) - 1; idx >= 0; idx-- {
 			from := backups[idx][0]
 			to := backups[idx][1]
@@ -271,12 +275,14 @@ func commitInstall(stagedBinDir, stagedShareDir, binDir, shareDir string, manage
 			rollback()
 			return fmt.Errorf("activate binary %s: %w", destinationPath, err)
 		}
+		activatedPaths = append(activatedPaths, destinationPath)
 	}
 
 	if err := os.Rename(stagedShareDir, shareDir); err != nil {
 		rollback()
 		return fmt.Errorf("activate shared assets: %w", err)
 	}
+	activatedPaths = append(activatedPaths, shareDir)
 
 	return nil
 }

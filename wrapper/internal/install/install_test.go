@@ -126,6 +126,52 @@ func TestInstallBundleReplacesExistingManagedFiles(t *testing.T) {
 	assertInstalledFileContent(t, rogueBinary, "keep")
 }
 
+func TestCommitInstallRollsBackNewlyActivatedFiles(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	binDir := filepath.Join(root, "target", "bin")
+	shareDir := filepath.Join(root, "target", "share", shareDirName)
+	stagedBinDir := filepath.Join(root, "staged", "bin")
+	stagedShareDir := filepath.Join(root, "staged", "share", shareDirName)
+
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(binDir) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(stagedBinDir), 0o755); err != nil {
+		t.Fatalf("MkdirAll(stagedBinDir) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(stagedShareDir), 0o755); err != nil {
+		t.Fatalf("MkdirAll(stagedShareDir) error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(stagedBinDir, "omni"), []byte("wrapper"), 0o755); err != nil {
+		t.Fatalf("WriteFile(staged wrapper) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stagedBinDir, "omni-sidecar"), []byte("sidecar"), 0o755); err != nil {
+		t.Fatalf("WriteFile(staged sidecar) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stagedShareDir, "marker.txt"), []byte("share"), 0o644); err != nil {
+		t.Fatalf("WriteFile(staged share) error = %v", err)
+	}
+
+	blockingDir := filepath.Join(binDir, "omni-sidecar")
+	if err := os.MkdirAll(blockingDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(blockingDir) error = %v", err)
+	}
+
+	err := commitInstall(stagedBinDir, stagedShareDir, binDir, shareDir, []string{"omni", "omni-sidecar"})
+	if err == nil {
+		t.Fatal("commitInstall() error = nil, want activation failure")
+	}
+	if _, statErr := os.Stat(filepath.Join(binDir, "omni")); !os.IsNotExist(statErr) {
+		t.Fatalf("expected newly activated omni binary to be removed on rollback, stat err = %v", statErr)
+	}
+	if _, statErr := os.Stat(shareDir); !os.IsNotExist(statErr) {
+		t.Fatalf("expected share dir to remain absent on rollback, stat err = %v", statErr)
+	}
+}
+
 func TestInstallRejectsTraversalBundlePaths(t *testing.T) {
 	t.Parallel()
 
