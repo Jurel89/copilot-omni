@@ -25,8 +25,11 @@ func TestFindSidecarPrefersExplicitOverridePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findSidecar() error = %v, want nil", err)
 	}
-	if got != overridePath {
-		t.Fatalf("findSidecar() = %q, want %q", got, overridePath)
+	if got.Path != overridePath {
+		t.Fatalf("findSidecar().Path = %q, want %q", got.Path, overridePath)
+	}
+	if got.Source != "env" {
+		t.Fatalf("findSidecar().Source = %q, want %q", got.Source, "env")
 	}
 	if lookPathCalled {
 		t.Fatal("findSidecar() unexpectedly consulted PATH for explicit override path")
@@ -47,8 +50,11 @@ func TestFindSidecarResolvesExplicitOverrideCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findSidecar() error = %v, want nil", err)
 	}
-	if got != overridePath {
-		t.Fatalf("findSidecar() = %q, want %q", got, overridePath)
+	if got.Path != overridePath {
+		t.Fatalf("findSidecar().Path = %q, want %q", got.Path, overridePath)
+	}
+	if got.Source != "env" {
+		t.Fatalf("findSidecar().Source = %q, want %q", got.Source, "env")
 	}
 }
 
@@ -70,8 +76,11 @@ func TestFindSidecarPrefersSourceTreeCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findSidecar() error = %v, want nil", err)
 	}
-	if got != sourcePath {
-		t.Fatalf("findSidecar() = %q, want %q", got, sourcePath)
+	if got.Path != sourcePath {
+		t.Fatalf("findSidecar().Path = %q, want %q", got.Path, sourcePath)
+	}
+	if got.Source != "source-tree" {
+		t.Fatalf("findSidecar().Source = %q, want %q", got.Source, "source-tree")
 	}
 	if lookPathCalled {
 		t.Fatal("findSidecar() unexpectedly consulted PATH before source-tree candidate")
@@ -95,8 +104,11 @@ func TestFindSidecarUsesSameDirCandidateBeforePATHFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findSidecar() error = %v, want nil", err)
 	}
-	if got != sameDirPath {
-		t.Fatalf("findSidecar() = %q, want %q", got, sameDirPath)
+	if got.Path != sameDirPath {
+		t.Fatalf("findSidecar().Path = %q, want %q", got.Path, sameDirPath)
+	}
+	if got.Source != "same-dir" {
+		t.Fatalf("findSidecar().Source = %q, want %q", got.Source, "same-dir")
 	}
 	if lookPathCalled {
 		t.Fatal("findSidecar() unexpectedly consulted PATH before same-dir candidate")
@@ -117,8 +129,11 @@ func TestFindSidecarFallsBackToPATH(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findSidecar() error = %v, want nil", err)
 	}
-	if got != pathFallback {
-		t.Fatalf("findSidecar() = %q, want %q", got, pathFallback)
+	if got.Path != pathFallback {
+		t.Fatalf("findSidecar().Path = %q, want %q", got.Path, pathFallback)
+	}
+	if got.Source != "path" {
+		t.Fatalf("findSidecar().Source = %q, want %q", got.Source, "path")
 	}
 }
 

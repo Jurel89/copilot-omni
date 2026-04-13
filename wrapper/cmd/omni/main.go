@@ -151,13 +151,15 @@ func runDoctor() {
 	fmt.Println("Running Copilot Omni diagnostics...")
 	workspaceRoot := repoRoot()
 
-	sidecarPath, sidecarErr := sidecar.FindSidecar()
+	resolution, sidecarErr := sidecar.FindSidecarResolution()
 	sidecarBinaryStatus := "not found"
+	sidecarResolution := "unavailable"
 	sidecarHealthStatus := "failed"
 	var mgr *sidecar.Manager
 	if sidecarErr == nil {
-		sidecarBinaryStatus = fmt.Sprintf("found (%s)", sidecarPath)
-		mgr = sidecar.NewManager(sidecarPath)
+		sidecarBinaryStatus = fmt.Sprintf("found (%s)", resolution.Path)
+		sidecarResolution = resolution.Source
+		mgr = sidecar.NewManager(resolution.Path)
 		if err := mgr.Start(ctx); err == nil {
 			if err := mgr.HealthCheck(ctx, 5*time.Second); err == nil {
 				sidecarHealthStatus = "ok"
@@ -170,6 +172,7 @@ func runDoctor() {
 	}
 
 	fmt.Printf("Sidecar binary: %s\n", sidecarBinaryStatus)
+	fmt.Printf("Sidecar resolution: %s\n", sidecarResolution)
 	if sidecarErr != nil {
 		fmt.Printf("Sidecar binary error: %v\n", sidecarErr)
 	}
@@ -199,6 +202,8 @@ func runDoctor() {
 			fmt.Println(doctorResult)
 		}
 		defer stopManager(mgr)
+	} else {
+		printFallbackDoctorDiagnostics()
 	}
 
 	copilotStatus := "not found"
@@ -212,6 +217,96 @@ func runDoctor() {
 	fmt.Printf("Copilot CLI: %s\n", copilotStatus)
 	fmt.Printf("Trusted plugin assets: %s\n", pluginStatus)
 	fmt.Printf("Trusted template assets: %s\n", templateStatus)
+}
+
+func printFallbackDoctorDiagnostics() {
+	if sourcePath, command, classification, remediation, ok := resolveManagedPluginInstallState(); ok {
+		fmt.Println("Managed plugin install state:")
+		fmt.Printf("  Source: %s\n", sourcePath)
+		fmt.Printf("  Command: %s\n", command)
+		fmt.Printf("  Classification: %s\n", classification)
+		if remediation != "" {
+			fmt.Printf("  Remediation: %s\n", remediation)
+		}
+		return
+	}
+
+	if sourcePath, command, classification, remediation, ok := resolveTrustedPluginCommand(); ok {
+		fmt.Println("Trusted plugin fallback config:")
+		fmt.Printf("  Source: %s\n", sourcePath)
+		fmt.Printf("  Command: %s\n", command)
+		fmt.Printf("  Classification: %s\n", classification)
+		if remediation != "" {
+			fmt.Printf("  Remediation: %s\n", remediation)
+		}
+	}
+}
+
+func resolveManagedPluginInstallState() (sourcePath string, command string, classification string, remediation string, ok bool) {
+	stateDir := os.Getenv("COPILOT_OMNI_PLUGIN_STATE_DIR")
+	if stateDir == "" {
+		configDir, err := os.UserConfigDir()
+		if err != nil {
+			return "", "", "", "", false
+		}
+		stateDir = filepath.Join(configDir, "copilot-omni")
+	}
+	statePath := filepath.Join(stateDir, "plugin-install.json")
+	content, err := os.ReadFile(statePath)
+	if err != nil {
+		return "", "", "", "", false
+	}
+	var state struct {
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal(content, &state); err != nil {
+		return statePath, "", "invalid_managed_state", "Re-run 'omni plugin install' to refresh the managed plugin state.", true
+	}
+	classification, remediation = classifyCommandForDoctor(state.Command)
+	return statePath, state.Command, classification, remediation, true
+}
+
+func resolveTrustedPluginCommand() (sourcePath string, command string, classification string, remediation string, ok bool) {
+	location, err := assets.Locate()
+	if err != nil {
+		return "", "", "", "", false
+	}
+	configPath := filepath.Join(location.PluginDir, ".mcp.json")
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", "", "", "", false
+	}
+	var cfg struct {
+		MCPServers map[string]struct {
+			Command string `json:"command"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(content, &cfg); err != nil {
+		return configPath, "", "invalid_json", "Ensure the trusted .mcp.json is valid JSON.", true
+	}
+	server, ok := cfg.MCPServers["copilot-omni-sidecar"]
+	if !ok {
+		return configPath, "", "missing_server", "Ensure the trusted .mcp.json declares the copilot-omni-sidecar server.", true
+	}
+	classification, remediation = classifyCommandForDoctor(server.Command)
+	return configPath, server.Command, classification, remediation, true
+}
+
+func classifyCommandForDoctor(command string) (classification string, remediation string) {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return "missing_command", "Set the sidecar server command to a launchable binary path or command."
+	}
+	if filepath.IsAbs(trimmed) || filepath.VolumeName(trimmed) != "" || filepath.Base(trimmed) != trimmed || strings.ContainsAny(trimmed, `/\\`) {
+		if _, err := os.Stat(trimmed); err == nil {
+			return "explicit_existing_path", ""
+		}
+		return "explicit_stale_path", "Update the managed plugin state or plugin config so it points to an existing sidecar binary."
+	}
+	if _, err := exec.LookPath(trimmed); err == nil {
+		return "bare_command_resolvable", ""
+	}
+	return "bare_command_missing", "Run 'omni plugin install' or place the sidecar on PATH so the configured command resolves."
 }
 
 func runPlugin(args []string) {

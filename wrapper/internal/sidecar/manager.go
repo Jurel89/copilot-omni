@@ -26,6 +26,11 @@ type Manager struct {
 	decoder    *json.Decoder
 }
 
+type Resolution struct {
+	Path   string
+	Source string
+}
+
 type mcpRequest struct {
 	JSONRPC string `json:"jsonrpc"`
 	ID      any    `json:"id,omitempty"`
@@ -73,45 +78,57 @@ const (
 var stopTimeout = 5 * time.Second
 
 func FindSidecar() (string, error) {
+	resolution, err := FindSidecarResolution()
+	if err != nil {
+		return "", err
+	}
+	return resolution.Path, nil
+}
+
+func FindSidecarResolution() (Resolution, error) {
 	executablePath, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("resolve executable path: %w", err)
+		return Resolution{}, fmt.Errorf("resolve executable path: %w", err)
 	}
 
 	return findSidecar(os.Getenv("COPILOT_OMNI_SIDECAR"), executablePath, exec.LookPath)
 }
 
-func findSidecar(envPath, executablePath string, lookPath func(string) (string, error)) (string, error) {
+func findSidecar(envPath, executablePath string, lookPath func(string) (string, error)) (Resolution, error) {
 	if envPath != "" {
 		path, err := resolveSidecarOverride(envPath, lookPath)
 		if err != nil {
-			return "", fmt.Errorf("resolve COPILOT_OMNI_SIDECAR: %w", err)
+			return Resolution{}, fmt.Errorf("resolve COPILOT_OMNI_SIDECAR: %w", err)
 		}
-		return path, nil
+		return Resolution{Path: path, Source: "env"}, nil
 	}
 
 	candidates, err := sidecarCandidatePaths(executablePath)
 	if err != nil {
-		return "", err
+		return Resolution{}, err
 	}
 
-	for _, candidate := range candidates {
+	for idx, candidate := range candidates {
 		if path, err := validateBinaryPath(candidate); err == nil {
-			return path, nil
+			source := "same-dir"
+			if idx == 0 {
+				source = "source-tree"
+			}
+			return Resolution{Path: path, Source: source}, nil
 		}
 	}
 
 	path, err := lookPath(sidecarCommandName)
 	if err != nil {
-		return "", fmt.Errorf("find %s: %w", sidecarCommandName, err)
+		return Resolution{}, fmt.Errorf("find %s: %w", sidecarCommandName, err)
 	}
 
 	resolvedPath, err := validateBinaryPath(path)
 	if err != nil {
-		return "", fmt.Errorf("validate %s from PATH: %w", path, err)
+		return Resolution{}, fmt.Errorf("validate %s from PATH: %w", path, err)
 	}
 
-	return resolvedPath, nil
+	return Resolution{Path: resolvedPath, Source: "path"}, nil
 }
 
 func resolveSidecarOverride(envPath string, lookPath func(string) (string, error)) (string, error) {

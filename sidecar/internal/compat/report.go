@@ -139,7 +139,7 @@ func (r *Report) addCheck(name string, result CompatCheck) {
 		if result.Status == "pass" {
 			r.SidecarPath = result.Detail
 		}
-		r.SidecarHealthy = result.Status == "pass"
+		r.SidecarHealthy = false
 	case "plugin_structure":
 		r.PluginValid = result.Status == "pass"
 	}
