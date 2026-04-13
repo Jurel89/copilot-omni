@@ -463,6 +463,9 @@ func TestNormalizePath(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repoRoot, "docs"), 0o755); err != nil {
 		t.Fatalf("failed to create docs dir: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "docs", "readme.md"), []byte("hello"), 0o644); err != nil {
+		t.Fatalf("failed to create readme file: %v", err)
+	}
 	linkPath := filepath.Join(repoRoot, "escape-link")
 	if err := os.Symlink(outsideRoot, linkPath); err != nil {
 		if runtime.GOOS == "windows" {
