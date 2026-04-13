@@ -252,7 +252,7 @@ func checkMCPConfig(trusted TrustedAssets) (CompatCheck, MCPServerCommand) {
 
 	mcpPath := filepath.Join(trusted.PluginDir, ".mcp.json")
 	if state, statePath, err := readManagedInstallState(); err == nil {
-		command = classifyMCPCommand(statePath, state.Command)
+		command = classifyMCPCommand(statePath, state.Command, state.Args)
 		command.ServerName = sidecarServer
 		command.SourcePath = statePath
 		if command.Status == "pass" {
@@ -274,7 +274,8 @@ func checkMCPConfig(trusted TrustedAssets) (CompatCheck, MCPServerCommand) {
 	}
 	var parsed struct {
 		MCPServers map[string]struct {
-			Command string `json:"command"`
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
 		} `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(data, &parsed); err != nil {
@@ -295,7 +296,7 @@ func checkMCPConfig(trusted TrustedAssets) (CompatCheck, MCPServerCommand) {
 		return CompatCheck{Category: checkCategoryConfig, Name: "mcp_config", Status: "fail", Detail: fmt.Sprintf("trusted .mcp.json does not declare %s", sidecarServer)}, command
 	}
 
-	command = classifyMCPCommand(mcpPath, serverConfig.Command)
+	command = classifyMCPCommand(mcpPath, serverConfig.Command, serverConfig.Args)
 	command.ServerName = sidecarServer
 	if command.Command == "" {
 		return CompatCheck{Category: checkCategoryConfig, Name: "mcp_config", Status: "fail", Detail: fmt.Sprintf("trusted .mcp.json is missing the %s command", sidecarServer)}, command
@@ -428,7 +429,7 @@ func skippedTrustedAssetCheck(name string, message string, cause string) CompatC
 	return CompatCheck{Category: checkCategoryAssets, Name: name, Status: "warn", Detail: message + ": " + cause}
 }
 
-func classifyMCPCommand(configPath string, command string) MCPServerCommand {
+func classifyMCPCommand(configPath string, command string, args []string) MCPServerCommand {
 	classification := MCPServerCommand{
 		ServerName: sidecarServer,
 		SourcePath: configPath,
@@ -438,6 +439,12 @@ func classifyMCPCommand(configPath string, command string) MCPServerCommand {
 	if classification.Command == "" {
 		classification.Status = "fail"
 		classification.Error = "missing command"
+		return classification
+	}
+	if len(args) == 0 || args[0] != "serve" {
+		classification.Status = "fail"
+		classification.Classification = "invalid_args"
+		classification.Error = "sidecar args must begin with serve"
 		return classification
 	}
 

@@ -257,12 +257,13 @@ func resolveManagedPluginInstallState() (sourcePath string, command string, clas
 		return "", "", "", "", false
 	}
 	var state struct {
-		Command string `json:"command"`
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
 	}
 	if err := json.Unmarshal(content, &state); err != nil {
 		return statePath, "", "invalid_managed_state", "Re-run 'omni plugin install' to refresh the managed plugin state.", true
 	}
-	classification, remediation = classifyCommandForDoctor(state.Command)
+	classification, remediation = classifyCommandForDoctor(state.Command, state.Args)
 	return statePath, state.Command, classification, remediation, true
 }
 
@@ -278,7 +279,8 @@ func resolveTrustedPluginCommand() (sourcePath string, command string, classific
 	}
 	var cfg struct {
 		MCPServers map[string]struct {
-			Command string `json:"command"`
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
 		} `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(content, &cfg); err != nil {
@@ -288,14 +290,17 @@ func resolveTrustedPluginCommand() (sourcePath string, command string, classific
 	if !ok {
 		return configPath, "", "missing_server", "Ensure the trusted .mcp.json declares the copilot-omni-sidecar server.", true
 	}
-	classification, remediation = classifyCommandForDoctor(server.Command)
+	classification, remediation = classifyCommandForDoctor(server.Command, server.Args)
 	return configPath, server.Command, classification, remediation, true
 }
 
-func classifyCommandForDoctor(command string) (classification string, remediation string) {
+func classifyCommandForDoctor(command string, args []string) (classification string, remediation string) {
 	trimmed := strings.TrimSpace(command)
 	if trimmed == "" {
 		return "missing_command", "Set the sidecar server command to a launchable binary path or command."
+	}
+	if len(args) == 0 || args[0] != "serve" {
+		return "invalid_args", "Ensure the sidecar server args begin with 'serve', or re-run 'omni plugin install'."
 	}
 	if filepath.IsAbs(trimmed) || filepath.VolumeName(trimmed) != "" || filepath.Base(trimmed) != trimmed || strings.ContainsAny(trimmed, `/\\`) {
 		if _, err := os.Stat(trimmed); err == nil {
