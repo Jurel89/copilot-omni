@@ -19,7 +19,10 @@ func TestFindSidecarUsesWindowsExecutableNameForSourceCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findSidecar() error = %v, want nil", err)
 	}
-	if got != sourcePath {
-		t.Fatalf("findSidecar() = %q, want %q", got, sourcePath)
+	if got.Path != sourcePath {
+		t.Fatalf("findSidecar().Path = %q, want %q", got.Path, sourcePath)
+	}
+	if got.Source != "source-tree" {
+		t.Fatalf("findSidecar().Source = %q, want %q", got.Source, "source-tree")
 	}
 }
