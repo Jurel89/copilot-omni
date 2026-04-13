@@ -257,13 +257,14 @@ func resolveManagedPluginInstallState() (sourcePath string, command string, clas
 		return "", "", "", "", false
 	}
 	var state struct {
+		Type    string   `json:"type"`
 		Command string   `json:"command"`
 		Args    []string `json:"args"`
 	}
 	if err := json.Unmarshal(content, &state); err != nil {
 		return statePath, "", "invalid_managed_state", "Re-run 'omni plugin install' to refresh the managed plugin state.", true
 	}
-	classification, remediation = classifyCommandForDoctor(state.Command, state.Args)
+	classification, remediation = classifyCommandForDoctor(state.Type, state.Command, state.Args)
 	return statePath, state.Command, classification, remediation, true
 }
 
@@ -279,6 +280,7 @@ func resolveTrustedPluginCommand() (sourcePath string, command string, classific
 	}
 	var cfg struct {
 		MCPServers map[string]struct {
+			Type    string   `json:"type"`
 			Command string   `json:"command"`
 			Args    []string `json:"args"`
 		} `json:"mcpServers"`
@@ -290,11 +292,14 @@ func resolveTrustedPluginCommand() (sourcePath string, command string, classific
 	if !ok {
 		return configPath, "", "missing_server", "Ensure the trusted .mcp.json declares the copilot-omni-sidecar server.", true
 	}
-	classification, remediation = classifyCommandForDoctor(server.Command, server.Args)
+	classification, remediation = classifyCommandForDoctor(server.Type, server.Command, server.Args)
 	return configPath, server.Command, classification, remediation, true
 }
 
-func classifyCommandForDoctor(command string, args []string) (classification string, remediation string) {
+func classifyCommandForDoctor(transportType string, command string, args []string) (classification string, remediation string) {
+	if strings.TrimSpace(transportType) != "stdio" {
+		return "invalid_type", "Ensure the sidecar server type is 'stdio', or re-run 'omni plugin install'."
+	}
 	trimmed := strings.TrimSpace(command)
 	if trimmed == "" {
 		return "missing_command", "Set the sidecar server command to a launchable binary path or command."

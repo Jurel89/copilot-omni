@@ -19,6 +19,7 @@ const pluginStateDirEnv = "COPILOT_OMNI_PLUGIN_STATE_DIR"
 
 type ManagedInstallState struct {
 	Version     int      `json:"version"`
+	Type        string   `json:"type"`
 	Command     string   `json:"command"`
 	Args        []string `json:"args"`
 	InstalledAt string   `json:"installed_at"`
@@ -89,6 +90,7 @@ func Install(ctx context.Context, opts Options) (Result, error) {
 	}
 	if err := writeManagedInstallState(ManagedInstallState{
 		Version:     1,
+		Type:        "stdio",
 		Command:     opts.SidecarPath,
 		Args:        []string{"serve"},
 		InstalledAt: time.Now().UTC().Format(time.RFC3339),

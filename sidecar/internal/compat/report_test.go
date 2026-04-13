@@ -150,7 +150,7 @@ func TestCheckMCPConfigPrefersManagedInstallState(t *testing.T) {
 	t.Setenv(assetRootEnvName, assetRoot)
 	stateDir := t.TempDir()
 	t.Setenv(pluginStateDirEnv, stateDir)
-	compatMustWriteFile(t, filepath.Join(stateDir, "plugin-install.json"), []byte(fmt.Sprintf(`{"version":1,"command":%q,"args":["serve"]}`, explicitPath)), 0o644)
+	compatMustWriteFile(t, filepath.Join(stateDir, "plugin-install.json"), []byte(fmt.Sprintf(`{"version":1,"type":"stdio","command":%q,"args":["serve"]}`, explicitPath)), 0o644)
 
 	trusted := resolveTrustedAssets()
 	check, classified := checkMCPConfig(trusted)

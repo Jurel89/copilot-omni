@@ -60,6 +60,7 @@ type MCPServerCommand struct {
 
 type managedInstallState struct {
 	Version int      `json:"version"`
+	Type    string   `json:"type"`
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
 }
@@ -186,7 +187,7 @@ func CheckMCPConfig(trusted TrustedAssets) (Diagnostic, MCPServerCommand) {
 
 	mcpPath := filepath.Join(trusted.PluginDir, ".mcp.json")
 	if state, statePath, err := readManagedInstallState(); err == nil {
-		command = classifyMCPCommand(statePath, state.Command, state.Args)
+		command = classifyMCPCommand(statePath, state.Type, state.Command, state.Args)
 		command.ServerName = sidecarServer
 		command.SourcePath = statePath
 		if command.Status == "pass" {
@@ -213,6 +214,7 @@ func CheckMCPConfig(trusted TrustedAssets) (Diagnostic, MCPServerCommand) {
 	}
 	var mcpConfig struct {
 		MCPServers map[string]struct {
+			Type    string   `json:"type"`
 			Command string   `json:"command"`
 			Args    []string `json:"args"`
 		} `json:"mcpServers"`
@@ -235,7 +237,7 @@ func CheckMCPConfig(trusted TrustedAssets) (Diagnostic, MCPServerCommand) {
 		return Diagnostic{Category: diagnosticCategoryConfig, Name: "MCPConfig", Status: "fail", Message: fmt.Sprintf("Trusted .mcp.json does not declare the %s server", sidecarServer), Remediation: "Add the sidecar MCP server declaration to plugin/.mcp.json."}, command
 	}
 
-	command = classifyMCPCommand(mcpPath, serverConfig.Command, serverConfig.Args)
+	command = classifyMCPCommand(mcpPath, serverConfig.Type, serverConfig.Command, serverConfig.Args)
 	command.ServerName = sidecarServer
 	if command.Command == "" {
 		return Diagnostic{Category: diagnosticCategoryConfig, Name: "MCPConfig", Status: "fail", Message: fmt.Sprintf("Trusted .mcp.json is missing a command for the %s server", sidecarServer), Remediation: "Set the sidecar server command in plugin/.mcp.json."}, command
@@ -536,13 +538,19 @@ func skippedTrustedAssetDiagnostic(name string, message string, cause string) Di
 	}
 }
 
-func classifyMCPCommand(configPath string, command string, args []string) MCPServerCommand {
+func classifyMCPCommand(configPath string, transportType string, command string, args []string) MCPServerCommand {
 	classification := MCPServerCommand{
 		ServerName: sidecarServer,
 		SourcePath: configPath,
 		Command:    strings.TrimSpace(command),
 	}
 
+	if strings.TrimSpace(transportType) != "stdio" {
+		classification.Status = "fail"
+		classification.Classification = "invalid_type"
+		classification.Error = "sidecar type must be stdio"
+		return classification
+	}
 	if classification.Command == "" {
 		classification.Status = "fail"
 		classification.Error = "missing command"
