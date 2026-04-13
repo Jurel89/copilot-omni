@@ -63,7 +63,7 @@ func main() {
         return
     }
     if len(args) > 0 && args[0] == "-p" {
-        fmt.Print("DISCUSS OK")
+        fmt.Print("# Installed Workflow Spec\n\n## Requirements\n- Verify installed workflow uses trusted plugin assets.\n\n## Acceptance Criteria\n- The planner receives the installed plugin asset directory via --add-dir.\n- The plan command completes successfully in installed mode.\n")
         return
     }
 
