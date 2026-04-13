@@ -90,6 +90,42 @@ func TestInstallBundleRoundTripLayout(t *testing.T) {
 	}
 }
 
+func TestInstallBundleReplacesExistingManagedFiles(t *testing.T) {
+	t.Parallel()
+
+	targetDir := t.TempDir()
+	bundleDir := t.TempDir()
+	bundle := writeValidBundle(t, bundleDir, "linux/amd64")
+
+	_, err := Install(Options{BundleDir: bundleDir, Target: targetDir})
+	if err != nil {
+		t.Fatalf("first Install() error = %v", err)
+	}
+
+	rogueShareFile := filepath.Join(targetDir, "share", shareDirName, "stale.txt")
+	rogueBinary := filepath.Join(targetDir, "bin", "rogue-binary")
+	if err := os.WriteFile(rogueShareFile, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("WriteFile(stale share file) error = %v", err)
+	}
+	if err := os.WriteFile(rogueBinary, []byte("keep"), 0o755); err != nil {
+		t.Fatalf("WriteFile(rogue binary) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "bin", bundle.wrapperBinaryName), []byte("old-wrapper"), 0o755); err != nil {
+		t.Fatalf("WriteFile(old wrapper) error = %v", err)
+	}
+
+	_, err = Install(Options{BundleDir: bundleDir, Target: targetDir})
+	if err != nil {
+		t.Fatalf("second Install() error = %v", err)
+	}
+
+	assertInstalledFileContent(t, filepath.Join(targetDir, "bin", bundle.wrapperBinaryName), "wrapper-binary")
+	if _, err := os.Stat(rogueShareFile); !os.IsNotExist(err) {
+		t.Fatalf("expected stale share file to be removed, stat error = %v", err)
+	}
+	assertInstalledFileContent(t, rogueBinary, "keep")
+}
+
 func TestInstallRejectsTraversalBundlePaths(t *testing.T) {
 	t.Parallel()
 
@@ -190,6 +226,26 @@ func TestInstallRejectsInvalidBundleValidation(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "unexpected file") {
 			t.Fatalf("Install() error = %v, want unexpected-file failure", err)
+		}
+	})
+
+	t.Run("wrong binary filename for platform", func(t *testing.T) {
+		t.Parallel()
+
+		bundleDir := t.TempDir()
+		bundle := writeValidBundle(t, bundleDir, "windows/amd64")
+		oldPath := bundle.manifest.Components[0].Path
+		bundle.manifest.Components[0].Path = "omni"
+		bundle.manifest.Checksums["omni"] = bundle.manifest.Checksums[oldPath]
+		delete(bundle.manifest.Checksums, oldPath)
+		writeBundleMetadata(t, bundleDir, bundle.manifest)
+
+		_, err := Install(Options{BundleDir: bundleDir, Target: t.TempDir()})
+		if err == nil {
+			t.Fatal("Install() error = nil, want binary path validation failure")
+		}
+		if !strings.Contains(err.Error(), "binary path must be") && !strings.Contains(err.Error(), "unexpected file") && !strings.Contains(err.Error(), "file missing") {
+			t.Fatalf("Install() error = %v, want binary path validation failure", err)
 		}
 	})
 }

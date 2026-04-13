@@ -211,15 +211,17 @@ func writeTestFile(t *testing.T, rootDir, relativePath, content string) string {
 func addRequiredBundleBinaries(t *testing.T, rootDir string) {
 	t.Helper()
 	writeTestFile(t, rootDir, "omni-sidecar", "sidecar")
+	writeTestFile(t, rootDir, "omni-sidecar.exe", "sidecar")
 	writeTestFile(t, rootDir, "omni", "wrapper")
+	writeTestFile(t, rootDir, "omni.exe", "wrapper")
 }
 
 func addBinaryComponents(t *testing.T, manifest *Manifest, rootDir string, platform string) {
 	t.Helper()
-	if err := manifest.AddComponent("omni-sidecar", filepath.Join(rootDir, "omni-sidecar"), "binary", platform); err != nil {
+	if err := manifest.AddComponent("omni-sidecar", filepath.Join(rootDir, expectedBinaryPath("omni-sidecar", platform)), "binary", platform); err != nil {
 		t.Fatalf("AddComponent(omni-sidecar) error = %v", err)
 	}
-	if err := manifest.AddComponent("omni-wrapper", filepath.Join(rootDir, "omni"), "binary", platform); err != nil {
+	if err := manifest.AddComponent("omni-wrapper", filepath.Join(rootDir, expectedBinaryPath("omni", platform)), "binary", platform); err != nil {
 		t.Fatalf("AddComponent(omni-wrapper) error = %v", err)
 	}
 }

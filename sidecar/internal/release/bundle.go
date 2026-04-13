@@ -307,8 +307,16 @@ func ValidateBundle(bundleDir string) ([]string, error) {
 			switch component.Name {
 			case "omni-wrapper":
 				hasWrapperBinary = true
+				expectedPath := expectedBinaryPath("omni", manifest.Platform)
+				if component.Path != expectedPath {
+					bundleErrors = append(bundleErrors, fmt.Sprintf("omni-wrapper binary path must be %s for platform %s", expectedPath, manifest.Platform))
+				}
 			case "omni-sidecar":
 				hasSidecarBinary = true
+				expectedPath := expectedBinaryPath("omni-sidecar", manifest.Platform)
+				if component.Path != expectedPath {
+					bundleErrors = append(bundleErrors, fmt.Sprintf("omni-sidecar binary path must be %s for platform %s", expectedPath, manifest.Platform))
+				}
 			}
 		}
 	}
@@ -523,6 +531,13 @@ func binaryCandidates(baseName, platform string) []string {
 		candidates = append(candidates, candidate)
 	}
 	return candidates
+}
+
+func expectedBinaryPath(baseName, platform string) string {
+	if platformOS(platform) == "windows" {
+		return baseName + ".exe"
+	}
+	return baseName
 }
 
 func platformOS(platform string) string {

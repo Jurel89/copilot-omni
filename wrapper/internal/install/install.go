@@ -91,8 +91,14 @@ func Install(options Options) (*Result, error) {
 			switch component.Name {
 			case "omni-wrapper":
 				hasWrapperBinary = true
+				if component.Path != expectedBinaryPath("omni", manifest.Platform) {
+					return nil, fmt.Errorf("bundle omni-wrapper binary path must be %s for platform %s", expectedBinaryPath("omni", manifest.Platform), manifest.Platform)
+				}
 			case "omni-sidecar":
 				hasSidecarBinary = true
+				if component.Path != expectedBinaryPath("omni-sidecar", manifest.Platform) {
+					return nil, fmt.Errorf("bundle omni-sidecar binary path must be %s for platform %s", expectedBinaryPath("omni-sidecar", manifest.Platform), manifest.Platform)
+				}
 			}
 		}
 	}
@@ -127,6 +133,23 @@ func Install(options Options) (*Result, error) {
 		ValidationWarning: append([]string(nil), validationWarnings...),
 	}
 
+	stagingRoot, err := os.MkdirTemp(filepath.Dir(targetDir), ".copilot-omni-install-*")
+	if err != nil {
+		return nil, fmt.Errorf("create install staging root: %w", err)
+	}
+	defer os.RemoveAll(stagingRoot)
+
+	stagedBinDir, err := ensureSubdir(stagingRoot, "bin")
+	if err != nil {
+		return nil, fmt.Errorf("prepare staged bin directory: %w", err)
+	}
+	stagedShareDir, err := ensureSubdir(stagingRoot, path.Join("share", shareDirName))
+	if err != nil {
+		return nil, fmt.Errorf("prepare staged shared asset directory: %w", err)
+	}
+
+	managedBinaryNames := make([]string, 0, 2)
+
 	for _, component := range manifest.Components {
 		sourcePath, err := bundleFilePath(bundleDir, component.Path)
 		if err != nil {
@@ -139,15 +162,16 @@ func Install(options Options) (*Result, error) {
 				return nil, fmt.Errorf("resolve binary destination for %s: %w", component.Name, err)
 			}
 
-			installedPath, err := copyFileUnder(binDir, binaryName, sourcePath, 0o755)
+			installedPath, err := copyFileUnder(stagedBinDir, binaryName, sourcePath, 0o755)
 			if err != nil {
 				return nil, fmt.Errorf("install binary %s: %w", component.Name, err)
 			}
+			managedBinaryNames = append(managedBinaryNames, binaryName)
 			result.Binaries = append(result.Binaries, installedPath)
 			continue
 		}
 
-		installedPath, err := copyFileUnder(shareDir, component.Path, sourcePath, assetMode(component.Path))
+		installedPath, err := copyFileUnder(stagedShareDir, component.Path, sourcePath, assetMode(component.Path))
 		if err != nil {
 			return nil, fmt.Errorf("install asset %s: %w", component.Name, err)
 		}
@@ -160,11 +184,33 @@ func Install(options Options) (*Result, error) {
 			return nil, fmt.Errorf("resolve metadata %s: %w", metadataName, err)
 		}
 
-		installedPath, err := copyFileUnder(shareDir, metadataName, sourcePath, 0o644)
+		installedPath, err := copyFileUnder(stagedShareDir, metadataName, sourcePath, 0o644)
 		if err != nil {
 			return nil, fmt.Errorf("install metadata %s: %w", metadataName, err)
 		}
 		result.Metadata = append(result.Metadata, installedPath)
+	}
+
+	if err := commitInstall(stagedBinDir, stagedShareDir, binDir, shareDir, managedBinaryNames); err != nil {
+		return nil, err
+	}
+
+	for idx, binaryPath := range result.Binaries {
+		result.Binaries[idx] = filepath.Join(binDir, filepath.Base(binaryPath))
+	}
+	for idx, assetPath := range result.Assets {
+		relPath, err := filepath.Rel(stagedShareDir, assetPath)
+		if err != nil {
+			return nil, fmt.Errorf("resolve installed asset path: %w", err)
+		}
+		result.Assets[idx] = filepath.Join(shareDir, relPath)
+	}
+	for idx, metadataPath := range result.Metadata {
+		relPath, err := filepath.Rel(stagedShareDir, metadataPath)
+		if err != nil {
+			return nil, fmt.Errorf("resolve installed metadata path: %w", err)
+		}
+		result.Metadata[idx] = filepath.Join(shareDir, relPath)
 	}
 
 	sort.Strings(result.Assets)
@@ -172,6 +218,67 @@ func Install(options Options) (*Result, error) {
 	sort.Strings(result.Metadata)
 
 	return result, nil
+}
+
+func commitInstall(stagedBinDir, stagedShareDir, binDir, shareDir string, managedBinaryNames []string) error {
+	backupRoot, err := os.MkdirTemp(filepath.Dir(binDir), ".copilot-omni-backup-*")
+	if err != nil {
+		return fmt.Errorf("create backup root: %w", err)
+	}
+	defer os.RemoveAll(backupRoot)
+
+	backups := make([][2]string, 0)
+	rollback := func() {
+		for idx := len(backups) - 1; idx >= 0; idx-- {
+			from := backups[idx][0]
+			to := backups[idx][1]
+			_ = os.RemoveAll(to)
+			_ = os.Rename(from, to)
+		}
+	}
+
+	for _, binaryName := range managedBinaryNames {
+		destinationPath := filepath.Join(binDir, binaryName)
+		if _, err := os.Stat(destinationPath); err == nil {
+			backupPath := filepath.Join(backupRoot, binaryName)
+			if err := os.Rename(destinationPath, backupPath); err != nil {
+				rollback()
+				return fmt.Errorf("backup existing binary %s: %w", destinationPath, err)
+			}
+			backups = append(backups, [2]string{backupPath, destinationPath})
+		} else if !os.IsNotExist(err) {
+			rollback()
+			return fmt.Errorf("stat existing binary %s: %w", destinationPath, err)
+		}
+	}
+
+	if _, err := os.Stat(shareDir); err == nil {
+		backupShare := filepath.Join(backupRoot, "share")
+		if err := os.Rename(shareDir, backupShare); err != nil {
+			rollback()
+			return fmt.Errorf("backup existing share directory: %w", err)
+		}
+		backups = append(backups, [2]string{backupShare, shareDir})
+	} else if !os.IsNotExist(err) {
+		rollback()
+		return fmt.Errorf("stat existing share directory: %w", err)
+	}
+
+	for _, binaryName := range managedBinaryNames {
+		stagedPath := filepath.Join(stagedBinDir, binaryName)
+		destinationPath := filepath.Join(binDir, binaryName)
+		if err := os.Rename(stagedPath, destinationPath); err != nil {
+			rollback()
+			return fmt.Errorf("activate binary %s: %w", destinationPath, err)
+		}
+	}
+
+	if err := os.Rename(stagedShareDir, shareDir); err != nil {
+		rollback()
+		return fmt.Errorf("activate shared assets: %w", err)
+	}
+
+	return nil
 }
 
 func validateBundle(bundleDir string) ([]string, *Manifest, error) {
@@ -470,6 +577,9 @@ func copyFile(sourcePath, destinationPath string, mode os.FileMode) (copyErr err
 	if err := tempFile.Close(); err != nil {
 		return fmt.Errorf("close temp file for %s: %w", destinationPath, err)
 	}
+	if err := os.Remove(destinationPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove existing destination %s: %w", destinationPath, err)
+	}
 	if err := os.Rename(tempPath, destinationPath); err != nil {
 		return fmt.Errorf("move temp file into place for %s: %w", destinationPath, err)
 	}
@@ -552,6 +662,13 @@ func computeFingerprintFromChecksums(checksumsMap map[string]string) string {
 	}
 
 	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func expectedBinaryPath(baseName, platform string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(platform)), "windows/") {
+		return baseName + ".exe"
+	}
+	return baseName
 }
 
 func fileChecksum(filePath string) (string, error) {
