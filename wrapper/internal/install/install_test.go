@@ -66,10 +66,22 @@ func TestInstallBundleRoundTripLayout(t *testing.T) {
 			}
 
 			if got, want := result.BundleDir, bundleDir; got != want {
-				t.Fatalf("result.BundleDir = %q, want %q", got, want)
+				resolvedWant, err := filepath.EvalSymlinks(bundleDir)
+				if err != nil {
+					t.Fatalf("EvalSymlinks(bundleDir) error = %v", err)
+				}
+				if got != resolvedWant {
+					t.Fatalf("result.BundleDir = %q, want %q", got, resolvedWant)
+				}
 			}
 			if got, want := result.TargetDir, targetDir; got != want {
-				t.Fatalf("result.TargetDir = %q, want %q", got, want)
+				resolvedWant, err := filepath.EvalSymlinks(targetDir)
+				if err != nil {
+					t.Fatalf("EvalSymlinks(targetDir) error = %v", err)
+				}
+				if got != resolvedWant {
+					t.Fatalf("result.TargetDir = %q, want %q", got, resolvedWant)
+				}
 			}
 			if len(result.ValidationWarning) != 0 {
 				t.Fatalf("result.ValidationWarning = %v, want no warnings", result.ValidationWarning)

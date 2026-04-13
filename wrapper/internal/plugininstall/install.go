@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 
 	"github.com/Jurel89/copilot-omni/wrapper/internal/assets"
 )
@@ -69,7 +70,7 @@ func Install(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, fmt.Errorf("write staged .mcp.json: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, copilotPath, "plugin", "install", stagingDir)
+	cmd := commandForCopilot(ctx, copilotPath, stagingDir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -77,6 +78,16 @@ func Install(ctx context.Context, opts Options) (Result, error) {
 	}
 
 	return Result{StagingDir: stagingDir}, nil
+}
+
+func commandForCopilot(ctx context.Context, copilotPath string, stagingDir string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		ext := filepath.Ext(copilotPath)
+		if ext == ".bat" || ext == ".cmd" {
+			return exec.CommandContext(ctx, "cmd.exe", "/c", copilotPath, "plugin", "install", stagingDir)
+		}
+	}
+	return exec.CommandContext(ctx, copilotPath, "plugin", "install", stagingDir)
 }
 
 func writeMCPConfig(path string, sidecarPath string) error {
