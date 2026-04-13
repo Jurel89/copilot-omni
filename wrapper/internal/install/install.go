@@ -37,6 +37,8 @@ type Result struct {
 	BinDir            string
 }
 
+var executablePath = os.Executable
+
 type Manifest struct {
 	Version    string            `json:"version"`
 	Product    string            `json:"product"`
@@ -114,6 +116,9 @@ func Install(options Options) (*Result, error) {
 	binDir, err := ensureSubdir(targetDir, "bin")
 	if err != nil {
 		return nil, fmt.Errorf("prepare bin directory: %w", err)
+	}
+	if err := rejectSelfUpgrade(binDir, manifest.Platform); err != nil {
+		return nil, err
 	}
 
 	shareDir, err := ensureSubdir(targetDir, path.Join("share", shareDirName))
@@ -218,6 +223,29 @@ func Install(options Options) (*Result, error) {
 	sort.Strings(result.Metadata)
 
 	return result, nil
+}
+
+func rejectSelfUpgrade(binDir string, platform string) error {
+	exePath, err := executablePath()
+	if err != nil {
+		return nil
+	}
+	current := normalizeInstallPath(exePath)
+	managed := normalizeInstallPath(filepath.Join(binDir, expectedBinaryPath("omni", platform)))
+	if current == managed {
+		return fmt.Errorf("refusing in-place self-upgrade of running omni binary at %s; use a different installer binary or target prefix", managed)
+	}
+	return nil
+}
+
+func normalizeInstallPath(path string) string {
+	if absPath, err := filepath.Abs(path); err == nil {
+		path = absPath
+	}
+	if resolvedPath, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolvedPath
+	}
+	return filepath.Clean(path)
 }
 
 func commitInstall(stagedBinDir, stagedShareDir, binDir, shareDir string, managedBinaryNames []string) error {

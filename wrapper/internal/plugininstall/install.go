@@ -81,21 +81,25 @@ func Install(ctx context.Context, opts Options) (Result, error) {
 	if err := writeMCPConfig(filepath.Join(stagingDir, ".mcp.json"), opts.SidecarPath); err != nil {
 		return Result{}, fmt.Errorf("write staged .mcp.json: %w", err)
 	}
-
-	cmd := commandForCopilot(ctx, copilotPath, stagingDir)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return Result{}, fmt.Errorf("run copilot plugin install: %w", err)
-	}
-	if err := writeManagedInstallState(ManagedInstallState{
+	rollbackState, err := persistManagedInstallState(ManagedInstallState{
 		Version:     1,
 		Type:        "stdio",
 		Command:     opts.SidecarPath,
 		Args:        []string{"serve"},
 		InstalledAt: time.Now().UTC().Format(time.RFC3339),
-	}); err != nil {
+	})
+	if err != nil {
 		return Result{}, fmt.Errorf("write managed plugin state: %w", err)
+	}
+
+	cmd := commandForCopilot(ctx, copilotPath, stagingDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if rollbackErr := rollbackState(); rollbackErr != nil {
+			return Result{}, fmt.Errorf("run copilot plugin install: %w (state rollback failed: %v)", err, rollbackErr)
+		}
+		return Result{}, fmt.Errorf("run copilot plugin install: %w", err)
 	}
 
 	return Result{StagingDir: stagingDir}, nil
@@ -191,6 +195,31 @@ func writeManagedInstallState(state ManagedInstallState) error {
 	}
 	content = append(content, '\n')
 	return os.WriteFile(filepath.Join(stateDir, "plugin-install.json"), content, 0o644)
+}
+
+func persistManagedInstallState(state ManagedInstallState) (func() error, error) {
+	stateDir, err := managedInstallStateDir()
+	if err != nil {
+		return nil, err
+	}
+	statePath := filepath.Join(stateDir, "plugin-install.json")
+	previousContent, readErr := os.ReadFile(statePath)
+	hadPrevious := readErr == nil
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return nil, readErr
+	}
+	if err := writeManagedInstallState(state); err != nil {
+		return nil, err
+	}
+	return func() error {
+		if hadPrevious {
+			return os.WriteFile(statePath, previousContent, 0o644)
+		}
+		if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}, nil
 }
 
 func managedInstallStateDir() (string, error) {

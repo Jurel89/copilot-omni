@@ -138,11 +138,40 @@ func TestInstallFailsWithoutSidecar(t *testing.T) {
 	}
 }
 
+func TestInstallRollsBackManagedStateWhenCopilotInstallFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows plugin install path is covered by PowerShell smoke tests")
+	}
+	root := t.TempDir()
+	pluginDir := filepath.Join(root, "plugin")
+	mustWriteFile(t, filepath.Join(pluginDir, "plugin.json"), []byte(`{"name":"copilot-omni"}`), 0o644)
+	sidecarPath := mustWriteExecutable(t, filepath.Join(root, binaryName("omni-sidecar")))
+	stateDir := filepath.Join(root, "state")
+	t.Setenv(pluginStateDirEnv, stateDir)
+	t.Setenv("FAKE_COPILOT_FAIL", "1")
+	copilotPath := buildFakeCopilot(t)
+
+	_, err := Install(context.Background(), Options{
+		AssetLocation: assets.Location{PluginDir: pluginDir},
+		SidecarPath:   sidecarPath,
+		CopilotPath:   copilotPath,
+	})
+	if err == nil {
+		t.Fatal("Install() error = nil, want copilot failure")
+	}
+	if _, statErr := os.Stat(filepath.Join(stateDir, "plugin-install.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("managed install state should be rolled back, stat err = %v", statErr)
+	}
+}
+
 func buildFakeCopilot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	path := filepath.Join(root, binaryName("copilot"))
 	script := "#!/bin/sh\nset -eu\n[ \"$1\" = \"plugin\" ]\n[ \"$2\" = \"install\" ]\nprintf '%s' \"$3\" > \"$FAKE_COPILOT_INSTALL_RECORD\"\n"
+	if os.Getenv("FAKE_COPILOT_FAIL") == "1" {
+		script += "exit 7\n"
+	}
 	if runtime.GOOS == "windows" {
 		path = filepath.Join(root, "copilot.bat")
 		script = "@echo off\r\nif not \"%1\"==\"plugin\" exit /b 1\r\nif not \"%2\"==\"install\" exit /b 1\r\nset \"TARGET=%~f3\"\r\n> \"%FAKE_COPILOT_INSTALL_RECORD%\" <nul set /p =%TARGET%\r\n"
