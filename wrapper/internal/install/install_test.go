@@ -257,6 +257,31 @@ func TestInstallRejectsInvalidBundleValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("missing installed asset set", func(t *testing.T) {
+		t.Parallel()
+
+		bundleDir := t.TempDir()
+		bundle := writeValidBundle(t, bundleDir, "linux/amd64")
+		filtered := make([]Component, 0, len(bundle.manifest.Components))
+		for _, component := range bundle.manifest.Components {
+			if component.Path == "plugin/plugin.json" {
+				continue
+			}
+			filtered = append(filtered, component)
+		}
+		bundle.manifest.Components = filtered
+		delete(bundle.manifest.Checksums, "plugin/plugin.json")
+		writeBundleMetadata(t, bundleDir, bundle.manifest)
+
+		_, err := Install(Options{BundleDir: bundleDir, Target: t.TempDir()})
+		if err == nil {
+			t.Fatal("Install() error = nil, want missing installed asset failure")
+		}
+		if !strings.Contains(err.Error(), "missing required installed asset") {
+			t.Fatalf("Install() error = %v, want missing installed asset failure", err)
+		}
+	})
+
 	t.Run("unexpected bundle file", func(t *testing.T) {
 		t.Parallel()
 

@@ -2692,6 +2692,8 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 			if addErr := manifest.AddDirectoryComponent("plugin", pluginDir); addErr != nil {
 				return ToolCallResult{}, fmt.Errorf("add plugin assets: %w", addErr)
 			}
+		} else {
+			return ToolCallResult{}, fmt.Errorf("bundle requires plugin assets at %s", pluginDir)
 		}
 
 		templatesDir := filepath.Join(repoRoot, "templates")
@@ -2699,6 +2701,8 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 			if addErr := manifest.AddDirectoryComponent("templates", templatesDir); addErr != nil {
 				return ToolCallResult{}, fmt.Errorf("add templates assets: %w", addErr)
 			}
+		} else {
+			return ToolCallResult{}, fmt.Errorf("bundle requires templates assets at %s", templatesDir)
 		}
 
 		if mp, err := os.Stat(filepath.Join(repoRoot, "marketplace.json")); err == nil && !mp.IsDir() {
@@ -2710,6 +2714,8 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 			if addErr := manifest.AddExtraFile("marketplace.json", marketplacePath, "marketplace.json"); addErr != nil {
 				return ToolCallResult{}, fmt.Errorf("add marketplace metadata: %w", addErr)
 			}
+		} else {
+			return ToolCallResult{}, fmt.Errorf("bundle requires marketplace metadata at %s", filepath.Join(repoRoot, "marketplace.json"))
 		}
 
 		policiesDir := filepath.Join(repoRoot, "policies")
@@ -2723,6 +2729,8 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 					}
 				}
 			}
+		} else {
+			return ToolCallResult{}, fmt.Errorf("bundle requires policies assets at %s", policiesDir)
 		}
 
 		installScript := filepath.Join(repoRoot, "scripts", "install-offline.sh")

@@ -388,6 +388,22 @@ func validateBundle(bundleDir string) ([]string, *Manifest, error) {
 			expectedPaths[normalizedPath] = struct{}{}
 		}
 	}
+	requiredAssetPrefixes := []string{"plugin/", "templates/", "policies/"}
+	for _, prefix := range requiredAssetPrefixes {
+		found := false
+		for expectedPath := range expectedPaths {
+			if strings.HasPrefix(expectedPath, prefix) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			bundleErrors = append(bundleErrors, fmt.Sprintf("bundle missing required installed asset set: %s", strings.TrimSuffix(prefix, "/")))
+		}
+	}
+	if _, ok := expectedPaths["marketplace.json"]; !ok {
+		bundleErrors = append(bundleErrors, "bundle missing required installed asset: marketplace.json")
+	}
 	if err := filepath.WalkDir(bundleDir, func(currentPath string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err

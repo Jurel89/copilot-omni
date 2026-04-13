@@ -13,9 +13,11 @@ func TestAddExtraFileNormalizesManifestPaths(t *testing.T) {
 	sourceDir := t.TempDir()
 	sourceFile := writeTestFile(t, sourceDir, "strict.json", `{\n  "mode": "strict"\n}`)
 	addRequiredBundleBinaries(t, sourceDir)
+	addRequiredInstalledAssets(t, sourceDir)
 
 	manifest := NewManifest("v1.0.0", "windows/amd64", "")
 	addBinaryComponents(t, manifest, sourceDir, "windows/amd64")
+	addRequiredAssetComponents(t, manifest, sourceDir)
 	if err := manifest.AddExtraFile("policy", sourceFile, `policies\strict.json`); err != nil {
 		t.Fatalf("AddExtraFile() error = %v", err)
 	}
@@ -53,9 +55,11 @@ func TestWriteBundleIncludesTemplatesDirectory(t *testing.T) {
 	templatesDir := filepath.Join(assetRoot, "templates")
 	writeTestFile(t, templatesDir, filepath.Join("workflow", "init", "prompt.md"), "# init\n")
 	addRequiredBundleBinaries(t, assetRoot)
+	addRequiredInstalledAssets(t, assetRoot)
 
 	manifest := NewManifest("v1.0.0", "linux/amd64", "")
 	addBinaryComponents(t, manifest, assetRoot, "linux/amd64")
+	addRequiredAssetComponents(t, manifest, assetRoot)
 	if err := manifest.AddDirectoryComponent("templates", templatesDir); err != nil {
 		t.Fatalf("AddDirectoryComponent() error = %v", err)
 	}
@@ -216,6 +220,14 @@ func addRequiredBundleBinaries(t *testing.T, rootDir string) {
 	writeTestFile(t, rootDir, "omni.exe", "wrapper")
 }
 
+func addRequiredInstalledAssets(t *testing.T, rootDir string) {
+	t.Helper()
+	writeTestFile(t, rootDir, filepath.Join("plugin", "plugin.json"), `{"name":"copilot-omni"}`)
+	writeTestFile(t, rootDir, filepath.Join("templates", "copilot-instructions.md.tmpl"), "template")
+	writeTestFile(t, rootDir, filepath.Join("policies", "standard.json"), `{"profile":"standard"}`)
+	writeTestFile(t, rootDir, "marketplace.json", `{"plugins":[{"name":"copilot-omni"}]}`)
+}
+
 func addBinaryComponents(t *testing.T, manifest *Manifest, rootDir string, platform string) {
 	t.Helper()
 	if err := manifest.AddComponent("omni-sidecar", filepath.Join(rootDir, expectedBinaryPath("omni-sidecar", platform)), "binary", platform); err != nil {
@@ -223,5 +235,21 @@ func addBinaryComponents(t *testing.T, manifest *Manifest, rootDir string, platf
 	}
 	if err := manifest.AddComponent("omni-wrapper", filepath.Join(rootDir, expectedBinaryPath("omni", platform)), "binary", platform); err != nil {
 		t.Fatalf("AddComponent(omni-wrapper) error = %v", err)
+	}
+}
+
+func addRequiredAssetComponents(t *testing.T, manifest *Manifest, rootDir string) {
+	t.Helper()
+	if err := manifest.AddExtraFile("plugin", filepath.Join(rootDir, "plugin", "plugin.json"), "plugin/plugin.json"); err != nil {
+		t.Fatalf("AddExtraFile(plugin) error = %v", err)
+	}
+	if err := manifest.AddExtraFile("template", filepath.Join(rootDir, "templates", "copilot-instructions.md.tmpl"), "templates/copilot-instructions.md.tmpl"); err != nil {
+		t.Fatalf("AddExtraFile(template) error = %v", err)
+	}
+	if err := manifest.AddExtraFile("policy", filepath.Join(rootDir, "policies", "standard.json"), "policies/standard.json"); err != nil {
+		t.Fatalf("AddExtraFile(policy) error = %v", err)
+	}
+	if err := manifest.AddExtraFile("marketplace", filepath.Join(rootDir, "marketplace.json"), "marketplace.json"); err != nil {
+		t.Fatalf("AddExtraFile(marketplace) error = %v", err)
 	}
 }
