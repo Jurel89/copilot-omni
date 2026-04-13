@@ -92,6 +92,22 @@ This checklist ensures all Phase 6 requirements are met before declaring GA.
 - [ ] Ubuntu 22.04+ (x64)
 - [ ] Windows 11 (x64)
 
+### Windows Runtime / Install Gates
+- [ ] Windows source build produces `wrapper/omni.exe` and `sidecar/omni-sidecar.exe`
+- [ ] Windows `omni.exe doctor` reports sidecar found and healthy
+- [ ] Windows `omni.exe init` succeeds without template lookup failures
+- [ ] Windows `omni.exe plugin install` succeeds without requiring sidecar on `PATH`
+- [ ] Windows `omni.exe bundle create` emits `.exe` binaries and `templates/`
+- [ ] Windows `omni.exe bundle install --bundle-dir <dir> --target <prefix>` succeeds
+- [ ] Installed Windows `omni.exe doctor` succeeds from `<prefix>/bin`
+- [ ] Installed Windows `omni.exe init` succeeds in an arbitrary repository
+
+### Installed-Mode Gates
+- [ ] Installed layout uses `<prefix>/bin` for binaries
+- [ ] Installed layout uses `<prefix>/share/copilot-omni` for trusted assets
+- [ ] Installed-mode workflow commands resolve plugin assets from the trusted share directory
+- [ ] Installed-mode diagnostics distinguish missing assets from stale MCP command paths
+
 ### Copilot CLI Versions
 - [ ] Copilot CLI 1.0+
 - [ ] Copilot CLI latest stable
@@ -108,6 +124,9 @@ This checklist ensures all Phase 6 requirements are met before declaring GA.
 - [ ] Migration guide complete
 - [ ] Troubleshooting guide complete
 - [ ] API documentation complete
+- [ ] Docs no longer tell users to run `copilot plugin install ./plugin` as the primary path
+- [ ] Docs no longer imply the wrapper alone is sufficient
+- [ ] Offline install docs use `omni bundle install`
 
 ## Security Review
 

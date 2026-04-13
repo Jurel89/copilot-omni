@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/copilot-omni/sidecar/internal/artifact"
-	"github.com/copilot-omni/sidecar/internal/config"
-	runpkg "github.com/copilot-omni/sidecar/internal/run"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/artifact"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/config"
+	runpkg "github.com/Jurel89/copilot-omni/sidecar/internal/run"
 )
 
 const (

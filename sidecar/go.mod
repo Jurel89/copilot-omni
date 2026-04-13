@@ -1,4 +1,4 @@
-module github.com/copilot-omni/sidecar
+module github.com/Jurel89/copilot-omni/sidecar
 
 go 1.25.0
 

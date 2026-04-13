@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/copilot-omni/sidecar/internal/artifact"
-	"github.com/copilot-omni/sidecar/internal/config"
-	"github.com/copilot-omni/sidecar/internal/memory"
-	"github.com/copilot-omni/sidecar/internal/policy"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/artifact"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/config"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/memory"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/policy"
 )
 
 func DefaultBenchmarks(store *artifact.Store, cfg *config.Config, mem *memory.Store, pol *policy.Engine) []*Benchmark {

@@ -13,32 +13,33 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/copilot-omni/sidecar/internal/artifact"
-	"github.com/copilot-omni/sidecar/internal/audit"
-	"github.com/copilot-omni/sidecar/internal/benchmark"
-	"github.com/copilot-omni/sidecar/internal/compat"
-	"github.com/copilot-omni/sidecar/internal/config"
-	"github.com/copilot-omni/sidecar/internal/doctor"
-	"github.com/copilot-omni/sidecar/internal/execution"
-	"github.com/copilot-omni/sidecar/internal/memory"
-	"github.com/copilot-omni/sidecar/internal/merge"
-	"github.com/copilot-omni/sidecar/internal/migration"
-	"github.com/copilot-omni/sidecar/internal/policy"
-	"github.com/copilot-omni/sidecar/internal/policypack"
-	"github.com/copilot-omni/sidecar/internal/release"
-	"github.com/copilot-omni/sidecar/internal/research"
-	"github.com/copilot-omni/sidecar/internal/router"
-	runpkg "github.com/copilot-omni/sidecar/internal/run"
-	"github.com/copilot-omni/sidecar/internal/schema"
-	subtaskpkg "github.com/copilot-omni/sidecar/internal/subtask"
-	"github.com/copilot-omni/sidecar/internal/support"
-	"github.com/copilot-omni/sidecar/internal/version"
-	"github.com/copilot-omni/sidecar/internal/workspace"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/artifact"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/audit"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/benchmark"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/compat"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/config"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/doctor"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/execution"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/memory"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/merge"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/migration"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/policy"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/policypack"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/release"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/research"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/router"
+	runpkg "github.com/Jurel89/copilot-omni/sidecar/internal/run"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/schema"
+	subtaskpkg "github.com/Jurel89/copilot-omni/sidecar/internal/subtask"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/support"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/version"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/workspace"
 )
 
 type ToolHandler func(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error)
@@ -2672,29 +2673,38 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 		}
 		platform := stringVal(arguments, "platform")
 		if platform == "" {
-			platform = "linux/amd64"
+			platform = runtime.GOOS + "/" + runtime.GOARCH
 		}
 
 		manifest := release.NewManifest(releaseTag, platform, "")
-		sidecarBin := filepath.Join(repoRoot, "sidecar", "omni-sidecar")
-		if _, err := os.Stat(sidecarBin); err == nil {
+		if sidecarBin, ok := release.FindBundleBinary(filepath.Join(repoRoot, "sidecar"), "omni-sidecar", platform); ok {
 			if addErr := manifest.AddComponent("omni-sidecar", sidecarBin, "binary", platform); addErr != nil {
 				return ToolCallResult{}, fmt.Errorf("add sidecar component: %w", addErr)
 			}
 		}
-		wrapperBin := filepath.Join(repoRoot, "wrapper", "omni")
-		if _, err := os.Stat(wrapperBin); err == nil {
+		if wrapperBin, ok := release.FindBundleBinary(filepath.Join(repoRoot, "wrapper"), "omni", platform); ok {
 			if addErr := manifest.AddComponent("omni-wrapper", wrapperBin, "binary", platform); addErr != nil {
 				return ToolCallResult{}, fmt.Errorf("add wrapper component: %w", addErr)
 			}
 		}
 		pluginDir := filepath.Join(repoRoot, "plugin")
 		if info, err := os.Stat(pluginDir); err == nil && info.IsDir() {
-			_ = manifest.AddDirectoryComponent("plugin", pluginDir)
+			if addErr := manifest.AddDirectoryComponent("plugin", pluginDir); addErr != nil {
+				return ToolCallResult{}, fmt.Errorf("add plugin assets: %w", addErr)
+			}
+		}
+
+		templatesDir := filepath.Join(repoRoot, "templates")
+		if info, err := os.Stat(templatesDir); err == nil && info.IsDir() {
+			if addErr := manifest.AddDirectoryComponent("templates", templatesDir); addErr != nil {
+				return ToolCallResult{}, fmt.Errorf("add templates assets: %w", addErr)
+			}
 		}
 
 		if mp, err := os.Stat(filepath.Join(repoRoot, "marketplace.json")); err == nil && !mp.IsDir() {
-			_ = manifest.AddExtraFile("marketplace.json", filepath.Join(repoRoot, "marketplace.json"), "marketplace.json")
+			if addErr := manifest.AddExtraFile("marketplace.json", filepath.Join(repoRoot, "marketplace.json"), "marketplace.json"); addErr != nil {
+				return ToolCallResult{}, fmt.Errorf("add marketplace metadata: %w", addErr)
+			}
 		}
 
 		policiesDir := filepath.Join(repoRoot, "policies")
@@ -2703,14 +2713,18 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 			for _, entry := range entries {
 				if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
 					srcPath := filepath.Join(policiesDir, entry.Name())
-					_ = manifest.AddExtraFile("policies/"+entry.Name(), srcPath, filepath.Join("policies", entry.Name()))
+					if addErr := manifest.AddExtraFile("policies/"+entry.Name(), srcPath, filepath.Join("policies", entry.Name())); addErr != nil {
+						return ToolCallResult{}, fmt.Errorf("add policy asset %s: %w", entry.Name(), addErr)
+					}
 				}
 			}
 		}
 
 		installScript := filepath.Join(repoRoot, "scripts", "install-offline.sh")
 		if _, err := os.Stat(installScript); err == nil {
-			_ = manifest.AddExtraFile("install-offline.sh", installScript, "scripts/install-offline.sh")
+			if addErr := manifest.AddExtraFile("install-offline.sh", installScript, "scripts/install-offline.sh"); addErr != nil {
+				return ToolCallResult{}, fmt.Errorf("add install script: %w", addErr)
+			}
 		}
 
 		if len(manifest.Components) == 0 {

@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/copilot-omni/sidecar/internal/artifact"
-	"github.com/copilot-omni/sidecar/internal/run"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/artifact"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/run"
 )
 
 func IngestRunArtifacts(store *Store, repoRoot, runID string) error {

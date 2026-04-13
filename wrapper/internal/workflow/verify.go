@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -75,7 +76,7 @@ func (r *Runner) VerifyPhase(ctx context.Context, state *runState) error {
 	if len(failures) > 0 {
 		result.Status = "failed"
 		result.Error = strings.Join(failures, "; ")
-		return r.failVerifyPhase(ctx, state, result, fmt.Errorf(result.Error))
+		return r.failVerifyPhase(ctx, state, result, errors.New(result.Error))
 	}
 
 	r.upsertPhaseResult(state, result)

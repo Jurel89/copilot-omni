@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -74,7 +75,7 @@ func (m *Manifest) AddComponent(name, srcPath, componentType, arch string) error
 		return fmt.Errorf("checksum %s: %w", name, err)
 	}
 
-	relPath := filepath.Base(srcPath)
+	relPath := normalizeManifestPath(filepath.Base(srcPath))
 	m.Components = append(m.Components, Component{
 		Name:       name,
 		Path:       relPath,
@@ -94,7 +95,11 @@ func (m *Manifest) AddComponent(name, srcPath, componentType, arch string) error
 }
 
 func (m *Manifest) AddDirectoryComponent(name, srcDir string) error {
-	return m.addDirRecursive(name, srcDir, name)
+	prefix, err := validateManifestPath(name)
+	if err != nil {
+		return fmt.Errorf("invalid directory component %s: %w", name, err)
+	}
+	return m.addDirRecursive(name, srcDir, prefix)
 }
 
 func (m *Manifest) addDirRecursive(name, srcDir, prefix string) error {
@@ -105,7 +110,10 @@ func (m *Manifest) addDirRecursive(name, srcDir, prefix string) error {
 
 	for _, entry := range entries {
 		fullPath := filepath.Join(srcDir, entry.Name())
-		relPath := filepath.Join(prefix, entry.Name())
+		relPath, err := validateManifestPath(filepath.Join(prefix, entry.Name()))
+		if err != nil {
+			return fmt.Errorf("invalid component path for %s: %w", fullPath, err)
+		}
 
 		if entry.IsDir() {
 			if err := m.addDirRecursive(name, fullPath, relPath); err != nil {
@@ -136,6 +144,11 @@ func (m *Manifest) addDirRecursive(name, srcDir, prefix string) error {
 }
 
 func (m *Manifest) AddExtraFile(name, srcPath, bundleRelPath string) error {
+	bundleRelPath, err := validateManifestPath(bundleRelPath)
+	if err != nil {
+		return fmt.Errorf("invalid bundle path for %s: %w", name, err)
+	}
+
 	checksum, err := FileChecksum(srcPath)
 	if err != nil {
 		return fmt.Errorf("checksum %s: %w", name, err)
@@ -165,7 +178,11 @@ func (m *Manifest) WriteBundle(outputDir string) (string, error) {
 		if comp.sourcePath == "" {
 			continue
 		}
-		dest := filepath.Join(outputDir, comp.Path)
+		bundlePath, err := validateManifestPath(comp.Path)
+		if err != nil {
+			return "", fmt.Errorf("invalid component path for %s: %w", comp.Name, err)
+		}
+		dest := filepath.Join(outputDir, filepath.FromSlash(bundlePath))
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return "", fmt.Errorf("create component directory for %s: %w", comp.Name, err)
 		}
@@ -210,7 +227,8 @@ func (m *Manifest) WriteBundle(outputDir string) (string, error) {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("%s  %s\n", manifestChecksum, "release-manifest.json"))
 	sb.WriteString(fmt.Sprintf("%s  %s\n", sbomChecksum, "sbom.json"))
-	for relPath, checksum := range m.Checksums {
+	for _, relPath := range sortedChecksumPaths(m.Checksums) {
+		checksum := m.Checksums[relPath]
 		sb.WriteString(fmt.Sprintf("%s  %s\n", checksum, relPath))
 	}
 	if err := os.WriteFile(checksumsPath, []byte(sb.String()), 0o644); err != nil {
@@ -252,7 +270,12 @@ func ValidateBundle(bundleDir string) ([]string, error) {
 		}
 		parts := strings.SplitN(line, "  ", 2)
 		if len(parts) == 2 {
-			checksumsMap[parts[1]] = parts[0]
+			normalizedPath, pathErr := validateManifestPath(parts[1])
+			if pathErr != nil {
+				bundleErrors = append(bundleErrors, fmt.Sprintf("checksums.txt entry %q invalid: %v", parts[1], pathErr))
+				continue
+			}
+			checksumsMap[normalizedPath] = parts[0]
 		}
 	}
 
@@ -304,20 +327,26 @@ func ValidateBundle(bundleDir string) ([]string, error) {
 	}
 
 	for _, comp := range manifest.Components {
-		if !isPathContained(bundleDir, comp.Path) {
+		componentPath, pathErr := validateManifestPath(comp.Path)
+		if pathErr != nil {
+			bundleErrors = append(bundleErrors, fmt.Sprintf("component %s path %q invalid: %v", comp.Name, comp.Path, pathErr))
+			continue
+		}
+		if !isPathContained(bundleDir, componentPath) {
 			bundleErrors = append(bundleErrors, fmt.Sprintf("component %s path %q escapes bundle directory", comp.Name, comp.Path))
 			continue
 		}
-		if _, exists := checksumsMap[comp.Path]; !exists {
+		if _, exists := checksumsMap[componentPath]; !exists {
 			bundleErrors = append(bundleErrors, fmt.Sprintf("component %s (%s) not covered by checksums.txt", comp.Name, comp.Path))
 		}
 	}
 
 	for _, comp := range manifest.Components {
-		if !isPathContained(bundleDir, comp.Path) {
+		componentPath, pathErr := validateManifestPath(comp.Path)
+		if pathErr != nil || !isPathContained(bundleDir, componentPath) {
 			continue
 		}
-		compPath := filepath.Join(bundleDir, comp.Path)
+		compPath := filepath.Join(bundleDir, filepath.FromSlash(componentPath))
 		if _, err := os.Stat(compPath); err != nil {
 			bundleErrors = append(bundleErrors, fmt.Sprintf("component %s file missing: %s", comp.Name, comp.Path))
 			continue
@@ -341,7 +370,7 @@ func ValidateBundle(bundleDir string) ([]string, error) {
 			bundleErrors = append(bundleErrors, fmt.Sprintf("checksums.txt entry %q escapes bundle directory", fileName))
 			continue
 		}
-		filePath := filepath.Join(bundleDir, fileName)
+		filePath := filepath.Join(bundleDir, filepath.FromSlash(fileName))
 		actualHash, err := FileChecksum(filePath)
 		if err != nil {
 			bundleErrors = append(bundleErrors, fmt.Sprintf("checksums.txt entry %s: file not found", fileName))
@@ -403,10 +432,88 @@ func RegenerateChecksums(outputDir string) ([]byte, error) {
 	if sbomChecksum != "" {
 		sb.WriteString(fmt.Sprintf("%s  %s\n", sbomChecksum, "sbom.json"))
 	}
-	for relPath, checksum := range manifest.Checksums {
+	for _, relPath := range sortedChecksumPaths(manifest.Checksums) {
+		checksum := manifest.Checksums[relPath]
 		sb.WriteString(fmt.Sprintf("%s  %s\n", checksum, relPath))
 	}
 	return []byte(sb.String()), nil
+}
+
+func FindBundleBinary(baseDir, baseName, platform string) (string, bool) {
+	for _, candidate := range binaryCandidates(baseName, platform) {
+		candidatePath := filepath.Join(baseDir, candidate)
+		if info, err := os.Stat(candidatePath); err == nil && !info.IsDir() {
+			return candidatePath, true
+		}
+	}
+	return "", false
+}
+
+func binaryCandidates(baseName, platform string) []string {
+	preferred := baseName
+	fallback := baseName + ".exe"
+	if platformOS(platform) == "windows" {
+		preferred, fallback = fallback, preferred
+	}
+
+	seen := map[string]struct{}{}
+	candidates := make([]string, 0, 2)
+	for _, candidate := range []string{preferred, fallback} {
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		candidates = append(candidates, candidate)
+	}
+	return candidates
+}
+
+func platformOS(platform string) string {
+	platform = strings.TrimSpace(platform)
+	if platform == "" {
+		return ""
+	}
+	osName, _, found := strings.Cut(platform, "/")
+	if !found {
+		return strings.ToLower(platform)
+	}
+	return strings.ToLower(strings.TrimSpace(osName))
+}
+
+func normalizeManifestPath(relPath string) string {
+	relPath = strings.TrimSpace(relPath)
+	if relPath == "" {
+		return ""
+	}
+	normalized := strings.ReplaceAll(relPath, "\\", "/")
+	cleaned := path.Clean(normalized)
+	if cleaned == "." {
+		return ""
+	}
+	return strings.TrimPrefix(cleaned, "./")
+}
+
+func validateManifestPath(relPath string) (string, error) {
+	normalized := normalizeManifestPath(relPath)
+	if normalized == "" {
+		return "", fmt.Errorf("path is empty")
+	}
+	if strings.HasPrefix(normalized, "/") {
+		return "", fmt.Errorf("path is absolute")
+	}
+	if normalized == ".." || strings.HasPrefix(normalized, "../") {
+		return "", fmt.Errorf("path escapes bundle directory")
+	}
+	return normalized, nil
+}
+
+func sortedChecksumPaths(checksums map[string]string) []string {
+	paths := make([]string, 0, len(checksums))
+	for relPath := range checksums {
+		paths = append(paths, relPath)
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func FileChecksum(path string) (string, error) {
@@ -424,10 +531,14 @@ func FileChecksum(path string) (string, error) {
 }
 
 func isPathContained(base, rel string) bool {
-	if filepath.IsAbs(rel) {
+	rel, err := validateManifestPath(rel)
+	if err != nil {
 		return false
 	}
-	cleaned := filepath.Clean(rel)
+	cleaned := filepath.FromSlash(rel)
+	if filepath.IsAbs(cleaned) {
+		return false
+	}
 	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
 		return false
 	}

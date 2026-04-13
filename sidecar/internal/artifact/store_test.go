@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	runpkg "github.com/copilot-omni/sidecar/internal/run"
+	runpkg "github.com/Jurel89/copilot-omni/sidecar/internal/run"
 )
 
 var testRunCreatedAt = time.Date(2026, time.April, 11, 10, 0, 0, 0, time.UTC)

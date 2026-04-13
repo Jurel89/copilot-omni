@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/copilot-omni/wrapper/internal/copilot"
+	"github.com/Jurel89/copilot-omni/wrapper/internal/copilot"
 )
 
 type executePhaseReport struct {
@@ -195,7 +195,7 @@ func (r *Runner) executeTask(ctx context.Context, state *runState, taskID string
 		SharePath: transcriptPath(r.repoRoot, state.ID, PhaseExecute),
 		Silent:    true,
 		NoAskUser: true,
-		AddDirs:   []string{filepath.Join(r.repoRoot, "plugin")},
+		AddDirs:   []string{r.pluginDir},
 	})
 
 	resultEntry := strings.TrimSpace(output)

@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/copilot-omni/sidecar/internal/mcp"
-	"github.com/copilot-omni/sidecar/internal/version"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/mcp"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/version"
 )
 
 func main() {

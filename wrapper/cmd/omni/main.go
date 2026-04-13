@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,10 +14,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/copilot-omni/wrapper/internal/copilot"
-	"github.com/copilot-omni/wrapper/internal/sidecar"
-	"github.com/copilot-omni/wrapper/internal/version"
-	"github.com/copilot-omni/wrapper/internal/workflow"
+	"github.com/Jurel89/copilot-omni/wrapper/internal/assets"
+	"github.com/Jurel89/copilot-omni/wrapper/internal/copilot"
+	"github.com/Jurel89/copilot-omni/wrapper/internal/install"
+	"github.com/Jurel89/copilot-omni/wrapper/internal/plugininstall"
+	"github.com/Jurel89/copilot-omni/wrapper/internal/sidecar"
+	"github.com/Jurel89/copilot-omni/wrapper/internal/version"
+	"github.com/Jurel89/copilot-omni/wrapper/internal/workflow"
 )
 
 const usage = `Usage: omni <command> [options] [arguments]
@@ -24,6 +28,7 @@ const usage = `Usage: omni <command> [options] [arguments]
 Commands:
   init              Bootstrap repository for Omni
   doctor            Run diagnostics
+  plugin            Manage Copilot plugin installation
   status            Check current workflow status
   run               Start a full workflow
   plan              Plan only (no execution)
@@ -31,7 +36,7 @@ Commands:
   resume            Resume an interrupted run
   research          Conduct structured research and produce a report
   audit             Export audit trail for a run
-  bundle            Create or validate a release bundle
+	bundle            Create, validate, or install a release bundle
   benchmark         Run performance benchmarks (Phase 6)
   migrate           Run database and config migrations (Phase 6)
   support-bundle    Generate support bundle with diagnostics (Phase 6)
@@ -50,6 +55,8 @@ func main() {
 		runInit()
 	case "doctor":
 		runDoctor()
+	case "plugin":
+		runPlugin(args[1:])
 	case "status":
 		runStatus()
 	case "run":
@@ -107,7 +114,12 @@ func runInit() {
 	fmt.Println("Sidecar health: ok")
 
 	root := repoRoot()
-	templateDir := findTemplateDir(root)
+	location, err := assets.Locate()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Trusted assets: failed (%v)\n", err)
+		os.Exit(1)
+	}
+	templateDir := location.TemplateDir
 
 	managedMarkerStart := "<!-- omni:managed:start -->"
 	managedMarkerEnd := "<!-- omni:managed:end -->"
@@ -126,17 +138,18 @@ func runInit() {
 	for _, gen := range gens {
 		if err := generateFromTemplate(gen.src, gen.dest, managedMarkerStart, managedMarkerEnd); err != nil {
 			fmt.Fprintf(os.Stderr, "generate %s: %v\n", gen.dest, err)
-			continue
+			os.Exit(1)
 		}
 		fmt.Printf("  Generated: %s\n", gen.dest)
 	}
 
-	fmt.Println("\nPlugin install: copilot plugin install ./plugin")
+	fmt.Println("\nNext: omni plugin install")
 }
 
 func runDoctor() {
 	ctx := context.Background()
 	fmt.Println("Running Copilot Omni diagnostics...")
+	workspaceRoot := repoRoot()
 
 	sidecarPath, sidecarErr := sidecar.FindSidecar()
 	sidecarBinaryStatus := "not found"
@@ -162,9 +175,22 @@ func runDoctor() {
 	}
 	fmt.Printf("Sidecar health: %s\n", sidecarHealthStatus)
 
+	assetStatus := "not found"
+	assetMode := "unknown"
+	pluginStatus := "unavailable"
+	templateStatus := "unavailable"
+	if location, err := assets.Locate(); err == nil {
+		assetStatus = location.AssetRoot
+		assetMode = string(location.Mode)
+		pluginStatus = fmt.Sprintf("exists (%s)", location.PluginDir)
+		templateStatus = fmt.Sprintf("exists (%s)", location.TemplateDir)
+	} else {
+		assetStatus = fmt.Sprintf("failed (%v)", err)
+	}
+
 	if mgr != nil && mgr.IsRunning() {
 		doctorResult, err := mgr.CallTool(ctx, "omni_doctor", map[string]any{
-			"repo_root": repoRoot(),
+			"repo_root": workspaceRoot,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Sidecar doctor: %v\n", err)
@@ -180,14 +206,63 @@ func runDoctor() {
 		copilotStatus = fmt.Sprintf("found (%s)", copilotPath)
 	}
 
-	pluginDir := filepath.Join(repoRoot(), "plugin")
-	pluginStatus := "missing"
-	if info, err := os.Stat(pluginDir); err == nil && info.IsDir() {
-		pluginStatus = fmt.Sprintf("exists (%s)", pluginDir)
+	fmt.Printf("Workspace root: %s\n", workspaceRoot)
+	fmt.Printf("Trusted asset root: %s\n", assetStatus)
+	fmt.Printf("Trusted asset mode: %s\n", assetMode)
+	fmt.Printf("Copilot CLI: %s\n", copilotStatus)
+	fmt.Printf("Trusted plugin assets: %s\n", pluginStatus)
+	fmt.Printf("Trusted template assets: %s\n", templateStatus)
+}
+
+func runPlugin(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "plugin requires an action: install")
+		os.Exit(1)
 	}
 
-	fmt.Printf("Copilot CLI: %s\n", copilotStatus)
-	fmt.Printf("Plugin directory: %s\n", pluginStatus)
+	switch args[0] {
+	case "install":
+		runPluginInstall(args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown plugin action: %s\n", args[0])
+		os.Exit(1)
+	}
+}
+
+func runPluginInstall(args []string) {
+	keepStaging := false
+	for _, arg := range args {
+		if arg == "--keep-staging" {
+			keepStaging = true
+		}
+	}
+
+	location, err := assets.Locate()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Trusted assets: failed (%v)\n", err)
+		os.Exit(1)
+	}
+
+	sidecarPath, err := sidecar.FindSidecar()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Sidecar binary: not found (%v)\n", err)
+		os.Exit(1)
+	}
+
+	result, err := plugininstall.Install(context.Background(), plugininstall.Options{
+		AssetLocation: location,
+		SidecarPath:   sidecarPath,
+		KeepStaging:   keepStaging,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "plugin install failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	if keepStaging {
+		fmt.Printf("Plugin staging preserved at: %s\n", result.StagingDir)
+	}
+	fmt.Println("Plugin installed successfully")
 }
 
 func runStatus() {
@@ -452,7 +527,13 @@ func runWorkflow(args []string) {
 	mgr := sidecar.NewManager(sidecarPath)
 	defer stopManager(mgr)
 
-	runner := workflow.NewRunner(repoRoot(), mgr, workflow.StandardCopilotRunner{})
+	pluginDir, err := trustedPluginDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Trusted assets: failed (%v)\n", err)
+		os.Exit(1)
+	}
+
+	runner := workflow.NewRunner(repoRoot(), pluginDir, mgr, workflow.StandardCopilotRunner{})
 	result, err := runner.Run(context.Background(), prompt)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "workflow failed: %v\n", err)
@@ -486,7 +567,13 @@ func runPlan(args []string) {
 	mgr := sidecar.NewManager(sidecarPath)
 	defer stopManager(mgr)
 
-	runner := workflow.NewRunner(repoRoot(), mgr, workflow.StandardCopilotRunner{})
+	pluginDir, err := trustedPluginDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Trusted assets: failed (%v)\n", err)
+		os.Exit(1)
+	}
+
+	runner := workflow.NewRunner(repoRoot(), pluginDir, mgr, workflow.StandardCopilotRunner{})
 	result, err := runner.Plan(context.Background(), prompt)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "plan failed: %v\n", err)
@@ -520,7 +607,13 @@ func runExecute(args []string) {
 	mgr := sidecar.NewManager(sidecarPath)
 	defer stopManager(mgr)
 
-	runner := workflow.NewRunner(repoRoot(), mgr, workflow.StandardCopilotRunner{})
+	pluginDir, err := trustedPluginDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Trusted assets: failed (%v)\n", err)
+		os.Exit(1)
+	}
+
+	runner := workflow.NewRunner(repoRoot(), pluginDir, mgr, workflow.StandardCopilotRunner{})
 	result, err := runner.Execute(context.Background(), runID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "execute failed: %v\n", err)
@@ -620,10 +713,14 @@ func runAudit(args []string) {
 
 func runBundle(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "bundle requires an action: create or validate")
+		fmt.Fprintln(os.Stderr, "bundle requires an action: create, validate, or install")
 		os.Exit(1)
 	}
 	action := strings.TrimSpace(args[0])
+	if action == "install" {
+		runBundleInstall(args[1:])
+		return
+	}
 
 	sidecarPath, err := sidecar.FindSidecar()
 	if err != nil {
@@ -666,6 +763,62 @@ func runBundle(args []string) {
 	fmt.Println(result)
 }
 
+func runBundleInstall(args []string) {
+	const bundleInstallUsage = `Usage: omni bundle install --bundle-dir <path> --target <path>
+
+Install a validated release bundle into:
+  <target>/bin
+  <target>/share/copilot-omni
+`
+
+	var usage bytes.Buffer
+	flagSet := flag.NewFlagSet("bundle install", flag.ContinueOnError)
+	flagSet.SetOutput(&usage)
+	bundleDir := flagSet.String("bundle-dir", "", "Path to the release bundle directory")
+	targetDir := flagSet.String("target", "", "Installation target prefix")
+	flagSet.Usage = func() {
+		fmt.Fprint(&usage, bundleInstallUsage)
+	}
+
+	if err := flagSet.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Print(usage.String())
+			os.Exit(0)
+		}
+		fmt.Fprint(os.Stderr, usage.String())
+		fmt.Fprintf(os.Stderr, "bundle install argument error: %v\n", err)
+		os.Exit(1)
+	}
+	if flagSet.NArg() != 0 {
+		fmt.Fprint(os.Stderr, usage.String())
+		fmt.Fprintf(os.Stderr, "bundle install does not accept positional arguments: %s\n", strings.Join(flagSet.Args(), " "))
+		os.Exit(1)
+	}
+	if strings.TrimSpace(*bundleDir) == "" || strings.TrimSpace(*targetDir) == "" {
+		fmt.Fprint(os.Stderr, usage.String())
+		fmt.Fprintln(os.Stderr, "bundle install requires --bundle-dir and --target")
+		os.Exit(1)
+	}
+
+	result, err := install.Install(install.Options{BundleDir: *bundleDir, Target: *targetDir})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bundle install failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Bundle install:")
+	fmt.Printf("  Bundle: %s\n", result.BundleDir)
+	fmt.Printf("  Target: %s\n", result.TargetDir)
+	fmt.Printf("  Binaries: %s\n", result.BinDir)
+	fmt.Printf("  Shared assets: %s\n", result.ShareDir)
+	if len(result.ValidationWarning) > 0 {
+		fmt.Println("  Validation warnings:")
+		for _, warning := range result.ValidationWarning {
+			fmt.Printf("    - %s\n", warning)
+		}
+	}
+}
+
 func runResume(args []string) {
 	runID := ""
 	if len(args) > 0 {
@@ -686,7 +839,13 @@ func runResume(args []string) {
 	mgr := sidecar.NewManager(sidecarPath)
 	defer stopManager(mgr)
 
-	runner := workflow.NewRunner(repoRoot(), mgr, workflow.StandardCopilotRunner{})
+	pluginDir, err := trustedPluginDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Trusted assets: failed (%v)\n", err)
+		os.Exit(1)
+	}
+
+	runner := workflow.NewRunner(repoRoot(), pluginDir, mgr, workflow.StandardCopilotRunner{})
 	result, err := runner.Resume(context.Background(), runID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "resume failed: %v\n", err)
@@ -734,19 +893,6 @@ func nextActionForStatus(status string) string {
 	default:
 		return "Inspect run.json for the last completed phase, then resume if more work remains."
 	}
-}
-
-func findTemplateDir(root string) string {
-	candidates := []string{
-		filepath.Join(root, "templates"),
-		filepath.Join(root, "..", "templates"),
-	}
-	for _, dir := range candidates {
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			return dir
-		}
-	}
-	return ""
 }
 
 func generateFromTemplate(src, dest, markerStart, markerEnd string) error {
@@ -805,21 +951,6 @@ func stopManager(mgr *sidecar.Manager) {
 	}
 }
 
-func createRunDir(root string) (string, string, error) {
-	runID := fmt.Sprintf("run-%d", time.Now().Unix())
-	runsDir := filepath.Join(root, ".omni", "runs")
-	if err := os.MkdirAll(runsDir, 0o755); err != nil {
-		return "", "", fmt.Errorf("create runs directory: %w", err)
-	}
-
-	runDir := filepath.Join(runsDir, runID)
-	if err := os.MkdirAll(runDir, 0o755); err != nil {
-		return "", "", fmt.Errorf("create run directory: %w", err)
-	}
-
-	return runDir, runID, nil
-}
-
 func findLatestRunID(runsDir string) (string, error) {
 	entries, err := os.ReadDir(runsDir)
 	if err != nil {
@@ -845,14 +976,16 @@ func repoRoot() string {
 	if err != nil {
 		return "."
 	}
-	if _, err := os.Stat(filepath.Join(wd, "plugin")); err == nil {
-		return wd
-	}
-	if _, err := os.Stat(filepath.Join(wd, "..", "plugin")); err == nil {
-		return filepath.Clean(filepath.Join(wd, ".."))
-	}
 	if out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output(); err == nil {
 		return strings.TrimSpace(string(out))
 	}
 	return wd
+}
+
+func trustedPluginDir() (string, error) {
+	location, err := assets.Locate()
+	if err != nil {
+		return "", err
+	}
+	return location.PluginDir, nil
 }
