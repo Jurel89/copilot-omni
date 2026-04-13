@@ -236,6 +236,41 @@ func validateBundle(bundleDir string) ([]string, *Manifest, error) {
 		}
 	}
 
+	expectedPaths := map[string]struct{}{
+		manifestFileName:  {},
+		checksumsFileName: {},
+		sbomFileName:      {},
+	}
+	for _, component := range manifest.Components {
+		normalizedPath, pathErr := validateManifestPath(component.Path)
+		if pathErr == nil {
+			expectedPaths[normalizedPath] = struct{}{}
+		}
+	}
+	if err := filepath.WalkDir(bundleDir, func(currentPath string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if currentPath == bundleDir || d.IsDir() {
+			return nil
+		}
+		relPath, relErr := filepath.Rel(bundleDir, currentPath)
+		if relErr != nil {
+			return relErr
+		}
+		normalizedPath, pathErr := validateManifestPath(relPath)
+		if pathErr != nil {
+			bundleErrors = append(bundleErrors, fmt.Sprintf("bundle contains invalid path %q: %v", relPath, pathErr))
+			return nil
+		}
+		if _, ok := expectedPaths[normalizedPath]; !ok {
+			bundleErrors = append(bundleErrors, fmt.Sprintf("bundle contains unexpected file: %s", normalizedPath))
+		}
+		return nil
+	}); err != nil {
+		bundleErrors = append(bundleErrors, fmt.Sprintf("scan bundle contents failed: %v", err))
+	}
+
 	if strings.TrimSpace(manifest.Provenance.Fingerprint) != "" {
 		storedFingerprint := strings.TrimSpace(manifest.Provenance.Fingerprint)
 		if strings.HasPrefix(storedFingerprint, "sha256:") {
