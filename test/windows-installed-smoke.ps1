@@ -59,11 +59,11 @@ func main() {
         return
     }
 
-    if strings.Contains(joined, "--agent=omni-planner") {
+    if strings.Contains(joined, "transcripts\\plan.md") || strings.Contains(joined, "transcripts/plan.md") || strings.Contains(joined, "bounded plan phase") {
         fmt.Print(`{"version":"1","run_id":"fake-run","tasks":[{"id":"task-1","title":"verify installed workflow","description":"ensure installed workflow can use trusted plugin assets","dependencies":[],"file_targets":["AGENTS.md"],"verification_cmd":"echo ok","rollback_note":"none"}]}`)
         return
     }
-    if strings.Contains(joined, "--agent=omni-reviewer") {
+    if strings.Contains(joined, "transcripts/review.md") || strings.Contains(joined, "transcripts/reviewer.md") || strings.Contains(joined, "omni-reviewer") {
         fmt.Print("REVIEW OK")
         return
     }
