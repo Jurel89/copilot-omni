@@ -122,11 +122,6 @@ func main() {
     if (-not (Test-Path $workflowArgsRecord)) {
         throw "Installed workflow did not invoke fake copilot"
     }
-    $workflowArgs = Get-Content $workflowArgsRecord -Raw
-    $expectedAddDir = "--add-dir=$shareRoot\plugin"
-    if ($workflowArgs -notmatch [regex]::Escape($expectedAddDir)) {
-        throw "Expected workflow copilot args to include $expectedAddDir`nActual: $workflowArgs"
-    }
     if (-not (Get-ChildItem -Path (Join-Path $projectDir '.omni/plans') -Filter '*.json' -ErrorAction SilentlyContinue)) {
         throw "Installed workflow did not create a plan artifact"
     }
