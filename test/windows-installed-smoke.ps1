@@ -20,7 +20,7 @@ try {
 
     $fakeCopilotSource = Join-Path $fakeBin 'copilot.go'
     $fakeCopilot = Join-Path $fakeBin 'copilot.exe'
-    Set-Content -Path $fakeCopilotSource -Value @"
+    Set-Content -Path $fakeCopilotSource -Value @'
 package main
 
 import (
@@ -69,7 +69,7 @@ func main() {
 
     fmt.Print("DISCUSS OR SPEC OK")
 }
-"@
+'@
     & go build -o $fakeCopilot $fakeCopilotSource | Out-Host
     $env:PATH = "$fakeBin;$env:PATH"
     $env:FAKE_COPILOT_PLUGIN_INSTALL_RECORD = $pluginInstallRecord

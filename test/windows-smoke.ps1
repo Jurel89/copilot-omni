@@ -18,7 +18,7 @@ try {
     if (-not (Test-Path $sidecarExe)) { throw "Missing sidecar binary: $sidecarExe" }
     if (-not (Test-Path $wrapperExe)) { throw "Missing wrapper binary: $wrapperExe" }
 
-    Set-Content -Path $fakeCopilotSource -Value @"
+    Set-Content -Path $fakeCopilotSource -Value @'
 package main
 
 import (
@@ -48,7 +48,7 @@ func main() {
     fmt.Fprintln(os.Stderr, "unexpected fake copilot invocation", args)
     os.Exit(1)
 }
-"@
+'@
     & go build -o $fakeCopilot $fakeCopilotSource | Out-Host
     $env:PATH = "$fakeBin;$env:PATH"
     $env:FAKE_COPILOT_PLUGIN_INSTALL_RECORD = $pluginInstallRecord
