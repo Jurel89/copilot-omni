@@ -170,6 +170,9 @@ func (m *Manifest) AddExtraFile(name, srcPath, bundleRelPath string) error {
 }
 
 func (m *Manifest) WriteBundle(outputDir string) (string, error) {
+	if err := os.RemoveAll(outputDir); err != nil {
+		return "", fmt.Errorf("clear bundle directory: %w", err)
+	}
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return "", fmt.Errorf("create bundle directory: %w", err)
 	}
@@ -297,9 +300,63 @@ func ValidateBundle(bundleDir string) ([]string, error) {
 		bundleErrors = append(bundleErrors, "manifest has no components")
 	}
 
+	hasWrapperBinary := false
+	hasSidecarBinary := false
+	for _, component := range manifest.Components {
+		if strings.EqualFold(strings.TrimSpace(component.Type), "binary") {
+			switch component.Name {
+			case "omni-wrapper":
+				hasWrapperBinary = true
+			case "omni-sidecar":
+				hasSidecarBinary = true
+			}
+		}
+	}
+	if !hasWrapperBinary {
+		bundleErrors = append(bundleErrors, "manifest is missing omni-wrapper binary component")
+	}
+	if !hasSidecarBinary {
+		bundleErrors = append(bundleErrors, "manifest is missing omni-sidecar binary component")
+	}
+
 	sbomPath := filepath.Join(bundleDir, "sbom.json")
 	if _, err := os.Stat(sbomPath); err != nil {
 		bundleErrors = append(bundleErrors, "sbom.json missing from bundle")
+	}
+
+	expectedPaths := map[string]struct{}{
+		"release-manifest.json": {},
+		"checksums.txt":         {},
+		"sbom.json":             {},
+	}
+	for _, component := range manifest.Components {
+		normalizedPath, pathErr := validateManifestPath(component.Path)
+		if pathErr == nil {
+			expectedPaths[normalizedPath] = struct{}{}
+		}
+	}
+	if err := filepath.WalkDir(bundleDir, func(currentPath string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if currentPath == bundleDir || d.IsDir() {
+			return nil
+		}
+		relPath, relErr := filepath.Rel(bundleDir, currentPath)
+		if relErr != nil {
+			return relErr
+		}
+		normalizedPath, pathErr := validateManifestPath(relPath)
+		if pathErr != nil {
+			bundleErrors = append(bundleErrors, fmt.Sprintf("bundle contains invalid path %q: %v", relPath, pathErr))
+			return nil
+		}
+		if _, ok := expectedPaths[normalizedPath]; !ok {
+			bundleErrors = append(bundleErrors, fmt.Sprintf("bundle contains unexpected file: %s", normalizedPath))
+		}
+		return nil
+	}); err != nil {
+		bundleErrors = append(bundleErrors, fmt.Sprintf("scan bundle contents failed: %v", err))
 	}
 
 	for _, required := range []string{"release-manifest.json", "sbom.json"} {

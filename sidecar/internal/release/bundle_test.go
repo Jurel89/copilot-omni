@@ -12,14 +12,16 @@ import (
 func TestAddExtraFileNormalizesManifestPaths(t *testing.T) {
 	sourceDir := t.TempDir()
 	sourceFile := writeTestFile(t, sourceDir, "strict.json", `{\n  "mode": "strict"\n}`)
+	addRequiredBundleBinaries(t, sourceDir)
 
 	manifest := NewManifest("v1.0.0", "windows/amd64", "")
+	addBinaryComponents(t, manifest, sourceDir, "windows/amd64")
 	if err := manifest.AddExtraFile("policy", sourceFile, `policies\strict.json`); err != nil {
 		t.Fatalf("AddExtraFile() error = %v", err)
 	}
 
-	if got, want := manifest.Components[0].Path, "policies/strict.json"; got != want {
-		t.Fatalf("component path = %q, want %q", got, want)
+	if !hasComponentPath(manifest.Components, "policies/strict.json") {
+		t.Fatalf("expected policies/strict.json component path to be present")
 	}
 	if _, exists := manifest.Checksums["policies/strict.json"]; !exists {
 		t.Fatalf("expected normalized checksum entry for policies/strict.json")
@@ -37,8 +39,8 @@ func TestAddExtraFileNormalizesManifestPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadManifest() error = %v", err)
 	}
-	if got, want := persisted.Components[0].Path, "policies/strict.json"; got != want {
-		t.Fatalf("persisted component path = %q, want %q", got, want)
+	if !hasComponentPath(persisted.Components, "policies/strict.json") {
+		t.Fatalf("expected persisted policies/strict.json component path to be present")
 	}
 
 	if _, err := ValidateBundle(bundleDir); err != nil {
@@ -50,8 +52,10 @@ func TestWriteBundleIncludesTemplatesDirectory(t *testing.T) {
 	assetRoot := t.TempDir()
 	templatesDir := filepath.Join(assetRoot, "templates")
 	writeTestFile(t, templatesDir, filepath.Join("workflow", "init", "prompt.md"), "# init\n")
+	addRequiredBundleBinaries(t, assetRoot)
 
 	manifest := NewManifest("v1.0.0", "linux/amd64", "")
+	addBinaryComponents(t, manifest, assetRoot, "linux/amd64")
 	if err := manifest.AddDirectoryComponent("templates", templatesDir); err != nil {
 		t.Fatalf("AddDirectoryComponent() error = %v", err)
 	}
@@ -130,8 +134,10 @@ func TestValidateBundleRejectsBackslashTraversalPath(t *testing.T) {
 func TestValidateBundleRejectsTamperedFile(t *testing.T) {
 	sourceDir := t.TempDir()
 	sourceFile := writeTestFile(t, sourceDir, "plugin.json", `{}`)
+	addRequiredBundleBinaries(t, sourceDir)
 
 	manifest := NewManifest("v1.0.0", "linux/amd64", "")
+	addBinaryComponents(t, manifest, sourceDir, "linux/amd64")
 	if err := manifest.AddExtraFile("plugin", sourceFile, "plugin/plugin.json"); err != nil {
 		t.Fatalf("AddExtraFile() error = %v", err)
 	}
@@ -200,4 +206,20 @@ func writeTestFile(t *testing.T, rootDir, relativePath, content string) string {
 		t.Fatalf("WriteFile(%s) error = %v", filePath, err)
 	}
 	return filePath
+}
+
+func addRequiredBundleBinaries(t *testing.T, rootDir string) {
+	t.Helper()
+	writeTestFile(t, rootDir, "omni-sidecar", "sidecar")
+	writeTestFile(t, rootDir, "omni", "wrapper")
+}
+
+func addBinaryComponents(t *testing.T, manifest *Manifest, rootDir string, platform string) {
+	t.Helper()
+	if err := manifest.AddComponent("omni-sidecar", filepath.Join(rootDir, "omni-sidecar"), "binary", platform); err != nil {
+		t.Fatalf("AddComponent(omni-sidecar) error = %v", err)
+	}
+	if err := manifest.AddComponent("omni-wrapper", filepath.Join(rootDir, "omni"), "binary", platform); err != nil {
+		t.Fatalf("AddComponent(omni-wrapper) error = %v", err)
+	}
 }

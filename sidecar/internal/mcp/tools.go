@@ -2732,8 +2732,20 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 			}
 		}
 
-		if len(manifest.Components) == 0 {
-			return ToolCallResult{}, fmt.Errorf("no components found: build sidecar and wrapper binaries first")
+		hasWrapperBinary := false
+		hasSidecarBinary := false
+		for _, component := range manifest.Components {
+			if strings.EqualFold(strings.TrimSpace(component.Type), "binary") {
+				switch component.Name {
+				case "omni-wrapper":
+					hasWrapperBinary = true
+				case "omni-sidecar":
+					hasSidecarBinary = true
+				}
+			}
+		}
+		if !hasWrapperBinary || !hasSidecarBinary {
+			return ToolCallResult{}, fmt.Errorf("bundle requires both wrapper and sidecar binaries: build sidecar and wrapper binaries first")
 		}
 
 		cfg, cfgErr := r.configResolver(repoRoot)

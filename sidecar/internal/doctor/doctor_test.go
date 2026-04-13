@@ -271,7 +271,7 @@ func createTrustedAssetRoot(t *testing.T, root string, command string) string {
 	mcpConfigBytes, err := json.Marshal(map[string]any{
 		"mcpServers": map[string]any{
 			sidecarServer: map[string]any{
-				"type":    "local",
+				"type":    "stdio",
 				"command": command,
 				"args":    []string{"serve"},
 			},

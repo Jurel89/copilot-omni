@@ -84,6 +84,22 @@ func Install(options Options) (*Result, error) {
 		return nil, err
 	}
 
+	hasWrapperBinary := false
+	hasSidecarBinary := false
+	for _, component := range manifest.Components {
+		if strings.EqualFold(strings.TrimSpace(component.Type), "binary") {
+			switch component.Name {
+			case "omni-wrapper":
+				hasWrapperBinary = true
+			case "omni-sidecar":
+				hasSidecarBinary = true
+			}
+		}
+	}
+	if !hasWrapperBinary || !hasSidecarBinary {
+		return nil, fmt.Errorf("bundle is missing required wrapper or sidecar binaries")
+	}
+
 	targetDir, err := ensureDirectory(options.Target)
 	if err != nil {
 		return nil, fmt.Errorf("resolve target directory: %w", err)
