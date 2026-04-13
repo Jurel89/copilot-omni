@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/Jurel89/copilot-omni/wrapper/internal/assets"
@@ -100,7 +101,7 @@ func Install(ctx context.Context, opts Options) (Result, error) {
 
 func commandForCopilot(ctx context.Context, copilotPath string, stagingDir string) *exec.Cmd {
 	if runtime.GOOS == "windows" {
-		ext := filepath.Ext(copilotPath)
+		ext := strings.ToLower(filepath.Ext(copilotPath))
 		if ext == ".bat" || ext == ".cmd" {
 			return exec.CommandContext(ctx, "cmd.exe", "/c", copilotPath, "plugin", "install", stagingDir)
 		}

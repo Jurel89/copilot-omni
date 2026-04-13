@@ -193,6 +193,11 @@ func CheckMCPConfig(trusted TrustedAssets) (Diagnostic, MCPServerCommand) {
 			return Diagnostic{Category: diagnosticCategoryLaunch, Name: "MCPConfig", Status: "pass", Message: fmt.Sprintf("Managed plugin install configures %s as %s", sidecarServer, commandSummary(command))}, command
 		}
 		return Diagnostic{Category: diagnosticCategoryLaunch, Name: "MCPConfig", Status: "fail", Message: fmt.Sprintf("Managed plugin install configures %s as %s", sidecarServer, commandSummary(command)), Remediation: remediationForCommand(command)}, command
+	} else if !os.IsNotExist(err) {
+		command.Status = "fail"
+		command.SourcePath = statePath
+		command.Error = err.Error()
+		return Diagnostic{Category: diagnosticCategoryLaunch, Name: "MCPConfig", Status: "fail", Message: fmt.Sprintf("Managed plugin install state is unreadable: %v", err), Remediation: "Re-run 'omni plugin install' to refresh the managed plugin state."}, command
 	}
 	command.SourcePath = mcpPath
 	data, err := os.ReadFile(mcpPath)

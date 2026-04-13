@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 type RunOptions struct {
@@ -116,7 +117,7 @@ func commandForCopilot(ctx context.Context, args ...string) (*exec.Cmd, error) {
 		return nil, err
 	}
 	if runtime.GOOS == "windows" {
-		ext := filepath.Ext(path)
+		ext := strings.ToLower(filepath.Ext(path))
 		if ext == ".bat" || ext == ".cmd" {
 			cmdArgs := append([]string{"/c", path}, args...)
 			return exec.CommandContext(ctx, "cmd.exe", cmdArgs...), nil

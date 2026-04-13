@@ -2753,14 +2753,25 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 			return ToolCallResult{}, fmt.Errorf("create bundle: %w", writeErr)
 		}
 
-		sbomChecksum, _ := release.FileChecksum(filepath.Join(outputDir, "sbom.json"))
+		sbomChecksum, err := release.FileChecksum(filepath.Join(outputDir, "sbom.json"))
+		if err != nil {
+			return ToolCallResult{}, fmt.Errorf("checksum SBOM: %w", err)
+		}
 		manifest.Checksums["sbom.json"] = sbomChecksum
 		manifest.Provenance.Fingerprint = "sha256:" + computeBundleFingerprint(manifest)
-		if payload, err := json.MarshalIndent(manifest, "", "  "); err == nil {
-			_ = os.WriteFile(manifestPath, payload, 0o644)
+		payload, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			return ToolCallResult{}, fmt.Errorf("marshal fingerprinted manifest: %w", err)
 		}
-		if checksumsContent, err := release.RegenerateChecksums(outputDir); err == nil {
-			_ = os.WriteFile(filepath.Join(outputDir, "checksums.txt"), checksumsContent, 0o644)
+		if err := os.WriteFile(manifestPath, payload, 0o644); err != nil {
+			return ToolCallResult{}, fmt.Errorf("rewrite fingerprinted manifest: %w", err)
+		}
+		checksumsContent, err := release.RegenerateChecksums(outputDir)
+		if err != nil {
+			return ToolCallResult{}, fmt.Errorf("regenerate checksums: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(outputDir, "checksums.txt"), checksumsContent, 0o644); err != nil {
+			return ToolCallResult{}, fmt.Errorf("rewrite checksums: %w", err)
 		}
 
 		return jsonToolResult(map[string]interface{}{

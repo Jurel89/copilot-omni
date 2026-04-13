@@ -124,7 +124,7 @@ func (m *Manifest) addDirRecursive(name, srcDir, prefix string) error {
 
 		checksum, err := FileChecksum(fullPath)
 		if err != nil {
-			continue
+			return fmt.Errorf("checksum %s: %w", fullPath, err)
 		}
 		m.Components = append(m.Components, Component{
 			Name:       fmt.Sprintf("%s/%s", name, entry.Name()),

@@ -259,6 +259,11 @@ func checkMCPConfig(trusted TrustedAssets) (CompatCheck, MCPServerCommand) {
 			return CompatCheck{Category: checkCategoryLaunch, Name: "mcp_config", Status: "pass", Detail: fmt.Sprintf("managed plugin install configures %s as %s", sidecarServer, commandSummary(command))}, command
 		}
 		return CompatCheck{Category: checkCategoryLaunch, Name: "mcp_config", Status: "fail", Detail: fmt.Sprintf("managed plugin install configures %s as %s", sidecarServer, commandSummary(command))}, command
+	} else if !os.IsNotExist(err) {
+		command.Status = "fail"
+		command.SourcePath = statePath
+		command.Error = err.Error()
+		return CompatCheck{Category: checkCategoryLaunch, Name: "mcp_config", Status: "fail", Detail: fmt.Sprintf("managed plugin install state is unreadable: %v", err)}, command
 	}
 	command.SourcePath = mcpPath
 	data, err := os.ReadFile(mcpPath)
