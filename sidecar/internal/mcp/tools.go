@@ -2688,6 +2688,7 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 			}
 		}
 		pluginDir := filepath.Join(repoRoot, "plugin")
+		pluginBefore := len(manifest.Components)
 		if info, err := os.Stat(pluginDir); err == nil && info.IsDir() {
 			if addErr := manifest.AddDirectoryComponent("plugin", pluginDir); addErr != nil {
 				return ToolCallResult{}, fmt.Errorf("add plugin assets: %w", addErr)
@@ -2695,14 +2696,21 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 		} else {
 			return ToolCallResult{}, fmt.Errorf("bundle requires plugin assets at %s", pluginDir)
 		}
+		if len(manifest.Components) == pluginBefore || !manifestHasPathPrefix(manifest.Components[pluginBefore:], "plugin/") || !manifestHasExactPath(manifest.Components[pluginBefore:], "plugin/plugin.json") {
+			return ToolCallResult{}, fmt.Errorf("bundle requires non-empty plugin assets including plugin/plugin.json")
+		}
 
 		templatesDir := filepath.Join(repoRoot, "templates")
+		templatesBefore := len(manifest.Components)
 		if info, err := os.Stat(templatesDir); err == nil && info.IsDir() {
 			if addErr := manifest.AddDirectoryComponent("templates", templatesDir); addErr != nil {
 				return ToolCallResult{}, fmt.Errorf("add templates assets: %w", addErr)
 			}
 		} else {
 			return ToolCallResult{}, fmt.Errorf("bundle requires templates assets at %s", templatesDir)
+		}
+		if len(manifest.Components) == templatesBefore || !manifestHasPathPrefix(manifest.Components[templatesBefore:], "templates/") {
+			return ToolCallResult{}, fmt.Errorf("bundle requires non-empty templates assets at %s", templatesDir)
 		}
 
 		if mp, err := os.Stat(filepath.Join(repoRoot, "marketplace.json")); err == nil && !mp.IsDir() {
@@ -2719,6 +2727,7 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 		}
 
 		policiesDir := filepath.Join(repoRoot, "policies")
+		policiesBefore := len(manifest.Components)
 		if info, err := os.Stat(policiesDir); err == nil && info.IsDir() {
 			entries, _ := os.ReadDir(policiesDir)
 			for _, entry := range entries {
@@ -2731,6 +2740,9 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 			}
 		} else {
 			return ToolCallResult{}, fmt.Errorf("bundle requires policies assets at %s", policiesDir)
+		}
+		if len(manifest.Components) == policiesBefore || !manifestHasPathPrefix(manifest.Components[policiesBefore:], "policies/") {
+			return ToolCallResult{}, fmt.Errorf("bundle requires non-empty policies assets at %s", policiesDir)
 		}
 
 		installScript := filepath.Join(repoRoot, "scripts", "install-offline.sh")
@@ -4131,4 +4143,22 @@ func supportRedactionLevelArg(raw interface{}) (support.RedactionLevel, error) {
 	default:
 		return "", fmt.Errorf("redaction_level must be one of: minimal, standard, aggressive")
 	}
+}
+
+func manifestHasPathPrefix(components []release.Component, prefix string) bool {
+	for _, component := range components {
+		if strings.HasPrefix(component.Path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func manifestHasExactPath(components []release.Component, wantPath string) bool {
+	for _, component := range components {
+		if component.Path == wantPath {
+			return true
+		}
+	}
+	return false
 }
