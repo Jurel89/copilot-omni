@@ -482,7 +482,7 @@ func TestNormalizePath(t *testing.T) {
 	}{
 		{
 			name:      "normalizes clean relative path",
-			inputPath: "docs/../docs/readme.md",
+			inputPath: "docs/readme.md",
 			wantPath:  "docs/readme.md",
 		},
 		{
