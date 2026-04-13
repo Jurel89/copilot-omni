@@ -230,11 +230,17 @@ func runPlugin(args []string) {
 }
 
 func runPluginInstall(args []string) {
-	keepStaging := false
-	for _, arg := range args {
-		if arg == "--keep-staging" {
-			keepStaging = true
-		}
+	keepStaging, showHelp, err := parsePluginInstallArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "plugin install: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Usage: omni plugin install [--keep-staging]")
+		os.Exit(1)
+	}
+	if showHelp {
+		fmt.Println("Usage: omni plugin install [--keep-staging]")
+		fmt.Println()
+		fmt.Println("Stages trusted plugin assets, generates an explicit sidecar command path, and runs 'copilot plugin install'.")
+		return
 	}
 
 	location, err := assets.Locate()
@@ -263,6 +269,22 @@ func runPluginInstall(args []string) {
 		fmt.Printf("Plugin staging preserved at: %s\n", result.StagingDir)
 	}
 	fmt.Println("Plugin installed successfully")
+}
+
+func parsePluginInstallArgs(args []string) (keepStaging bool, showHelp bool, err error) {
+	for _, arg := range args {
+		switch arg {
+		case "--keep-staging":
+			keepStaging = true
+		case "--help", "-h":
+			showHelp = true
+		case "":
+			continue
+		default:
+			return false, false, fmt.Errorf("unknown flag %q", arg)
+		}
+	}
+	return keepStaging, showHelp, nil
 }
 
 func runStatus() {
@@ -978,6 +1000,14 @@ func repoRoot() string {
 	}
 	if out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output(); err == nil {
 		return strings.TrimSpace(string(out))
+	}
+	if location, err := assets.Locate(); err == nil {
+		cleanWD := filepath.Clean(wd)
+		wrapperDir := filepath.Join(location.AssetRoot, "wrapper")
+		sidecarDir := filepath.Join(location.AssetRoot, "sidecar")
+		if cleanWD == wrapperDir || cleanWD == sidecarDir {
+			return location.AssetRoot
+		}
 	}
 	return wd
 }
