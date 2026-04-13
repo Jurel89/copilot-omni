@@ -90,7 +90,9 @@ func TestRepoRootFallsBackToSourceAssetRootWhenInvokedFromWrapperDir(t *testing.
 		t.Fatalf("Chdir(wrapper) error = %v", err)
 	}
 
-	if got := repoRoot(); got != assetRoot {
-		t.Fatalf("repoRoot() = %q, want %q", got, assetRoot)
+	got := normalizePathForCompare(repoRoot())
+	want := normalizePathForCompare(assetRoot)
+	if got != want {
+		t.Fatalf("repoRoot() = %q, want %q", got, want)
 	}
 }
