@@ -28,6 +28,12 @@ if "%1"=="plugin" if "%2"=="install" (
 )
 
 >> "%FAKE_COPILOT_WORKFLOW_ARGS_RECORD%" echo %*
+echo %* | findstr /C:"-p" >nul
+if not errorlevel 1 (
+  echo DISCUSS OK
+  exit /b 0
+)
+
 echo %* | findstr /C:"--agent=omni-planner" >nul
 if not errorlevel 1 (
   echo {"version":"1","run_id":"fake-run","tasks":[{"id":"task-1","title":"verify installed workflow","description":"ensure installed workflow can use trusted plugin assets","dependencies":[],"file_targets":[],"verification_cmd":"echo ok","rollback_note":"none"}]}
