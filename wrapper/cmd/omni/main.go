@@ -1002,14 +1002,24 @@ func repoRoot() string {
 		return strings.TrimSpace(string(out))
 	}
 	if location, err := assets.Locate(); err == nil {
-		cleanWD := filepath.Clean(wd)
-		wrapperDir := filepath.Join(location.AssetRoot, "wrapper")
-		sidecarDir := filepath.Join(location.AssetRoot, "sidecar")
-		if cleanWD == wrapperDir || cleanWD == sidecarDir {
+		normalizedWD := normalizePathForCompare(wd)
+		wrapperDir := normalizePathForCompare(filepath.Join(location.AssetRoot, "wrapper"))
+		sidecarDir := normalizePathForCompare(filepath.Join(location.AssetRoot, "sidecar"))
+		if normalizedWD == wrapperDir || normalizedWD == sidecarDir {
 			return location.AssetRoot
 		}
 	}
 	return wd
+}
+
+func normalizePathForCompare(path string) string {
+	if absPath, err := filepath.Abs(path); err == nil {
+		path = absPath
+	}
+	if resolvedPath, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolvedPath
+	}
+	return filepath.Clean(path)
 }
 
 func trustedPluginDir() (string, error) {
