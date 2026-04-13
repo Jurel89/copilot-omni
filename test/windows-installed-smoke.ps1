@@ -36,7 +36,11 @@ func main() {
     args := os.Args[1:]
     joined := strings.Join(args, " ")
     if record := os.Getenv("FAKE_COPILOT_WORKFLOW_ARGS_RECORD"); record != "" {
-        _ = os.WriteFile(record, []byte(joined), 0o644)
+        file, err := os.OpenFile(record, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+        if err == nil {
+            _, _ = fmt.Fprintln(file, joined)
+            _ = file.Close()
+        }
     }
 
     if len(args) >= 3 && args[0] == "plugin" && args[1] == "install" {
