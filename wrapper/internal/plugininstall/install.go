@@ -9,9 +9,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/Jurel89/copilot-omni/wrapper/internal/assets"
 )
+
+const pluginStateDirEnv = "COPILOT_OMNI_PLUGIN_STATE_DIR"
+
+type ManagedInstallState struct {
+	Version     int      `json:"version"`
+	Command     string   `json:"command"`
+	Args        []string `json:"args"`
+	InstalledAt string   `json:"installed_at"`
+}
 
 type Options struct {
 	AssetLocation assets.Location
@@ -75,6 +85,14 @@ func Install(ctx context.Context, opts Options) (Result, error) {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return Result{}, fmt.Errorf("run copilot plugin install: %w", err)
+	}
+	if err := writeManagedInstallState(ManagedInstallState{
+		Version:     1,
+		Command:     opts.SidecarPath,
+		Args:        []string{"serve"},
+		InstalledAt: time.Now().UTC().Format(time.RFC3339),
+	}); err != nil {
+		return Result{}, fmt.Errorf("write managed plugin state: %w", err)
 	}
 
 	return Result{StagingDir: stagingDir}, nil
@@ -154,4 +172,31 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	}
 
 	return nil
+}
+
+func writeManagedInstallState(state ManagedInstallState) error {
+	stateDir, err := managedInstallStateDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		return err
+	}
+	content, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	content = append(content, '\n')
+	return os.WriteFile(filepath.Join(stateDir, "plugin-install.json"), content, 0o644)
+}
+
+func managedInstallStateDir() (string, error) {
+	if override := os.Getenv(pluginStateDirEnv); override != "" {
+		return override, nil
+	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "copilot-omni"), nil
 }

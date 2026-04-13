@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -140,6 +141,27 @@ func TestCheckMCPConfigClassifiesConfiguredCommand(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCheckMCPConfigPrefersManagedInstallState(t *testing.T) {
+	explicitPath := writeSidecarExecutable(t, filepath.Join(t.TempDir(), platformSidecarName()))
+	assetRoot := createTrustedAssetRoot(t, t.TempDir(), "omni-sidecar")
+	t.Setenv(assetRootEnvName, assetRoot)
+	stateDir := t.TempDir()
+	t.Setenv(pluginStateDirEnv, stateDir)
+	mustWriteFile(t, filepath.Join(stateDir, "plugin-install.json"), []byte(fmt.Sprintf(`{"version":1,"command":%q,"args":["serve"]}`, explicitPath)), 0o644)
+
+	trusted := resolveTrustedAssets()
+	diagnostic, classified := CheckMCPConfig(trusted)
+	if diagnostic.Status != "pass" {
+		t.Fatalf("diagnostic status = %q, want pass", diagnostic.Status)
+	}
+	if classified.SourcePath != filepath.Join(stateDir, "plugin-install.json") {
+		t.Fatalf("source path = %q", classified.SourcePath)
+	}
+	if classified.Classification != mcpCommandExplicitExistingPath {
+		t.Fatalf("classification = %q", classified.Classification)
 	}
 }
 

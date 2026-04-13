@@ -2,6 +2,7 @@ package compat
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -140,6 +141,27 @@ func TestCheckMCPConfigClassifiesConfiguredCommand(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCheckMCPConfigPrefersManagedInstallState(t *testing.T) {
+	explicitPath := writeCompatSidecarExecutable(t, filepath.Join(t.TempDir(), compatSidecarBinaryName()))
+	assetRoot := createCompatAssetRoot(t, t.TempDir(), "omni-sidecar")
+	t.Setenv(assetRootEnvName, assetRoot)
+	stateDir := t.TempDir()
+	t.Setenv(pluginStateDirEnv, stateDir)
+	compatMustWriteFile(t, filepath.Join(stateDir, "plugin-install.json"), []byte(fmt.Sprintf(`{"version":1,"command":%q,"args":["serve"]}`, explicitPath)), 0o644)
+
+	trusted := resolveTrustedAssets()
+	check, classified := checkMCPConfig(trusted)
+	if check.Status != "pass" {
+		t.Fatalf("check status = %q, want pass", check.Status)
+	}
+	if classified.SourcePath != filepath.Join(stateDir, "plugin-install.json") {
+		t.Fatalf("source path = %q", classified.SourcePath)
+	}
+	if classified.Classification != mcpCommandExplicitExistingPath {
+		t.Fatalf("classification = %q", classified.Classification)
 	}
 }
 

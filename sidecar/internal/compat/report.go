@@ -19,8 +19,9 @@ const (
 	checkCategoryConfig = "config"
 	checkCategoryLaunch = "launch"
 
-	assetRootEnvName = "COPILOT_OMNI_ASSET_ROOT"
-	sidecarServer    = "copilot-omni-sidecar"
+	assetRootEnvName  = "COPILOT_OMNI_ASSET_ROOT"
+	pluginStateDirEnv = "COPILOT_OMNI_PLUGIN_STATE_DIR"
+	sidecarServer     = "copilot-omni-sidecar"
 
 	mcpCommandExplicitExistingPath = "explicit_existing_path"
 	mcpCommandExplicitStalePath    = "explicit_stale_path"
@@ -48,6 +49,12 @@ type MCPServerCommand struct {
 	Classification string `json:"classification,omitempty"`
 	ResolvedPath   string `json:"resolved_path,omitempty"`
 	Error          string `json:"error,omitempty"`
+}
+
+type managedInstallState struct {
+	Version int      `json:"version"`
+	Command string   `json:"command"`
+	Args    []string `json:"args"`
 }
 
 type Report struct {
@@ -244,6 +251,15 @@ func checkMCPConfig(trusted TrustedAssets) (CompatCheck, MCPServerCommand) {
 	}
 
 	mcpPath := filepath.Join(trusted.PluginDir, ".mcp.json")
+	if state, statePath, err := readManagedInstallState(); err == nil {
+		command = classifyMCPCommand(statePath, state.Command)
+		command.ServerName = sidecarServer
+		command.SourcePath = statePath
+		if command.Status == "pass" {
+			return CompatCheck{Category: checkCategoryLaunch, Name: "mcp_config", Status: "pass", Detail: fmt.Sprintf("managed plugin install configures %s as %s", sidecarServer, commandSummary(command))}, command
+		}
+		return CompatCheck{Category: checkCategoryLaunch, Name: "mcp_config", Status: "fail", Detail: fmt.Sprintf("managed plugin install configures %s as %s", sidecarServer, commandSummary(command))}, command
+	}
 	command.SourcePath = mcpPath
 	data, err := os.ReadFile(mcpPath)
 	if err != nil {
@@ -285,6 +301,34 @@ func checkMCPConfig(trusted TrustedAssets) (CompatCheck, MCPServerCommand) {
 	}
 
 	return CompatCheck{Category: checkCategoryLaunch, Name: "mcp_config", Status: "fail", Detail: fmt.Sprintf("%s configured as %s", sidecarServer, commandSummary(command))}, command
+}
+
+func readManagedInstallState() (managedInstallState, string, error) {
+	stateDir, err := managedInstallStateDir()
+	if err != nil {
+		return managedInstallState{}, "", err
+	}
+	statePath := filepath.Join(stateDir, "plugin-install.json")
+	content, err := os.ReadFile(statePath)
+	if err != nil {
+		return managedInstallState{}, statePath, err
+	}
+	var state managedInstallState
+	if err := json.Unmarshal(content, &state); err != nil {
+		return managedInstallState{}, statePath, err
+	}
+	return state, statePath, nil
+}
+
+func managedInstallStateDir() (string, error) {
+	if override := os.Getenv(pluginStateDirEnv); override != "" {
+		return override, nil
+	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "copilot-omni"), nil
 }
 
 func checkEnterprisePolicy(trusted TrustedAssets) CompatCheck {

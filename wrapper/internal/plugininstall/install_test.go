@@ -24,7 +24,9 @@ func TestInstallStagesPluginAndWritesExplicitMCPConfig(t *testing.T) {
 	copilotPath := buildFakeCopilot(t)
 	stagingDir := filepath.Join(root, "staging")
 	installRecord := filepath.Join(root, "installed-path.txt")
+	stateDir := filepath.Join(root, "state")
 	t.Setenv("FAKE_COPILOT_INSTALL_RECORD", installRecord)
+	t.Setenv(pluginStateDirEnv, stateDir)
 
 	result, err := Install(context.Background(), Options{
 		AssetLocation: assets.Location{PluginDir: pluginDir},
@@ -78,6 +80,9 @@ func TestInstallStagesPluginAndWritesExplicitMCPConfig(t *testing.T) {
 	if len(server.Args) != 1 || server.Args[0] != "serve" {
 		t.Fatalf("args = %#v, want [serve]", server.Args)
 	}
+	if _, err := os.Stat(filepath.Join(stateDir, "plugin-install.json")); err != nil {
+		t.Fatalf("managed install state not written: %v", err)
+	}
 }
 
 func TestInstallCleansUpGeneratedStagingDirAndUsesPATHCopilot(t *testing.T) {
@@ -89,7 +94,9 @@ func TestInstallCleansUpGeneratedStagingDirAndUsesPATHCopilot(t *testing.T) {
 	mustWriteFile(t, filepath.Join(pluginDir, "plugin.json"), []byte(`{"name":"copilot-omni"}`), 0o644)
 	sidecarPath := mustWriteExecutable(t, filepath.Join(root, binaryName("omni-sidecar")))
 	installRecord := filepath.Join(root, "installed-path.txt")
+	stateDir := filepath.Join(root, "state")
 	t.Setenv("FAKE_COPILOT_INSTALL_RECORD", installRecord)
+	t.Setenv(pluginStateDirEnv, stateDir)
 	copilotPath := buildFakeCopilot(t)
 	t.Setenv("PATH", filepath.Dir(copilotPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
 
@@ -111,6 +118,9 @@ func TestInstallCleansUpGeneratedStagingDirAndUsesPATHCopilot(t *testing.T) {
 	}
 	if _, err := os.Stat(result.StagingDir); !os.IsNotExist(err) {
 		t.Fatalf("staging dir = %q, want cleaned up after install, stat err = %v", result.StagingDir, err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "plugin-install.json")); err != nil {
+		t.Fatalf("managed install state not written: %v", err)
 	}
 }
 
