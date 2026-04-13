@@ -12,6 +12,9 @@ import (
 )
 
 func TestInstallStagesPluginAndWritesExplicitMCPConfig(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows plugin install path is covered by PowerShell smoke tests")
+	}
 	root := t.TempDir()
 	pluginDir := filepath.Join(root, "plugin")
 	mustWriteFile(t, filepath.Join(pluginDir, "plugin.json"), []byte(`{"name":"copilot-omni"}`), 0o644)
@@ -78,6 +81,9 @@ func TestInstallStagesPluginAndWritesExplicitMCPConfig(t *testing.T) {
 }
 
 func TestInstallCleansUpGeneratedStagingDirAndUsesPATHCopilot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows plugin install path is covered by PowerShell smoke tests")
+	}
 	root := t.TempDir()
 	pluginDir := filepath.Join(root, "plugin")
 	mustWriteFile(t, filepath.Join(pluginDir, "plugin.json"), []byte(`{"name":"copilot-omni"}`), 0o644)
