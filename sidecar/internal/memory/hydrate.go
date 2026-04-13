@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/copilot-omni/sidecar/internal/artifact"
-	"github.com/copilot-omni/sidecar/internal/run"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/artifact"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/run"
 )
 
 type HydrationBundle struct {

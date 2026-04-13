@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	runpkg "github.com/copilot-omni/sidecar/internal/run"
+	runpkg "github.com/Jurel89/copilot-omni/sidecar/internal/run"
 )
 
 type Store struct {

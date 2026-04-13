@@ -11,13 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/copilot-omni/wrapper/internal/copilot"
+	"github.com/Jurel89/copilot-omni/wrapper/internal/copilot"
 )
 
 const runStateVersion = "1"
 
 type Runner struct {
 	repoRoot      string
+	pluginDir     string
 	sidecarMgr    sidecarManager
 	copilotRunner copilotRunner
 	journal       []journalEntry
@@ -111,8 +112,8 @@ func (StandardCopilotRunner) Run(ctx context.Context, prompt string, opts copilo
 	return copilot.Run(ctx, prompt, opts)
 }
 
-func NewRunner(repoRoot string, mgr sidecarManager, cr copilotRunner) *Runner {
-	return &Runner{repoRoot: repoRoot, sidecarMgr: mgr, copilotRunner: cr, journal: make([]journalEntry, 0)}
+func NewRunner(repoRoot string, pluginDir string, mgr sidecarManager, cr copilotRunner) *Runner {
+	return &Runner{repoRoot: repoRoot, pluginDir: pluginDir, sidecarMgr: mgr, copilotRunner: cr, journal: make([]journalEntry, 0)}
 }
 
 func (r *Runner) Run(ctx context.Context, userPrompt string) (*RunResult, error) {
@@ -469,7 +470,7 @@ func (r *Runner) invokePhase(ctx context.Context, runID, phase, prompt string) (
 		SharePath: sharePath,
 		Silent:    true,
 		NoAskUser: true,
-		AddDirs:   []string{filepath.Join(r.repoRoot, "plugin")},
+		AddDirs:   []string{r.pluginDir},
 	})
 }
 
@@ -479,6 +480,9 @@ func (r *Runner) ensureReady(ctx context.Context) error {
 	}
 	if r.copilotRunner == nil {
 		return fmt.Errorf("copilot runner is required")
+	}
+	if r.pluginDir == "" {
+		return fmt.Errorf("trusted plugin asset directory is required")
 	}
 	if !r.sidecarMgr.IsRunning() {
 		if err := r.sidecarMgr.Start(ctx); err != nil {

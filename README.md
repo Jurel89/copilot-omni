@@ -11,7 +11,7 @@
     <img src="https://github.com/Jurel89/copilot-omni/actions/workflows/ci.yml/badge.svg" alt="CI"/>
   </a>
   <img src="https://img.shields.io/badge/version-0.1.0-blue.svg" alt="Version"/>
-  <img src="https://img.shields.io/badge/go-1.22%2B-00ADD8.svg" alt="Go Version"/>
+  <img src="https://img.shields.io/badge/go-1.25%2B-00ADD8.svg" alt="Go Version"/>
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"/>
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey.svg" alt="Platform"/>
   <img src="https://img.shields.io/badge/tools-31_MCP-8b5cf6.svg" alt="MCP Tools"/>
@@ -67,7 +67,7 @@ Each phase produces a versioned artifact (spec, plan, decisions, transcripts) st
 
 ### Prerequisites
 
-- [Go 1.22+](https://go.dev/dl/)
+- [Go 1.25+](https://go.dev/dl/)
 - [GitHub Copilot CLI](https://docs.github.com/en/copilot/managing-copilot/using-github-copilot-in-the-command-line)
 
 ### Build from Source
@@ -78,33 +78,63 @@ git clone https://github.com/Jurel89/copilot-omni.git
 cd copilot-omni
 
 # Build both binaries
-cd sidecar && go build ./cmd/omni-sidecar/ && cd ..
-cd wrapper && go build ./cmd/omni/ && cd ..
+cd sidecar && go build -o omni-sidecar ./cmd/omni-sidecar/ && cd ..
+cd wrapper && go build -o omni ./cmd/omni/ && cd ..
+
+# Check system health
+./wrapper/omni doctor
 
 # Initialize a project
 ./wrapper/omni init
 
-# Check system health
-./wrapper/omni doctor
+# Install the Copilot plugin using a generated MCP config
+./wrapper/omni plugin install
+```
+
+Windows PowerShell:
+
+```powershell
+git clone https://github.com/Jurel89/copilot-omni.git
+Set-Location copilot-omni
+
+Set-Location sidecar
+go build -o omni-sidecar.exe ./cmd/omni-sidecar
+Set-Location ..
+
+Set-Location wrapper
+go build -o omni.exe ./cmd/omni
+Set-Location ..
+
+.\wrapper\omni.exe doctor
+.\wrapper\omni.exe init
+.\wrapper\omni.exe plugin install
 ```
 
 ### Install via Offline Bundle
 
 ```bash
 # Create a release bundle
-./wrapper/omni bundle create --output-dir ./dist --release-tag v0.1.0
+./wrapper/omni bundle create ./dist
 
 # Install on any machine (no internet required)
-bash scripts/install-offline.sh --bundle-dir ./dist --target /usr/local
+./wrapper/omni bundle install --bundle-dir ./dist --target /usr/local
+```
+
+Windows PowerShell:
+
+```powershell
+.\wrapper\omni.exe bundle create .\dist
+.\wrapper\omni.exe bundle install --bundle-dir .\dist --target C:\copilot-omni
 ```
 
 ### Use with GitHub Copilot CLI
 
-Copilot Omni integrates as a Copilot CLI plugin. After building:
+Copilot Omni integrates as a Copilot CLI plugin through the wrapper-managed install flow. After building or installing:
 
-1. Copy the plugin directory and binaries to your project
+1. Run `omni doctor` to confirm the sidecar and trusted asset paths are valid
 2. Run `omni init` to generate `.omni/`, `.github/copilot-instructions.md`, and `AGENTS.md`
-3. Start a workflow with `omni run "Build a new feature"`
+3. Run `omni plugin install` to stage a plugin with a deterministic sidecar command path
+4. Start a workflow with `omni run "Build a new feature"`
 
 ## Project Structure
 

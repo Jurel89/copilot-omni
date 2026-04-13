@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/copilot-omni/sidecar/internal/config"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/config"
 )
 
 type OperationType string

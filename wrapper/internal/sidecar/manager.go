@@ -3,13 +3,15 @@ package sidecar
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -22,6 +24,11 @@ type Manager struct {
 	running    bool
 	waitCh     chan error
 	decoder    *json.Decoder
+}
+
+type Resolution struct {
+	Path   string
+	Source string
 }
 
 type mcpRequest struct {
@@ -65,43 +72,114 @@ type healthPayload struct {
 
 const (
 	mcpProtocolVersion = "2024-11-05"
-	stopTimeout        = 5 * time.Second
+	sidecarCommandName = "omni-sidecar"
 )
 
+var stopTimeout = 5 * time.Second
+
 func FindSidecar() (string, error) {
-	if envPath := os.Getenv("COPILOT_OMNI_SIDECAR"); envPath != "" {
-		if path, err := validateBinaryPath(envPath); err == nil {
-			return path, nil
+	resolution, err := FindSidecarResolution()
+	if err != nil {
+		return "", err
+	}
+	return resolution.Path, nil
+}
+
+func FindSidecarResolution() (Resolution, error) {
+	executablePath, err := os.Executable()
+	if err != nil {
+		return Resolution{}, fmt.Errorf("resolve executable path: %w", err)
+	}
+
+	return findSidecar(os.Getenv("COPILOT_OMNI_SIDECAR"), executablePath, exec.LookPath)
+}
+
+func findSidecar(envPath, executablePath string, lookPath func(string) (string, error)) (Resolution, error) {
+	if envPath != "" {
+		path, err := resolveSidecarOverride(envPath, lookPath)
+		if err != nil {
+			return Resolution{}, fmt.Errorf("resolve COPILOT_OMNI_SIDECAR: %w", err)
 		}
+		return Resolution{Path: path, Source: "env"}, nil
 	}
 
-	exePath, err := os.Executable()
+	candidates, err := sidecarCandidatePaths(executablePath)
 	if err != nil {
-		return "", fmt.Errorf("resolve executable path: %w", err)
+		return Resolution{}, err
 	}
-	exePath, err = filepath.EvalSymlinks(exePath)
-	if err != nil {
-		return "", fmt.Errorf("resolve executable symlink: %w", err)
-	}
+	installedLayout := filepath.Base(filepath.Dir(executablePath)) == "bin"
 
-	exeDir := filepath.Dir(exePath)
-	candidates := []string{
-		filepath.Join(exeDir, "..", "sidecar", "omni-sidecar"),
-		filepath.Join(exeDir, "omni-sidecar"),
-	}
-
-	for _, candidate := range candidates {
+	for idx, candidate := range candidates {
 		if path, err := validateBinaryPath(candidate); err == nil {
-			return path, nil
+			source := "same-dir"
+			if idx == 0 && !installedLayout {
+				source = "source-tree"
+			}
+			return Resolution{Path: path, Source: source}, nil
 		}
 	}
 
-	path, err := exec.LookPath("omni-sidecar")
+	path, err := lookPath(sidecarCommandName)
 	if err != nil {
-		return "", fmt.Errorf("find omni-sidecar: %w", err)
+		return Resolution{}, fmt.Errorf("find %s: %w", sidecarCommandName, err)
 	}
 
-	return path, nil
+	resolvedPath, err := validateBinaryPath(path)
+	if err != nil {
+		return Resolution{}, fmt.Errorf("validate %s from PATH: %w", path, err)
+	}
+
+	return Resolution{Path: resolvedPath, Source: "path"}, nil
+}
+
+func resolveSidecarOverride(envPath string, lookPath func(string) (string, error)) (string, error) {
+	if isPathLike(envPath) {
+		return validateBinaryPath(envPath)
+	}
+
+	path, err := lookPath(envPath)
+	if err != nil {
+		return "", fmt.Errorf("find %s: %w", envPath, err)
+	}
+
+	resolvedPath, err := validateBinaryPath(path)
+	if err != nil {
+		return "", fmt.Errorf("validate %s: %w", path, err)
+	}
+
+	return resolvedPath, nil
+}
+
+func sidecarCandidatePaths(executablePath string) ([]string, error) {
+	resolvedExecutablePath, err := validateBinaryPath(executablePath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve executable path: %w", err)
+	}
+
+	exeDir := filepath.Dir(resolvedExecutablePath)
+	binaryName := sidecarBinaryName()
+	sameDirCandidate := filepath.Join(exeDir, binaryName)
+	sourceTreeCandidate := filepath.Join(exeDir, "..", "sidecar", binaryName)
+	if filepath.Base(exeDir) == "bin" {
+		return []string{sameDirCandidate, sourceTreeCandidate}, nil
+	}
+
+	return []string{
+		sourceTreeCandidate,
+		sameDirCandidate,
+	}, nil
+}
+
+func sidecarBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return sidecarCommandName + ".exe"
+	}
+
+	return sidecarCommandName
+}
+
+func isPathLike(path string) bool {
+	return filepath.IsAbs(path) || filepath.VolumeName(path) != "" || filepath.Base(path) != path || strings.ContainsAny(path, `/\\`)
 }
 
 func NewManager(binaryPath string) *Manager {
@@ -112,7 +190,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.running && m.cmd != nil && processAlive(m.cmd.Process) {
+	if m.running && m.cmd != nil && m.stdin != nil && m.decoder != nil {
 		return nil
 	}
 
@@ -141,13 +219,21 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.waitCh = make(chan error, 1)
 	m.running = true
 
-	go func() {
-		m.waitCh <- cmd.Wait()
-		close(m.waitCh)
+	go func(waitCh chan error) {
+		err := cmd.Wait()
 		m.mu.Lock()
-		m.running = false
+		if m.cmd == cmd {
+			m.cmd = nil
+			m.stdin = nil
+			m.stdout = nil
+			m.decoder = nil
+			m.waitCh = nil
+			m.running = false
+		}
 		m.mu.Unlock()
-	}()
+		waitCh <- err
+		close(waitCh)
+	}(m.waitCh)
 
 	return nil
 }
@@ -159,7 +245,7 @@ func (m *Manager) HealthCheck(ctx context.Context, timeout time.Duration) error 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if !m.running || m.cmd == nil || !processAlive(m.cmd.Process) {
+	if !m.running || m.cmd == nil || m.stdin == nil || m.decoder == nil {
 		return fmt.Errorf("sidecar is not running")
 	}
 
@@ -259,15 +345,17 @@ func (m *Manager) Stop() error {
 	waitCh := m.waitCh
 	m.mu.Unlock()
 
-	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil && !isFinishedProcessError(err) {
-		return fmt.Errorf("signal sidecar: %w", err)
+	if stdin != nil {
+		if err := stdin.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			return fmt.Errorf("close sidecar stdin: %w", err)
+		}
 	}
+
+	timer := time.NewTimer(stopTimeout)
+	defer timer.Stop()
 
 	select {
 	case err := <-waitCh:
-		if stdin != nil {
-			_ = stdin.Close()
-		}
 		if stdout != nil {
 			_ = stdout.Close()
 		}
@@ -275,15 +363,12 @@ func (m *Manager) Stop() error {
 			return fmt.Errorf("wait for sidecar exit: %w", err)
 		}
 		return nil
-	case <-time.After(stopTimeout):
+	case <-timer.C:
 		if err := cmd.Process.Kill(); err != nil && !isFinishedProcessError(err) {
 			return fmt.Errorf("kill sidecar: %w", err)
 		}
 		if waitCh != nil {
 			_, _ = <-waitCh
-		}
-		if stdin != nil {
-			_ = stdin.Close()
 		}
 		if stdout != nil {
 			_ = stdout.Close()
@@ -296,14 +381,14 @@ func (m *Manager) IsRunning() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.running && m.cmd != nil && processAlive(m.cmd.Process)
+	return m.running && m.cmd != nil
 }
 
 func (m *Manager) CallTool(ctx context.Context, toolName string, arguments map[string]any) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if !m.running || m.cmd == nil || !processAlive(m.cmd.Process) {
+	if !m.running || m.cmd == nil || m.stdin == nil || m.decoder == nil {
 		return "", fmt.Errorf("sidecar is not running")
 	}
 
@@ -410,14 +495,6 @@ func validateBinaryPath(path string) (string, error) {
 	}
 
 	return resolvedPath, nil
-}
-
-func processAlive(process *os.Process) bool {
-	if process == nil {
-		return false
-	}
-
-	return process.Signal(syscall.Signal(0)) == nil
 }
 
 func isFinishedProcessError(err error) bool {

@@ -323,11 +323,11 @@ echo ""
 echo "--- Marketplace Paths Match Bundle Layout ---"
 python3 -c "
 import json
-mp = json.load(open('$REPO_ROOT/marketplace.json'))
+mp = json.load(open('$ARTIFACT_DIR/bundle/marketplace.json'))
 plugin = mp['plugins'][0]
 assert plugin['sidecar'] == './omni-sidecar', f'Expected ./omni-sidecar, got {plugin[\"sidecar\"]}'
 assert plugin['wrapper'] == './omni', f'Expected ./omni, got {plugin[\"wrapper\"]}'
-print('  PASS: marketplace.json paths match bundle binary layout')
+print('  PASS: bundled marketplace.json paths match bundle binary layout')
 " || fail "marketplace.json path layout"
 
 echo ""
@@ -336,16 +336,17 @@ bash -n "$REPO_ROOT/scripts/install-offline.sh" && pass "install-offline.sh synt
 [ -x "$REPO_ROOT/scripts/install-offline.sh" ] && pass "install-offline.sh is executable" || fail "install-offline.sh not executable"
 
 echo ""
-echo "--- Offline Installer Round-Trip ---"
+echo "--- Go Bundle Installer Round-Trip ---"
 INSTALL_TARGET=$(mktemp -d)
-bash "$REPO_ROOT/scripts/install-offline.sh" --bundle-dir "$ARTIFACT_DIR/bundle" --target "$INSTALL_TARGET" 2>&1 && pass "installer completes" || fail "installer failed"
+"$REPO_ROOT/wrapper/omni" bundle install --bundle-dir "$ARTIFACT_DIR/bundle" --target "$INSTALL_TARGET" 2>&1 && pass "installer completes" || fail "installer failed"
 [ -f "$INSTALL_TARGET/bin/omni-sidecar" ] && pass "omni-sidecar installed to bin" || fail "omni-sidecar not in bin"
 [ -f "$INSTALL_TARGET/bin/omni" ] && pass "omni installed to bin" || fail "omni not in bin"
 [ -f "$INSTALL_TARGET/share/copilot-omni/release-manifest.json" ] && pass "manifest installed" || fail "manifest not installed"
+[ -f "$INSTALL_TARGET/share/copilot-omni/templates/copilot-instructions.md.tmpl" ] && pass "templates installed" || fail "templates not installed"
 rm -rf "$INSTALL_TARGET"
 
 echo ""
-echo "--- Installer Path Traversal Rejection ---"
+echo "--- Go Installer Path Traversal Rejection ---"
 TRAVERSAL_TARGET=$(mktemp -d)
 TRAVERSAL_BUNDLE=$(mktemp -d)/bundle
 mkdir -p "$TRAVERSAL_BUNDLE/subdir"
@@ -356,7 +357,7 @@ ESCAPE_HASH=$(sha256sum "$TRAVERSAL_BUNDLE/subdir/escape" | awk '{print $1}')
 MANIFEST_HASH=$(sha256sum "$TRAVERSAL_BUNDLE/release-manifest.json" | awk '{print $1}')
 SBOM_HASH=$(sha256sum "$TRAVERSAL_BUNDLE/sbom.json" | awk '{print $1}')
 printf "%s  release-manifest.json\n%s  sbom.json\n%s  subdir/../../escape\n" "$MANIFEST_HASH" "$SBOM_HASH" "$ESCAPE_HASH" > "$TRAVERSAL_BUNDLE/checksums.txt"
-INSTALLER_TRAV_OUTPUT=$(bash "$REPO_ROOT/scripts/install-offline.sh" --bundle-dir "$TRAVERSAL_BUNDLE" --target "$TRAVERSAL_TARGET" 2>&1 || true)
+INSTALLER_TRAV_OUTPUT=$("$REPO_ROOT/wrapper/omni" bundle install --bundle-dir "$TRAVERSAL_BUNDLE" --target "$TRAVERSAL_TARGET" 2>&1 || true)
 echo "$INSTALLER_TRAV_OUTPUT" | grep -qiE "escape|FAIL" && pass "installer rejects .. traversal in component path" || fail "installer allowed .. traversal"
 rm -rf "$TRAVERSAL_TARGET" "$(dirname "$TRAVERSAL_BUNDLE")"
 

@@ -13,32 +13,33 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/copilot-omni/sidecar/internal/artifact"
-	"github.com/copilot-omni/sidecar/internal/audit"
-	"github.com/copilot-omni/sidecar/internal/benchmark"
-	"github.com/copilot-omni/sidecar/internal/compat"
-	"github.com/copilot-omni/sidecar/internal/config"
-	"github.com/copilot-omni/sidecar/internal/doctor"
-	"github.com/copilot-omni/sidecar/internal/execution"
-	"github.com/copilot-omni/sidecar/internal/memory"
-	"github.com/copilot-omni/sidecar/internal/merge"
-	"github.com/copilot-omni/sidecar/internal/migration"
-	"github.com/copilot-omni/sidecar/internal/policy"
-	"github.com/copilot-omni/sidecar/internal/policypack"
-	"github.com/copilot-omni/sidecar/internal/release"
-	"github.com/copilot-omni/sidecar/internal/research"
-	"github.com/copilot-omni/sidecar/internal/router"
-	runpkg "github.com/copilot-omni/sidecar/internal/run"
-	"github.com/copilot-omni/sidecar/internal/schema"
-	subtaskpkg "github.com/copilot-omni/sidecar/internal/subtask"
-	"github.com/copilot-omni/sidecar/internal/support"
-	"github.com/copilot-omni/sidecar/internal/version"
-	"github.com/copilot-omni/sidecar/internal/workspace"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/artifact"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/audit"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/benchmark"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/compat"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/config"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/doctor"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/execution"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/memory"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/merge"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/migration"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/policy"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/policypack"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/release"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/research"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/router"
+	runpkg "github.com/Jurel89/copilot-omni/sidecar/internal/run"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/schema"
+	subtaskpkg "github.com/Jurel89/copilot-omni/sidecar/internal/subtask"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/support"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/version"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/workspace"
 )
 
 type ToolHandler func(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error)
@@ -2672,49 +2673,99 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 		}
 		platform := stringVal(arguments, "platform")
 		if platform == "" {
-			platform = "linux/amd64"
+			platform = runtime.GOOS + "/" + runtime.GOARCH
 		}
 
 		manifest := release.NewManifest(releaseTag, platform, "")
-		sidecarBin := filepath.Join(repoRoot, "sidecar", "omni-sidecar")
-		if _, err := os.Stat(sidecarBin); err == nil {
+		if sidecarBin, ok := release.FindBundleBinary(filepath.Join(repoRoot, "sidecar"), "omni-sidecar", platform); ok {
 			if addErr := manifest.AddComponent("omni-sidecar", sidecarBin, "binary", platform); addErr != nil {
 				return ToolCallResult{}, fmt.Errorf("add sidecar component: %w", addErr)
 			}
 		}
-		wrapperBin := filepath.Join(repoRoot, "wrapper", "omni")
-		if _, err := os.Stat(wrapperBin); err == nil {
+		if wrapperBin, ok := release.FindBundleBinary(filepath.Join(repoRoot, "wrapper"), "omni", platform); ok {
 			if addErr := manifest.AddComponent("omni-wrapper", wrapperBin, "binary", platform); addErr != nil {
 				return ToolCallResult{}, fmt.Errorf("add wrapper component: %w", addErr)
 			}
 		}
 		pluginDir := filepath.Join(repoRoot, "plugin")
+		pluginBefore := len(manifest.Components)
 		if info, err := os.Stat(pluginDir); err == nil && info.IsDir() {
-			_ = manifest.AddDirectoryComponent("plugin", pluginDir)
+			if addErr := manifest.AddDirectoryComponent("plugin", pluginDir); addErr != nil {
+				return ToolCallResult{}, fmt.Errorf("add plugin assets: %w", addErr)
+			}
+		} else {
+			return ToolCallResult{}, fmt.Errorf("bundle requires plugin assets at %s", pluginDir)
+		}
+		if len(manifest.Components) == pluginBefore || !manifestHasPathPrefix(manifest.Components[pluginBefore:], "plugin/") || !manifestHasExactPath(manifest.Components[pluginBefore:], "plugin/plugin.json") {
+			return ToolCallResult{}, fmt.Errorf("bundle requires non-empty plugin assets including plugin/plugin.json")
+		}
+
+		templatesDir := filepath.Join(repoRoot, "templates")
+		templatesBefore := len(manifest.Components)
+		if info, err := os.Stat(templatesDir); err == nil && info.IsDir() {
+			if addErr := manifest.AddDirectoryComponent("templates", templatesDir); addErr != nil {
+				return ToolCallResult{}, fmt.Errorf("add templates assets: %w", addErr)
+			}
+		} else {
+			return ToolCallResult{}, fmt.Errorf("bundle requires templates assets at %s", templatesDir)
+		}
+		if len(manifest.Components) == templatesBefore || !manifestHasPathPrefix(manifest.Components[templatesBefore:], "templates/") {
+			return ToolCallResult{}, fmt.Errorf("bundle requires non-empty templates assets at %s", templatesDir)
 		}
 
 		if mp, err := os.Stat(filepath.Join(repoRoot, "marketplace.json")); err == nil && !mp.IsDir() {
-			_ = manifest.AddExtraFile("marketplace.json", filepath.Join(repoRoot, "marketplace.json"), "marketplace.json")
+			marketplacePath, marketplaceErr := writeBundleMarketplaceFile(repoRoot, platform)
+			if marketplaceErr != nil {
+				return ToolCallResult{}, fmt.Errorf("generate marketplace metadata: %w", marketplaceErr)
+			}
+			defer os.Remove(marketplacePath)
+			if addErr := manifest.AddExtraFile("marketplace.json", marketplacePath, "marketplace.json"); addErr != nil {
+				return ToolCallResult{}, fmt.Errorf("add marketplace metadata: %w", addErr)
+			}
+		} else {
+			return ToolCallResult{}, fmt.Errorf("bundle requires marketplace metadata at %s", filepath.Join(repoRoot, "marketplace.json"))
 		}
 
 		policiesDir := filepath.Join(repoRoot, "policies")
+		policiesBefore := len(manifest.Components)
 		if info, err := os.Stat(policiesDir); err == nil && info.IsDir() {
 			entries, _ := os.ReadDir(policiesDir)
 			for _, entry := range entries {
 				if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
 					srcPath := filepath.Join(policiesDir, entry.Name())
-					_ = manifest.AddExtraFile("policies/"+entry.Name(), srcPath, filepath.Join("policies", entry.Name()))
+					if addErr := manifest.AddExtraFile("policies/"+entry.Name(), srcPath, filepath.Join("policies", entry.Name())); addErr != nil {
+						return ToolCallResult{}, fmt.Errorf("add policy asset %s: %w", entry.Name(), addErr)
+					}
 				}
 			}
+		} else {
+			return ToolCallResult{}, fmt.Errorf("bundle requires policies assets at %s", policiesDir)
+		}
+		if len(manifest.Components) == policiesBefore || !manifestHasPathPrefix(manifest.Components[policiesBefore:], "policies/") {
+			return ToolCallResult{}, fmt.Errorf("bundle requires non-empty policies assets at %s", policiesDir)
 		}
 
 		installScript := filepath.Join(repoRoot, "scripts", "install-offline.sh")
 		if _, err := os.Stat(installScript); err == nil {
-			_ = manifest.AddExtraFile("install-offline.sh", installScript, "scripts/install-offline.sh")
+			if addErr := manifest.AddExtraFile("install-offline.sh", installScript, "scripts/install-offline.sh"); addErr != nil {
+				return ToolCallResult{}, fmt.Errorf("add install script: %w", addErr)
+			}
 		}
 
-		if len(manifest.Components) == 0 {
-			return ToolCallResult{}, fmt.Errorf("no components found: build sidecar and wrapper binaries first")
+		hasWrapperBinary := false
+		hasSidecarBinary := false
+		for _, component := range manifest.Components {
+			if strings.EqualFold(strings.TrimSpace(component.Type), "binary") {
+				switch component.Name {
+				case "omni-wrapper":
+					hasWrapperBinary = true
+				case "omni-sidecar":
+					hasSidecarBinary = true
+				}
+			}
+		}
+		if !hasWrapperBinary || !hasSidecarBinary {
+			return ToolCallResult{}, fmt.Errorf("bundle requires both wrapper and sidecar binaries: build sidecar and wrapper binaries first")
 		}
 
 		cfg, cfgErr := r.configResolver(repoRoot)
@@ -2734,14 +2785,25 @@ func (r *Registry) omniReleaseBundle(ctx context.Context, arguments map[string]i
 			return ToolCallResult{}, fmt.Errorf("create bundle: %w", writeErr)
 		}
 
-		sbomChecksum, _ := release.FileChecksum(filepath.Join(outputDir, "sbom.json"))
+		sbomChecksum, err := release.FileChecksum(filepath.Join(outputDir, "sbom.json"))
+		if err != nil {
+			return ToolCallResult{}, fmt.Errorf("checksum SBOM: %w", err)
+		}
 		manifest.Checksums["sbom.json"] = sbomChecksum
 		manifest.Provenance.Fingerprint = "sha256:" + computeBundleFingerprint(manifest)
-		if payload, err := json.MarshalIndent(manifest, "", "  "); err == nil {
-			_ = os.WriteFile(manifestPath, payload, 0o644)
+		payload, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			return ToolCallResult{}, fmt.Errorf("marshal fingerprinted manifest: %w", err)
 		}
-		if checksumsContent, err := release.RegenerateChecksums(outputDir); err == nil {
-			_ = os.WriteFile(filepath.Join(outputDir, "checksums.txt"), checksumsContent, 0o644)
+		if err := os.WriteFile(manifestPath, payload, 0o644); err != nil {
+			return ToolCallResult{}, fmt.Errorf("rewrite fingerprinted manifest: %w", err)
+		}
+		checksumsContent, err := release.RegenerateChecksums(outputDir)
+		if err != nil {
+			return ToolCallResult{}, fmt.Errorf("regenerate checksums: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(outputDir, "checksums.txt"), checksumsContent, 0o644); err != nil {
+			return ToolCallResult{}, fmt.Errorf("rewrite checksums: %w", err)
 		}
 
 		return jsonToolResult(map[string]interface{}{
@@ -2785,6 +2847,58 @@ func (r *Registry) omniPolicyPackValidate(ctx context.Context, arguments map[str
 	}
 
 	return jsonToolResult(result)
+}
+
+func writeBundleMarketplaceFile(repoRoot string, platform string) (string, error) {
+	content, err := os.ReadFile(filepath.Join(repoRoot, "marketplace.json"))
+	if err != nil {
+		return "", err
+	}
+
+	var payload struct {
+		Name        string `json:"name"`
+		Version     string `json:"version"`
+		Description string `json:"description"`
+		Plugins     []struct {
+			Name        string `json:"name"`
+			Version     string `json:"version"`
+			Description string `json:"description"`
+			Path        string `json:"path"`
+			Sidecar     string `json:"sidecar"`
+			Wrapper     string `json:"wrapper"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal(content, &payload); err != nil {
+		return "", err
+	}
+
+	wrapperName := "./omni"
+	sidecarName := "./omni-sidecar"
+	if strings.HasPrefix(platform, "windows/") {
+		wrapperName = "./omni.exe"
+		sidecarName = "./omni-sidecar.exe"
+	}
+	for i := range payload.Plugins {
+		payload.Plugins[i].Wrapper = wrapperName
+		payload.Plugins[i].Sidecar = sidecarName
+	}
+
+	tempFile, err := os.CreateTemp("", "copilot-omni-marketplace-*.json")
+	if err != nil {
+		return "", err
+	}
+	defer tempFile.Close()
+
+	encoded, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	encoded = append(encoded, '\n')
+	if _, err := tempFile.Write(encoded); err != nil {
+		return "", err
+	}
+
+	return tempFile.Name(), nil
 }
 
 func (r *Registry) omniAuditExport(ctx context.Context, arguments map[string]interface{}) (ToolCallResult, error) {
@@ -4029,4 +4143,22 @@ func supportRedactionLevelArg(raw interface{}) (support.RedactionLevel, error) {
 	default:
 		return "", fmt.Errorf("redaction_level must be one of: minimal, standard, aggressive")
 	}
+}
+
+func manifestHasPathPrefix(components []release.Component, prefix string) bool {
+	for _, component := range components {
+		if strings.HasPrefix(component.Path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func manifestHasExactPath(components []release.Component, wantPath string) bool {
+	for _, component := range components {
+		if component.Path == wantPath {
+			return true
+		}
+	}
+	return false
 }

@@ -18,7 +18,7 @@ echo "--- Plugin Structure ---"
 python3 -c "import json; d=json.load(open('$REPO_ROOT/plugin/plugin.json')); assert d['name']=='copilot-omni'; assert d['version']=='0.1.0'" && pass "plugin.json valid" || fail "plugin.json invalid"
 
 # Check MCP config
-python3 -c "import json; d=json.load(open('$REPO_ROOT/plugin/.mcp.json')); assert 'copilot-omni-sidecar' in d['mcpServers']" && pass ".mcp.json valid" || fail ".mcp.json invalid"
+python3 -c "import json; d=json.load(open('$REPO_ROOT/plugin/.mcp.json')); s=d['mcpServers']['copilot-omni-sidecar']; assert s['type']=='stdio'; assert s['command']=='omni-sidecar'; assert s['args']==['serve']" && pass ".mcp.json valid stdio fallback" || fail ".mcp.json invalid"
 
 # Check hooks config
 python3 -c "import json; d=json.load(open('$REPO_ROOT/plugin/hooks.json')); assert d['version']==1; assert 'preToolUse' in d['hooks']" && pass "hooks.json valid" || fail "hooks.json invalid"
@@ -172,7 +172,9 @@ cp -r "$REPO_ROOT/plugin" "$E2E_DIR/"
 cp -r "$REPO_ROOT/sidecar" "$E2E_DIR/"
 cp -r "$REPO_ROOT/wrapper" "$E2E_DIR/"
 cp -r "$REPO_ROOT/templates" "$E2E_DIR/"
+cp -r "$REPO_ROOT/policies" "$E2E_DIR/"
 cp -r "$REPO_ROOT/profiles" "$E2E_DIR/"
+cp "$REPO_ROOT/marketplace.json" "$E2E_DIR/"
 (cd "$E2E_DIR/sidecar" && go build ./cmd/omni-sidecar/) && pass "e2e sidecar builds" || fail "e2e sidecar build"
 (cd "$E2E_DIR/wrapper" && go build ./cmd/omni/) && pass "e2e wrapper builds" || fail "e2e wrapper build"
 
@@ -186,7 +188,7 @@ grep -q 'omni:managed:start' "$E2E_DIR/.github/copilot-instructions.md" && pass 
 
 # Test omni doctor reports healthy after init
 DOCTOR_OUTPUT=$(cd "$E2E_DIR" && ./wrapper/omni doctor 2>/dev/null)
-echo "$DOCTOR_OUTPUT" | grep -qE '"status":"(healthy|degraded)"' && pass "doctor reports healthy or degraded after init" || fail "doctor not healthy after init"
+echo "$DOCTOR_OUTPUT" | grep -q "Sidecar health: ok" && echo "$DOCTOR_OUTPUT" | grep -q "Trusted asset root:" && echo "$DOCTOR_OUTPUT" | grep -q "Trusted asset mode:" && pass "doctor reports runtime and trusted assets after init" || fail "doctor not healthy after init"
 
 # Test config resolve returns non-empty policy arrays
 CONFIG_RESULT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}

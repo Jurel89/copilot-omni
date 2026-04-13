@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 )
 
 type RunOptions struct {
@@ -36,14 +39,17 @@ func Run(ctx context.Context, prompt string, opts RunOptions) (string, error) {
 	args := []string{"-p", prompt}
 	args = appendRunOptions(args, opts)
 
-	cmd := exec.CommandContext(ctx, "copilot", args...)
+	cmd, err := commandForCopilot(ctx, args...)
+	if err != nil {
+		return "", err
+	}
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 	output := stdout.String() + stderr.String()
 	if err != nil {
 		return output, fmt.Errorf("run copilot: %w", err)
@@ -61,7 +67,10 @@ func RunInteractive(ctx context.Context, agent string, addDirs []string) error {
 		args = append(args, fmt.Sprintf("--add-dir=%s", dir))
 	}
 
-	cmd := exec.CommandContext(ctx, "copilot", args...)
+	cmd, err := commandForCopilot(ctx, args...)
+	if err != nil {
+		return err
+	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -100,4 +109,19 @@ func appendRunOptions(args []string, opts RunOptions) []string {
 	}
 
 	return args
+}
+
+func commandForCopilot(ctx context.Context, args ...string) (*exec.Cmd, error) {
+	path, err := FindCopilot()
+	if err != nil {
+		return nil, err
+	}
+	if runtime.GOOS == "windows" {
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext == ".bat" || ext == ".cmd" {
+			cmdArgs := append([]string{"/c", path}, args...)
+			return exec.CommandContext(ctx, "cmd.exe", cmdArgs...), nil
+		}
+	}
+	return exec.CommandContext(ctx, path, args...), nil
 }

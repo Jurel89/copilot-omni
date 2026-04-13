@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/copilot-omni/sidecar/internal/config"
-	"github.com/copilot-omni/sidecar/internal/memory"
-	"github.com/copilot-omni/sidecar/internal/version"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/config"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/memory"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/version"
 )
 
 type SystemInfo struct {

@@ -24,12 +24,37 @@ This guide is for operators who need to deploy, monitor, and troubleshoot Copilo
 
 ### Standard Installation
 
-```bash
-# Install from source
-go install github.com/Jurel89/copilot-omni/wrapper/cmd/omni@latest
+Build and install both binaries together; the wrapper alone is not sufficient.
 
-# Or install from local build
-copilot plugin install ./plugin
+```bash
+# Build from source checkout
+cd sidecar && go build -o omni-sidecar ./cmd/omni-sidecar/ && cd ..
+cd wrapper && go build -o omni ./cmd/omni/ && cd ..
+
+# Verify runtime
+./wrapper/omni doctor
+
+# Bootstrap a target repository
+./wrapper/omni init
+
+# Install the Copilot plugin with a generated MCP config
+./wrapper/omni plugin install
+```
+
+Windows PowerShell:
+
+```powershell
+Set-Location sidecar
+go build -o omni-sidecar.exe ./cmd/omni-sidecar
+Set-Location ..
+
+Set-Location wrapper
+go build -o omni.exe ./cmd/omni
+Set-Location ..
+
+.\wrapper\omni.exe doctor
+.\wrapper\omni.exe init
+.\wrapper\omni.exe plugin install
 ```
 
 ### Offline Installation
@@ -40,10 +65,31 @@ For air-gapped environments:
 # Download offline bundle from release
 curl -L -o copilot-omni-offline.tar.gz https://github.com/Jurel89/copilot-omni/releases/download/v0.1.0/copilot-omni-offline.tar.gz
 
-# Extract and run installer
+# Extract and install using the bundled wrapper
 tar -xzf copilot-omni-offline.tar.gz
 cd copilot-omni-offline
-./scripts/install-offline.sh
+./omni bundle install --bundle-dir . --target /usr/local
+```
+
+Windows PowerShell:
+
+```powershell
+Expand-Archive .\copilot-omni-offline.zip -DestinationPath .\copilot-omni-offline
+Set-Location .\copilot-omni-offline
+.\omni.exe bundle install --bundle-dir . --target C:\copilot-omni
+```
+
+Installed layout:
+
+- binaries: `<prefix>/bin`
+- trusted product assets: `<prefix>/share/copilot-omni`
+
+After installation:
+
+```bash
+omni doctor
+omni init
+omni plugin install
 ```
 
 ## Configuration
@@ -158,7 +204,9 @@ omni doctor
 ```
 
 **Resolution**:
-- Check database file size: `ls -lh .omni/memory.db`
+- Check database file size:
+  - Linux/macOS: `ls -lh .omni/memory.db`
+  - Windows PowerShell: `Get-Item .omni/memory.db | Select-Object Name,Length`
 - Prune old records by configuring retention in `.omni/config.json`:
   ```json
   {
@@ -335,6 +383,8 @@ Configure audit log retention:
 
 **Warning**: This deletes all data
 
+Linux/macOS:
+
 ```bash
 # Stop all omni processes
 pkill -f omni
@@ -347,9 +397,20 @@ rm -rf .omni/memory.db
 omni init
 ```
 
+Windows PowerShell:
+
+```powershell
+Get-Process omni, omni-sidecar -ErrorAction SilentlyContinue | Stop-Process -Force
+Copy-Item .omni ".omni.backup.$((Get-Date).ToString('yyyyMMdd'))" -Recurse
+Remove-Item .omni\memory.db -Force
+omni init
+```
+
 ### Recovery from Corruption
 
 If database is corrupted:
+
+Linux/macOS:
 
 ```bash
 # Restore from backup
@@ -357,6 +418,15 @@ cp .omni.backup.*/memory.db .omni/memory.db
 
 # Or start fresh (will lose memory data)
 rm .omni/memory.db
+```
+
+Windows PowerShell:
+
+```powershell
+Copy-Item .omni.backup.*\memory.db .omni\memory.db
+
+# Or start fresh (will lose memory data)
+Remove-Item .omni\memory.db -Force
 ```
 
 ## Getting Help

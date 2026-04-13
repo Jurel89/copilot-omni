@@ -1,3 +1,3 @@
-module github.com/copilot-omni/wrapper
+module github.com/Jurel89/copilot-omni/wrapper
 
-go 1.22
+go 1.25.0

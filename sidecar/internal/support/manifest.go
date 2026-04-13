@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/copilot-omni/sidecar/internal/doctor"
+	"github.com/Jurel89/copilot-omni/sidecar/internal/doctor"
 )
 
 type Manifest struct {
