@@ -124,8 +124,13 @@ Windows PowerShell:
 
 ```powershell
 .\wrapper\omni.exe bundle create .\dist
-.\wrapper\omni.exe bundle install --bundle-dir .\dist --target C:\copilot-omni
+.\wrapper\omni.exe bundle install --bundle-dir .\dist --target "$env:LOCALAPPDATA\copilot-omni"
 ```
+
+> **Note for Windows users:** The default install path uses your user-local app data directory so no Administrator rights are required. After installing, add the bin directory to your user PATH so `omni` is available from any terminal:
+> ```powershell
+> [Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:LOCALAPPDATA\copilot-omni\bin", "User")
+> ```
 
 ### Use with GitHub Copilot CLI
 

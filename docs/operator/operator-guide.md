@@ -76,17 +76,26 @@ Windows PowerShell:
 ```powershell
 Expand-Archive .\copilot-omni-offline.zip -DestinationPath .\copilot-omni-offline
 Set-Location .\copilot-omni-offline
-.\omni.exe bundle install --bundle-dir . --target C:\copilot-omni
+$installDir = "$env:LOCALAPPDATA\copilot-omni"
+.\omni.exe bundle install --bundle-dir . --target $installDir
 ```
+
+> **Note for Windows users:** The default install path uses your user-local app data directory so no Administrator rights are required.
 
 Installed layout:
 
 - binaries: `<prefix>/bin`
 - trusted product assets: `<prefix>/share/copilot-omni`
 
-After installation:
+After installation, add the bin directory to your user PATH so `omni` is available from any terminal:
 
-```bash
+```powershell
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:LOCALAPPDATA\copilot-omni\bin", "User")
+```
+
+Then verify the installation:
+
+```powershell
 omni doctor
 omni init
 omni plugin install
