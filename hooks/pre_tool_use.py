@@ -104,7 +104,9 @@ def main() -> int:
                     )))
                     return 0
 
-    if tool_name in ("edit", "write", "edit_file"):
+    if tool_name in ("edit", "write", "edit_file", "multi_edit",
+                     "multiedit", "patch", "apply_patch",
+                     "str_replace_editor", "create_file"):
         path_raw = str(tool_args.get("file_path") or tool_args.get("path") or "")
         # Normalize path separators and resolve `..` where possible
         try:

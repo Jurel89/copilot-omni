@@ -42,7 +42,10 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
     ok = ok and py_ok
 
     copilot = shutil.which("copilot")
-    print(f"copilot CLI:   {copilot or 'NOT FOUND':<40}")
+    copilot_ok = copilot is not None
+    print(f"copilot CLI:   {copilot or 'NOT FOUND':<40} "
+          + ("OK" if copilot_ok else "FAIL (install @github/copilot or add to PATH)"))
+    ok = ok and copilot_ok
 
     root = _plugin_root()
     manifest = root / ".claude-plugin" / "plugin.json"

@@ -1071,29 +1071,138 @@ def _handle(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return _rpc_response(rpc_id, error={"code": -32601, "message": f"unknown method: {method}"})
 
 
+def _write_response(stdout, resp: Any, framed: bool) -> None:
+    payload = json.dumps(resp)
+    if framed:
+        body = payload.encode("utf-8")
+        header = f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
+        stdout.buffer.write(header)
+        stdout.buffer.write(body)
+        stdout.buffer.flush()
+    else:
+        stdout.write(payload + "\n")
+        stdout.flush()
+
+
+def _read_framed_message(stdin) -> Optional[str]:
+    """Read one Content-Length framed message from stdin.buffer.
+
+    Returns the raw JSON body string, or None on EOF.
+    Returns an empty string if the frame could not be parsed (caller continues).
+    """
+    buf = stdin.buffer
+    headers: Dict[str, str] = {}
+    # Read header lines until blank line.
+    while True:
+        line = buf.readline()
+        if not line:
+            return None
+        if line in (b"\r\n", b"\n"):
+            break
+        try:
+            name, _, value = line.decode("ascii").partition(":")
+            headers[name.strip().lower()] = value.strip()
+        except Exception:
+            return ""
+    length_str = headers.get("content-length")
+    if not length_str:
+        return ""
+    try:
+        length = int(length_str)
+    except ValueError:
+        return ""
+    body = buf.read(length)
+    if not body:
+        return None
+    try:
+        return body.decode("utf-8")
+    except UnicodeDecodeError:
+        return ""
+
+
+def _peek_line_framed(stdin) -> Optional[str]:
+    """Peek the next non-empty line. Returns None on EOF."""
+    while True:
+        line = stdin.buffer.readline()
+        if not line:
+            return None
+        text = line.decode("utf-8", errors="replace")
+        if text.strip():
+            return text
+
+
 def _serve() -> int:
+    """Serve MCP over stdio, accepting BOTH transports transparently:
+
+    - Newline-delimited JSON (one message per line, used by Copilot CLI beta).
+    - Content-Length framed JSON (LSP-style, used by reference MCP clients).
+
+    We detect framing by sniffing the first non-empty line: if it starts with
+    ``Content-Length:`` we enter framed mode for the rest of the session.
+    """
     stdout = sys.stdout
     stdin = sys.stdin
-    for raw in stdin:
-        line = raw.strip()
-        if not line:
-            continue
+    framed = False
+
+    first = _peek_line_framed(stdin)
+    if first is None:
+        return 0
+    if first.lower().startswith("content-length"):
+        framed = True
+        # Re-read the header block starting from `first`.
+        headers: Dict[str, str] = {}
+        name, _, value = first.partition(":")
+        headers[name.strip().lower()] = value.strip()
+        while True:
+            line = stdin.buffer.readline()
+            if not line or line in (b"\r\n", b"\n"):
+                break
+            try:
+                nm, _, vl = line.decode("ascii").partition(":")
+                headers[nm.strip().lower()] = vl.strip()
+            except Exception:
+                pass
+        length_str = headers.get("content-length", "0")
         try:
-            msg = json.loads(line)
+            length = int(length_str)
+        except ValueError:
+            length = 0
+        body = stdin.buffer.read(length) if length else b""
+        raw_messages = [body.decode("utf-8", errors="replace")] if body else []
+    else:
+        raw_messages = [first.strip()]
+
+    def _dispatch(raw: str) -> None:
+        if not raw.strip():
+            return
+        try:
+            msg = json.loads(raw)
         except json.JSONDecodeError:
-            continue
+            return
         if isinstance(msg, list):
             responses = [_handle(m) for m in msg]
             out = [r for r in responses if r is not None]
             if out:
-                stdout.write(json.dumps(out) + "\n")
-                stdout.flush()
-            continue
+                _write_response(stdout, out, framed)
+            return
         resp = _handle(msg)
         if resp is not None:
-            stdout.write(json.dumps(resp) + "\n")
-            stdout.flush()
-    return 0
+            _write_response(stdout, resp, framed)
+
+    for raw in raw_messages:
+        _dispatch(raw)
+
+    while True:
+        if framed:
+            raw = _read_framed_message(stdin)
+            if raw is None:
+                return 0
+            _dispatch(raw)
+        else:
+            line = stdin.readline()
+            if not line:
+                return 0
+            _dispatch(line.strip())
 
 
 def main() -> int:

@@ -102,6 +102,54 @@ class TestMcpServer(unittest.TestCase):
         self.assertIn("error", responses[0])
         self.assertEqual(responses[0]["error"]["code"], -32601)
 
+    def test_content_length_framing(self):
+        """MCP server must accept Content-Length framed messages (LSP-style)."""
+        env = os.environ.copy()
+        env.update(self.env)
+        proc = subprocess.Popen(
+            [sys.executable, str(SERVER)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=env,
+        )
+        msgs = [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+             "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                        "clientInfo": {"name": "t", "version": "1"}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+             "params": {"name": "health", "arguments": {}}},
+        ]
+        payload = b""
+        for m in msgs:
+            body = json.dumps(m).encode("utf-8")
+            payload += f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
+        out, _ = proc.communicate(payload, timeout=15)
+
+        # Parse the framed response stream.
+        responses = []
+        i = 0
+        while i < len(out):
+            end = out.find(b"\r\n\r\n", i)
+            if end < 0:
+                break
+            header = out[i:end].decode("ascii")
+            length = 0
+            for h in header.split("\r\n"):
+                if h.lower().startswith("content-length"):
+                    length = int(h.split(":", 1)[1].strip())
+                    break
+            body = out[end + 4:end + 4 + length]
+            responses.append(json.loads(body))
+            i = end + 4 + length
+
+        self.assertEqual(len(responses), 3)
+        init = [r for r in responses if r.get("id") == 1][0]
+        self.assertEqual(init["result"]["serverInfo"]["name"], "copilot-omni")
+        tools = [r for r in responses if r.get("id") == 2][0]
+        self.assertGreaterEqual(len(tools["result"]["tools"]), 20)
+        health = [r for r in responses if r.get("id") == 3][0]
+        self.assertIn("content", health["result"])
+
     def test_wiki_roundtrip(self):
         responses, _ = roundtrip([
             {"jsonrpc": "2.0", "id": 1, "method": "initialize",
