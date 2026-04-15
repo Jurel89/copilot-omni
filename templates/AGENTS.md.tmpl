@@ -1,0 +1,16 @@
+# AGENTS.md
+
+This project is augmented by the [copilot-omni](https://github.com/Jurel89/copilot-omni) plugin. Agent routing, skills, and MCP tools are available in your Copilot CLI session.
+
+## Workflow
+
+Use `/omni-plan` to produce a plan without touching code, or `autopilot` to run the full discuss → plan → execute → verify lifecycle. Artifacts land in `.omni/runs/<run-id>/`.
+
+## Agents
+
+Invoke with `copilot -p "..." --agent <name>`:
+- `analyst`, `architect`, `planner`, `critic`, `executor`, `explore`, `debugger`, `tracer`, `verifier`, `qa-tester`, `test-engineer`, `code-reviewer`, `security-reviewer`, `code-simplifier`, `document-specialist`, `writer`, `git-master`, `designer`, `scientist`.
+
+## MCP tools
+
+The `copilot-omni` MCP server exposes tools prefixed with the server name (e.g. `memory_capture`, `wiki_write`, `run_status`). See the plugin `AGENTS.md` for the full list.

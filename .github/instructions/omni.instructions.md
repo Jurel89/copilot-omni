@@ -2,10 +2,10 @@
 ## Omni Workflow Instructions
 
 When working with Omni workflows:
-1. Always read existing artifacts before creating new ones
-2. Use the `omni_health` tool to verify sidecar connectivity
-3. Use `omni_config_resolve` to check project configuration
-4. Write artifacts to `.omni/runs/<run-id>/` using `omni_artifact_write`
-5. Read artifacts using `omni_artifact_read`
-6. Never skip the verification phase
+1. Read existing artifacts in `.omni/runs/<run-id>/` before creating new ones.
+2. Use the `health` MCP tool to verify the `copilot-omni` server is reachable.
+3. Use `config_resolve` to inspect project configuration.
+4. Write artifacts with `artifact_write` (kinds: `spec`, `plan`, `decision`, `summary`).
+5. Read artifacts with `artifact_read`.
+6. Never skip the verification phase. Use the `verify` skill or `verifier` agent.
 <!-- omni:managed:end -->

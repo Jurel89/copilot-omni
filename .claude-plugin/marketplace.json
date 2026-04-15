@@ -1,0 +1,25 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "copilot-omni",
+  "description": "Enterprise-safe multi-agent orchestration for GitHub Copilot CLI",
+  "owner": {
+    "name": "Copilot Omni Team"
+  },
+  "plugins": [
+    {
+      "name": "copilot-omni",
+      "description": "Pure Python + Markdown Copilot CLI plugin. No compiled binaries. 15+ agents, 30+ skills, artifact-driven workflow.",
+      "version": "1.0.0",
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/Jurel89/copilot-omni",
+      "tags": [
+        "multi-agent",
+        "orchestration",
+        "corporate-safe",
+        "artifact-driven"
+      ]
+    }
+  ],
+  "version": "1.0.0"
+}

@@ -1,18 +1,16 @@
-# Build artifacts
-sidecar/omni-sidecar
-wrapper/omni
-*.exe
-*.dll
-*.so
-*.dylib
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
 
 # Runtime state
 .omni/
+.omc/
 .sisyphus/
-wrapper/.omni/
-
-# Internal development docs
-docs/internal/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
 
 # IDE and OS
 .idea/
@@ -20,6 +18,22 @@ docs/internal/
 .DS_Store
 Thumbs.db
 
-# Benchmark results
-benchmark-results.txt
+# Virtual envs (should not be here, but just in case)
+.venv/
+venv/
+env/
+
+# Test artifacts
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Build artifacts (none should exist — we ship no binaries)
+*.exe
+*.dll
+*.so
+*.dylib
 dist/
+
+# Internal development docs
+docs/internal/
