@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# POSIX shim — forwards to python3. No compilation, no binaries.
+exec python3 "$(dirname "$0")/omni.py" "$@"

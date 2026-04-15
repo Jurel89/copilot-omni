@@ -1,62 +1,12 @@
 {
-  "name": "copilot-omni-permissive",
-  "version": "1",
   "profile": "permissive",
-  "description": "Permissive policy: minimal restrictions for trusted environments",
-  "rules": [
-    {
-      "id": "deny-destructive-commands",
-      "category": "commands",
-      "severity": "high",
-      "description": "Block only the most destructive commands",
-      "check_type": "deny_list",
-      "values": ["rm -rf /", "mkfs"],
-      "enabled": true
-    },
-    {
-      "id": "generous-autopilot",
-      "category": "tools",
-      "severity": "low",
-      "description": "Allow up to 30 autopilot turns",
-      "check_type": "max_value",
-      "values": ["30"],
-      "enabled": true
-    },
-    {
-      "id": "long-memory-retention",
-      "category": "memory",
-      "severity": "info",
-      "description": "365-day retention",
-      "check_type": "max_value",
-      "values": ["365"],
-      "enabled": true
-    },
-    {
-      "id": "allow-all-network",
-      "category": "network",
-      "severity": "info",
-      "description": "Allow unrestricted network access in trusted environments",
-      "check_type": "allow_list",
-      "values": ["*"],
-      "enabled": true
-    },
-    {
-      "id": "permissive-updates",
-      "category": "updates",
-      "severity": "info",
-      "description": "Allow auto-updates in permissive mode",
-      "check_type": "allow_list",
-      "values": ["auto_update", "check_update"],
-      "enabled": true
-    },
-    {
-      "id": "no-protected-paths",
-      "category": "paths",
-      "severity": "info",
-      "description": "No path restrictions in permissive mode",
-      "check_type": "allow_list",
-      "values": ["*"],
-      "enabled": true
-    }
+  "description": "Minimal restrictions — block only clearly destructive operations.",
+  "deny_commands": [
+    "rm -rf /",
+    ":(){ :|:& };:",
+    "mkfs"
+  ],
+  "protected_paths": [
+    ".claude-plugin/plugin.json"
   ]
 }

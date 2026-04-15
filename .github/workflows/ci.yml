@@ -2,191 +2,105 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "refactor/**"]
   pull_request:
     branches: [main]
 
 jobs:
-  build:
+  lint:
+    name: lint & validate manifests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-python@v5
         with:
-          go-version: '1.25.0'
-
-      - name: Build sidecar
+          python-version: "3.9"
+      - name: Compile all Python files
         run: |
-          cd sidecar
-          go build ./cmd/omni-sidecar/
-          go vet ./...
-
-      - name: Build wrapper
+          python - <<'PY'
+          import py_compile, pathlib, sys
+          fail = False
+          for p in pathlib.Path('.').rglob('*.py'):
+              if '.git' in p.parts:
+                  continue
+              try:
+                  py_compile.compile(str(p), doraise=True)
+              except py_compile.PyCompileError as e:
+                  print('FAIL', p, e); fail = True
+          sys.exit(1 if fail else 0)
+          PY
+      - name: Validate JSON manifests
         run: |
-          cd wrapper
-          go build ./cmd/omni/
-          go vet ./...
-
-      - name: Validate plugin manifest
+          python -c "import json; json.load(open('.claude-plugin/plugin.json'))"
+          python -c "import json; json.load(open('.claude-plugin/marketplace.json'))"
+          python -c "import json; json.load(open('.mcp.json'))"
+          python -c "import json; json.load(open('hooks/hooks.json'))"
+          python -c "import json; json.load(open('policies/standard.json'))"
+          python -c "import json; json.load(open('policies/strict.json'))"
+          python -c "import json; json.load(open('policies/permissive.json'))"
+      - name: No Go files left behind
         run: |
-          python3 -c "import json; json.load(open('plugin/plugin.json'))"
-          python3 -c "import json; json.load(open('plugin/hooks.json'))"
-          python3 -c "import json; json.load(open('plugin/.mcp.json'))"
+          LEFTOVERS=$(find . -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) ! -path './.git/*' | wc -l)
+          test "$LEFTOVERS" = "0" || { echo "Go leftovers:"; find . -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) ! -path './.git/*'; exit 1; }
+      - name: Validate plugin frontmatter
+        run: python scripts/validate_plugin.py
+      - name: Enforce stdlib-only imports
+        run: python scripts/check_stdlib_only.py
 
-      - name: Validate profile configs
-        run: |
-          for f in profiles/*/config.json; do
-            python3 -c "import json; json.load(open('$f'))"
-          done
+  unit-tests:
+    name: unit tests (${{ matrix.os }} / py ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.9", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run unittest suite
+        run: python -m unittest discover -s tests -v
 
-      - name: Sidecar MCP smoke test
-        run: |
-          cd sidecar
-          echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}
-          {"jsonrpc":"2.0","method":"notifications/initialized"}
-          {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
-          {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"omni_health","arguments":{}}}' | ./omni-sidecar serve 2>/dev/null | python3 -c "
-          import sys, json
-          lines = sys.stdin.read().strip().split('\n')
-          assert len(lines) == 3, f'Expected 3 responses, got {len(lines)}'
-          init = json.loads(lines[0])
-          assert init['result']['serverInfo']['name'] == 'copilot-omni-sidecar'
-          tools = json.loads(lines[1])
-          tool_names = [t['name'] for t in tools['result']['tools']]
-          assert 'omni_health' in tool_names
-          health = json.loads(lines[2])
-          health_text = json.loads(health['result']['content'][0]['text'])
-          assert health_text['status'] == 'ok'
-          print('All MCP smoke tests passed')
-          "
-
-      - name: Wrapper CLI test
-        run: |
-          cd wrapper
-          OUTPUT=$(./omni version)
-          [[ "$OUTPUT" == "omni v0.1.0" ]] || { echo "version mismatch: $OUTPUT"; exit 1; }
-          OUTPUT=$(./omni 2>&1 || true)
-          [[ "$OUTPUT" == *"Usage: omni"* ]] || { echo "usage missing: $OUTPUT"; exit 1; }
-          echo "Wrapper CLI tests passed"
-
-      - name: Integration test
-        run: bash test/integration-test.sh
-
-      - name: Phase 1 integration test
-        run: bash test/integration-phase1.sh
-
-      - name: Phase 2 integration test
-        run: bash test/integration-phase2.sh
-
-      - name: Go test sidecar
-        run: cd sidecar && go test ./...
-
-      - name: Go test wrapper
-        run: cd wrapper && go test ./...
-
-      - name: Bundle installer smoke test
-        run: |
-          cd wrapper
-          ./omni bundle install --bundle-dir ../sidecar/../.omni/does-not-exist --target /tmp/omni-install-test >/dev/null 2>&1 || true
-
-      - name: Benchmark tests with regression gate
-        run: |
-          cd sidecar
-          # Run benchmarks and capture results
-          go test -v ./internal/benchmark/... 2>&1 | tee benchmark-results.txt
-          
-          # Check if any benchmarks failed (status != "pass")
-          if grep -q "FAIL" benchmark-results.txt; then
-            echo "ERROR: Benchmark tests failed"
-            exit 1
-          fi
-          
-          echo "All benchmark tests passed"
-
-      - name: Phase 6 integration test
-        run: |
-          cd sidecar
-          # Test Phase 6 tools are registered
-          echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}
-          {"jsonrpc":"2.0","method":"notifications/initialized"}
-          {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | ./omni-sidecar serve 2>/dev/null | python3 -c "
-          import sys, json
-          lines = sys.stdin.read().strip().split('\n')
-          tools = json.loads(lines[1])
-          tool_names = [t['name'] for t in tools['result']['tools']]
-          assert 'omni_benchmark' in tool_names, 'omni_benchmark tool not found'
-          assert 'omni_migrate' in tool_names, 'omni_migrate tool not found'
-          assert 'omni_support_bundle' in tool_names, 'omni_support_bundle tool not found'
-          print('Phase 6 tools registered: omni_benchmark, omni_migrate, omni_support_bundle')
-          "
-          
-          echo "All Phase 6 integration tests passed"
-
-  cross-compile:
+  mcp-smoke:
+    name: MCP stdio smoke
     runs-on: ubuntu-latest
-    needs: build
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-python@v5
         with:
-          go-version: '1.25.0'
+          python-version: "3.9"
+      - name: JSON-RPC roundtrip
+        run: python scripts/mcp_smoke.py
 
-      - name: Build sidecar for multiple platforms
-        run: |
-          mkdir -p dist
-          cd sidecar
-          GOOS=linux GOARCH=amd64 go build -o ../dist/omni-sidecar-linux-amd64 ./cmd/omni-sidecar/
-          GOOS=linux GOARCH=arm64 go build -o ../dist/omni-sidecar-linux-arm64 ./cmd/omni-sidecar/
-          GOOS=darwin GOARCH=amd64 go build -o ../dist/omni-sidecar-darwin-amd64 ./cmd/omni-sidecar/
-          GOOS=darwin GOARCH=arm64 go build -o ../dist/omni-sidecar-darwin-arm64 ./cmd/omni-sidecar/
-          GOOS=windows GOARCH=amd64 go build -o ../dist/omni-sidecar-windows-amd64.exe ./cmd/omni-sidecar/
-
-      - name: Build wrapper for multiple platforms
-        run: |
-          cd wrapper
-          GOOS=linux GOARCH=amd64 go build -o ../dist/omni-linux-amd64 ./cmd/omni/
-          GOOS=linux GOARCH=arm64 go build -o ../dist/omni-linux-arm64 ./cmd/omni/
-          GOOS=darwin GOARCH=amd64 go build -o ../dist/omni-darwin-amd64 ./cmd/omni/
-          GOOS=darwin GOARCH=arm64 go build -o ../dist/omni-darwin-arm64 ./cmd/omni/
-          GOOS=windows GOARCH=amd64 go build -o ../dist/omni-windows-amd64.exe ./cmd/omni/
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: binaries
-          path: dist/
-
-  windows-runtime:
-    runs-on: windows-latest
-    needs: build
+  discovery-smoke:
+    name: Plugin discovery smoke
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-python@v5
         with:
-          go-version: '1.25.0'
+          python-version: "3.9"
+      - name: Discovery layout
+        run: python scripts/discovery_smoke.py
 
-      - name: Build sidecar
-        shell: pwsh
+  copilot-smoke:
+    name: Copilot CLI plugin install (best-effort)
+    runs-on: ubuntu-latest
+    needs: [lint, mcp-smoke, discovery-smoke]
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Attempt Copilot CLI install
         run: |
-          Set-Location sidecar
-          go build -o omni-sidecar.exe ./cmd/omni-sidecar
-          go test ./...
-
-      - name: Build wrapper
-        shell: pwsh
-        run: |
-          Set-Location wrapper
-          go build -o omni.exe ./cmd/omni
-          go test ./...
-
-      - name: Windows source-mode smoke
-        shell: pwsh
-        run: ./test/windows-smoke.ps1
-
-      - name: Windows installed-mode smoke
-        shell: pwsh
-        run: ./test/windows-installed-smoke.ps1
+          npm install -g @github/copilot || echo "Copilot CLI install skipped (beta npm package)"
+          which copilot || echo "copilot CLI not on PATH — smoke test will skip"
+      - name: Offline plugin discovery assertion
+        run: python scripts/discovery_smoke.py

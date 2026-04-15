@@ -1,238 +1,80 @@
-<p align="center">
-  <img src="docs/assets/logo.svg" alt="Copilot Omni Logo" width="640"/>
-</p>
+# Copilot Omni
 
-<p align="center">
-  <strong>Enterprise-safe, artifact-driven development workflows for GitHub Copilot CLI</strong>
-</p>
+**Enterprise-safe multi-agent orchestration for GitHub Copilot CLI.**
+Pure Python stdlib + Markdown. Zero compiled binaries. Zero pip dependencies. Installs on locked-down corporate machines (CrowdStrike, SentinelOne, no admin, no npm).
 
-<p align="center">
-  <a href="https://github.com/Jurel89/copilot-omni/actions/workflows/ci.yml">
-    <img src="https://github.com/Jurel89/copilot-omni/actions/workflows/ci.yml/badge.svg" alt="CI"/>
-  </a>
-  <img src="https://img.shields.io/badge/version-0.1.0-blue.svg" alt="Version"/>
-  <img src="https://img.shields.io/badge/go-1.25%2B-00ADD8.svg" alt="Go Version"/>
-  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"/>
-  <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey.svg" alt="Platform"/>
-  <img src="https://img.shields.io/badge/tools-31_MCP-8b5cf6.svg" alt="MCP Tools"/>
-</p>
+[![CI](https://github.com/Jurel89/copilot-omni/actions/workflows/ci.yml/badge.svg)](https://github.com/Jurel89/copilot-omni/actions/workflows/ci.yml)
+![version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![python](https://img.shields.io/badge/python-%3E%3D3.9-3776AB.svg)
+![platform](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey.svg)
+![license](https://img.shields.io/badge/license-MIT-green.svg)
 
----
+## What it ships
 
-## What is Copilot Omni?
+- **37 skills** — autopilot, ralph, ultrawork, team, plan, deep-interview, debug, trace, verify, ultraqa, wiki, remember, external-context, ask, ccg, ai-slop-cleaner, sciomc, self-improve, skill, skillify, learner, setup, omc-doctor, release, cancel, … (`omni list skills` for the full list).
+- **19 agents** — analyst, architect, planner, critic, executor, explore, debugger, tracer, verifier, qa-tester, test-engineer, code-reviewer, security-reviewer, code-simplifier, document-specialist, writer, git-master, designer, scientist.
+- **8 slash commands** — `/omni-init`, `/omni-doctor`, `/omni-status`, `/omni-list`, `/omni-plan`, `/omni-ship`, `/omni-verify`, `/omni-memory`.
+- **30 MCP tools** via one stdio Python server (memory, wiki, notepad, state, artifacts, runs, policy, trace, …).
+- **4 lifecycle hooks** (sessionStart, preToolUse, postToolUse, userPromptSubmit) enforcing policy and auditing.
 
-Copilot Omni transforms GitHub Copilot CLI from an ad-hoc coding assistant into a **structured, auditable, and resumable workflow system**. It enforces enterprise-grade safety policies while providing a phased development lifecycle that produces durable artifacts at every step.
+## Install (corporate-friendly)
 
-### The Workflow
+```bash
+# Method 1: Copilot CLI marketplace
+copilot plugin install Jurel89/copilot-omni
 
+# Method 2: clone and install locally
+git clone https://github.com/Jurel89/copilot-omni.git
+copilot plugin install ./copilot-omni
+
+# Method 3: trial via --plugin-dir, no install
+copilot --plugin-dir ./copilot-omni -p "list all skills" --allow-all
 ```
-discuss → spec → plan → review → execute → verify
+
+No `go build`, no `npm install`, no `pip install`. You need only Python ≥3.9 and the `copilot` CLI on PATH.
+
+## Quick start
+
+```bash
+python3 scripts/omni.py doctor            # Verify environment
+python3 scripts/omni.py init               # Scaffold .omni/ in your project
+copilot -p "autopilot build a habit tracker CLI with streaks" --allow-all
 ```
 
-Each phase produces a versioned artifact (spec, plan, decisions, transcripts) stored in `.omni/runs/`, enabling full audit trails and workflow resumption.
+## Why this exists
+
+GitHub Copilot CLI is powerful but unopinionated. Teams that want spec-driven, auditable, resumable workflows need orchestration around it. The excellent [`oh-my-claudecode`](https://github.com/Yeachan-Heo/oh-my-claudecode) does that for Claude Code — but relies on a 900 KB bundled Node runtime. Corporate environments often block unsigned Node binaries and arbitrary npm installs.
+
+**Copilot Omni is that orchestration layer, rebuilt for Copilot CLI, with a runtime footprint corporate EDRs cannot flag:**
+
+- All runtime code is Python 3.9 stdlib. No third-party imports (enforced by CI).
+- The MCP server is one Python file, stdio JSON-RPC 2.0.
+- Hooks are tiny Python scripts.
+- Everything else is Markdown.
+
+`file mcp/server.py` → `ASCII text`. No ELF, no PE, no signatures for EDR to match.
 
 ## Architecture
 
-<p align="center">
-  <img src="docs/assets/architecture.svg" alt="Architecture Diagram" width="800"/>
-</p>
-
-| Component | Description |
-|-----------|-------------|
-| **`omni` CLI** | User-facing wrapper that orchestrates workflows and manages the sidecar process |
-| **`omni-sidecar`** | MCP protocol server exposing 31 tools via stdio JSON-RPC |
-| **Plugin** | Agent definitions, skills, hooks, and MCP config for Copilot integration |
-| **Memory Store** | SQLite-backed persistent memory with search, ingestion, and retention |
-| **Policy Engine** | Runtime enforcement of command blocking, path protection, and scope guards |
-| **Artifact Store** | Structured storage for specs, plans, decisions, and run transcripts |
-
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| **Spec-Driven Development** | Formal specification artifacts before any code changes |
-| **Guarded Execution** | File-scope enforcement against approved plan targets |
-| **Policy Engine** | Three security profiles (strict, standard, permissive) with 6 rule categories |
-| **Local Memory** | SQLite-backed persistent memory with full-text search and auto-ingestion |
-| **Research Subagents** | Structured multi-source research with provenance tracking |
-| **Workflow Resumption** | Resume interrupted workflows from any phase |
-| **Audit Trail** | Complete run tracking with export and redaction |
-| **Offline Distribution** | Air-gapped installation with signed release bundles and SBOM |
-| **Performance Benchmarking** | Budget-based performance gates with regression detection |
-| **Schema Migration** | Versioned schema upgrades with rollback safety checks |
-| **Support Bundles** | Automated diagnostic collection with secret redaction |
-| **Cross-Platform** | Linux, macOS, and Windows; AMD64 and ARM64 |
-
-## Quick Start
-
-### Prerequisites
-
-- [Go 1.25+](https://go.dev/dl/)
-- [GitHub Copilot CLI](https://docs.github.com/en/copilot/managing-copilot/using-github-copilot-in-the-command-line)
-
-### Build from Source
-
-```bash
-# Clone the repository
-git clone https://github.com/Jurel89/copilot-omni.git
-cd copilot-omni
-
-# Build both binaries
-cd sidecar && go build -o omni-sidecar ./cmd/omni-sidecar/ && cd ..
-cd wrapper && go build -o omni ./cmd/omni/ && cd ..
-
-# Check system health
-./wrapper/omni doctor
-
-# Initialize a project
-./wrapper/omni init
-
-# Install the Copilot plugin using a generated MCP config
-./wrapper/omni plugin install
+```
+Copilot CLI
+ ├─ reads .claude-plugin/plugin.json
+ ├─ discovers skills/ (37), agents/ (19), commands/ (8)
+ ├─ wires hooks/hooks.json  -> python3 hooks/*.py
+ └─ wires .mcp.json         -> python3 mcp/server.py
+                                 └─ SQLite store at $OMNI_HOME/omni.db
 ```
 
-Windows PowerShell:
-
-```powershell
-git clone https://github.com/Jurel89/copilot-omni.git
-Set-Location copilot-omni
-
-Set-Location sidecar
-go build -o omni-sidecar.exe ./cmd/omni-sidecar
-Set-Location ..
-
-Set-Location wrapper
-go build -o omni.exe ./cmd/omni
-Set-Location ..
-
-.\wrapper\omni.exe doctor
-.\wrapper\omni.exe init
-.\wrapper\omni.exe plugin install
-```
-
-### Install via Offline Bundle
-
-```bash
-# Create a release bundle
-./wrapper/omni bundle create ./dist
-
-# Install on any machine (no internet required)
-./wrapper/omni bundle install --bundle-dir ./dist --target /usr/local
-```
-
-Windows PowerShell:
-
-```powershell
-.\wrapper\omni.exe bundle create .\dist
-.\wrapper\omni.exe bundle install --bundle-dir .\dist --target "$env:LOCALAPPDATA\copilot-omni"
-```
-
-> **Note for Windows users:** The default install path uses your user-local app data directory so no Administrator rights are required. After installing, add the bin directory to your user PATH so `omni` is available from any terminal:
-> ```powershell
-> [Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:LOCALAPPDATA\copilot-omni\bin", "User")
-> ```
-
-### Use with GitHub Copilot CLI
-
-Copilot Omni integrates as a Copilot CLI plugin through the wrapper-managed install flow. After building or installing:
-
-1. Run `omni doctor` to confirm the sidecar and trusted asset paths are valid
-2. Run `omni init` to generate `.omni/`, `.github/copilot-instructions.md`, and `AGENTS.md`
-3. Run `omni plugin install` to stage a plugin with a deterministic sidecar command path
-4. Start a workflow with `omni run "Build a new feature"`
-
-## Project Structure
-
-```
-copilot-omni/
-├── plugin/                 # Copilot CLI plugin manifest
-│   ├── agents/             # 5 orchestrating agents
-│   ├── skills/             # 8 workflow skills
-│   ├── hooks.json          # Security policy hooks
-│   └── plugin.json         # Plugin metadata
-├── sidecar/                # MCP sidecar server (Go)
-│   ├── cmd/omni-sidecar/   # Entry point
-│   └── internal/           # Core packages (artifact, memory, policy, etc.)
-├── wrapper/                # User-facing CLI (Go)
-│   ├── cmd/omni/           # Entry point
-│   └── internal/           # Workflow engine, Copilot invocation
-├── profiles/               # Security profile configs
-│   ├── strict/             # Maximum safety
-│   ├── standard/           # Balanced (default)
-│   └── permissive/         # Minimal restrictions
-├── policies/               # Policy pack definitions
-├── templates/              # Initialization templates
-├── scripts/                # Offline installation
-├── docs/                   # Documentation
-│   └── operator/           # Operator guide & GA checklist
-└── test/                   # Integration test suite
-```
-
-## MCP Tools (31)
-
-The sidecar exposes 31 MCP tools via JSON-RPC:
-
-| Category | Tools |
-|----------|-------|
-| **Core** | `omni_health`, `omni_config_resolve`, `omni_doctor` |
-| **Artifacts** | `omni_artifact_read`, `omni_artifact_write` |
-| **Run Management** | `omni_run_status`, `omni_resume_context` |
-| **Policy** | `omni_policy_check`, `omni_policy_pack_validate` |
-| **Execution** | `omni_guarded_patch`, `omni_verification_run`, `omni_repo_map` |
-| **Memory** | `omni_memory_capture`, `omni_memory_search`, `omni_memory_ingest`, `omni_memory_export`, `omni_memory_prune`, `omni_memory_wipe` |
-| **Research** | `omni_research`, `omni_intent_route` |
-| **Subtasks** | `omni_subtask_create`, `omni_subtask_status` |
-| **Workspace** | `omni_workspace_create`, `omni_workspace_remove`, `omni_merge` |
-| **Enterprise** | `omni_audit_export`, `omni_release_bundle`, `omni_enterprise_diagnose` |
-| **GA** | `omni_benchmark`, `omni_migrate`, `omni_support_bundle` |
-
-## Security Profiles
-
-| Feature | Strict | Standard | Permissive |
-|---------|--------|----------|------------|
-| Protected paths | Yes | Yes | No |
-| Command deny-list | Extended | Standard | Minimal |
-| Scope enforcement | Required | Required | Optional |
-| Prompt injection detection | Block all | Block critical | Log only |
-| Memory retention | 30 days | 90 days | 365 days |
-| Parallel writes | Disabled | Disabled | Enabled |
-| Max subtasks | 2 | 4 | 8 |
-| Code signing | Required | Optional | Optional |
-
-## Testing
-
-```bash
-# Run all integration tests
-bash test/integration-test.sh
-
-# Run phase-specific tests
-bash test/integration-phase1.sh  # Run state & artifacts
-bash test/integration-phase2.sh  # Policy & guarded execution
-bash test/integration-phase3.sh  # Memory system
-bash test/integration-phase4.sh  # Research & subtasks
-bash test/integration-phase5.sh  # Enterprise & offline
-bash test/integration-phase6.sh  # GA hardening
-
-# Run Go unit tests
-cd sidecar && go test ./...
-cd wrapper && go test ./...
-```
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for internals.
 
 ## Documentation
 
-- [Operator Guide](docs/operator/operator-guide.md) — Installation, configuration, and operations
-- [GA Release Checklist](docs/operator/ga-release-checklist.md) — Production readiness checklist
-
-## Contributing
-
-Contributions are welcome! Please ensure all tests pass before submitting:
-
-```bash
-bash test/integration-test.sh
-cd sidecar && go test ./...
-cd wrapper && go test ./...
-```
+- [docs/INSTALL.md](docs/INSTALL.md) — corporate install paths (RHEL, macOS, Windows, air-gapped)
+- [docs/MIGRATION.md](docs/MIGRATION.md) — upgrading from v0.1.0 Go runtime
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — plugin internals
+- [docs/SKILLS.md](docs/SKILLS.md) — full skill index
+- [AGENTS.md](AGENTS.md) — agent contract
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+MIT. See [LICENSE](LICENSE).

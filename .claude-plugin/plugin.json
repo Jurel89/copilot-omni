@@ -1,0 +1,34 @@
+{
+  "name": "copilot-omni",
+  "description": "Enterprise-safe multi-agent orchestration for GitHub Copilot CLI. Pure Python + Markdown, zero compiled binaries. Install with copilot plugin install.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Copilot Omni Team",
+    "url": "https://github.com/Jurel89/copilot-omni"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Jurel89/copilot-omni",
+  "repository": "https://github.com/Jurel89/copilot-omni",
+  "keywords": [
+    "copilot",
+    "multi-agent",
+    "orchestration",
+    "enterprise",
+    "corporate",
+    "spec-driven",
+    "no-binary",
+    "python-stdlib"
+  ],
+  "category": "productivity",
+  "tags": [
+    "multi-agent",
+    "orchestration",
+    "spec-driven",
+    "artifact-driven",
+    "corporate-safe"
+  ],
+  "agents": "agents/",
+  "commands": "commands/",
+  "hooks": "hooks/hooks.json",
+  "mcpServers": ".mcp.json"
+}
