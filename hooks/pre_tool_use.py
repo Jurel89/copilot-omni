@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 
 def _load_policy() -> Dict[str, Any]:
@@ -74,19 +75,48 @@ def main() -> int:
     tool_args = event.get("tool_args") or event.get("toolArgs") or {}
 
     if tool_name in ("shell", "bash"):
-        cmd = str(tool_args.get("command", "")).lower()
+        cmd = str(tool_args.get("command", ""))
+        try:
+            tokens: List[str] = shlex.split(cmd, posix=True)
+        except ValueError:
+            tokens = cmd.split()
+        lower_cmd = cmd.lower()
+        token_set = {t.lower() for t in tokens}
+        token_basenames = {os.path.basename(t).lower() for t in tokens}
         for pattern in policy.get("deny_commands", []):
-            if pattern.lower() in cmd:
-                sys.stdout.write(json.dumps(_decision(
-                    "deny",
-                    f"copilot-omni policy: blocked dangerous pattern '{pattern}'",
-                )))
-                return 0
+            plower = pattern.lower().strip()
+            if not plower:
+                continue
+            if " " in plower:
+                # Multi-token pattern: substring match against joined lowercase cmd
+                if plower in lower_cmd:
+                    sys.stdout.write(json.dumps(_decision(
+                        "deny",
+                        f"copilot-omni policy: blocked dangerous pattern '{pattern}'",
+                    )))
+                    return 0
+            else:
+                # Single-token pattern: match against basename or whole token
+                if plower in token_set or plower in token_basenames:
+                    sys.stdout.write(json.dumps(_decision(
+                        "deny",
+                        f"copilot-omni policy: blocked command '{pattern}'",
+                    )))
+                    return 0
 
     if tool_name in ("edit", "write", "edit_file"):
-        path = str(tool_args.get("file_path") or tool_args.get("path") or "")
+        path_raw = str(tool_args.get("file_path") or tool_args.get("path") or "")
+        # Normalize path separators and resolve `..` where possible
+        try:
+            norm = os.path.normpath(path_raw).replace("\\", "/")
+        except Exception:
+            norm = path_raw.replace("\\", "/")
+        lower_norm = norm.lower()
         for protected in policy.get("protected_paths", []):
-            if protected and protected in path:
+            if not protected:
+                continue
+            prot_norm = protected.replace("\\", "/").lower()
+            if prot_norm in lower_norm:
                 sys.stdout.write(json.dumps(_decision(
                     "deny",
                     f"copilot-omni policy: protected path '{protected}' — edit via `omni init` instead",

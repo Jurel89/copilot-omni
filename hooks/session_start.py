@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Session start hook — prints a banner and exits."""
 import json
-import os
 import sys
 
 

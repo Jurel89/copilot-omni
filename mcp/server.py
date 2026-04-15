@@ -25,12 +25,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shlex
 import sqlite3
 import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 SERVER_NAME = "copilot-omni"
 SERVER_VERSION = "1.0.0"
@@ -53,13 +55,57 @@ def omni_home() -> Path:
 
 def _connect() -> sqlite3.Connection:
     db_path = omni_home() / "omni.db"
-    conn = sqlite3.connect(str(db_path), isolation_level=None, timeout=10.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    _migrate(conn)
-    return conn
+    last_err: Optional[Exception] = None
+    for attempt in range(3):
+        try:
+            conn = sqlite3.connect(str(db_path), isolation_level=None, timeout=10.0)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            _migrate(conn)
+            return conn
+        except sqlite3.OperationalError as exc:
+            last_err = exc
+            time.sleep(0.1 * (2 ** attempt))
+    assert last_err is not None
+    raise last_err
+
+
+class _Conn:
+    """Context manager that guarantees connection close on all exit paths."""
+
+    def __enter__(self) -> sqlite3.Connection:
+        self._conn = _connect()
+        return self._conn
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _safe_identifier(name: str, label: str) -> str:
+    """Validate a user-provided path segment for filesystem safety."""
+    if not name or not _SAFE_ID_RE.fullmatch(name):
+        raise ValueError(f"invalid {label}: must match {_SAFE_ID_RE.pattern!r}")
+    return name
+
+
+def _safe_child_path(root: Path, relative: str) -> Path:
+    """Resolve `relative` against `root` and refuse to escape."""
+    root_resolved = root.resolve()
+    # Forbid absolute paths and leading drive letters; normalize separators.
+    if os.path.isabs(relative) or (len(relative) > 1 and relative[1] == ":"):
+        raise ValueError("absolute paths are not allowed")
+    target = (root_resolved / relative).resolve()
+    if root_resolved != target and root_resolved not in target.parents:
+        raise ValueError("path escapes artifact root")
+    return target
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -267,58 +313,72 @@ def _tool_memory_export(args: Dict[str, Any]) -> Dict[str, Any]:
 def _tool_memory_prune(args: Dict[str, Any]) -> Dict[str, Any]:
     scope = args.get("scope")
     older_than = args.get("older_than")
-    conn = _connect()
-    if scope and older_than:
-        cur = conn.execute(
-            "DELETE FROM memory WHERE scope=? AND updated_at < ?",
-            (scope, float(older_than)),
-        )
-    elif scope:
-        cur = conn.execute("DELETE FROM memory WHERE scope=?", (scope,))
-    elif args.get("all"):
-        cur = conn.execute("DELETE FROM memory")
-    else:
-        raise ValueError("provide scope, older_than, or all=true")
-    conn.close()
-    return _json_result({"deleted": cur.rowcount})
+    with _Conn() as conn:
+        if scope and older_than:
+            cur = conn.execute(
+                "DELETE FROM memory WHERE scope=? AND updated_at < ?",
+                (scope, float(older_than)),
+            )
+        elif scope:
+            cur = conn.execute("DELETE FROM memory WHERE scope=?", (scope,))
+        elif older_than:
+            cur = conn.execute(
+                "DELETE FROM memory WHERE updated_at < ?",
+                (float(older_than),),
+            )
+        elif args.get("all"):
+            cur = conn.execute("DELETE FROM memory")
+        else:
+            raise ValueError("provide scope, older_than, or all=true")
+        deleted = cur.rowcount
+    return _json_result({"deleted": deleted})
 
 
 def _tool_artifact_write(args: Dict[str, Any]) -> Dict[str, Any]:
     kind = args["kind"]
     body = args["body"]
-    run_id = args.get("run_id")
-    path = args.get("path", f"{kind}.md")
+    raw_run_id = args.get("run_id") or "adhoc"
+    raw_path = args.get("path", f"{kind}.md")
+    run_id = _safe_identifier(raw_run_id, "run_id")
     art_id = _new_id()
-    conn = _connect()
-    conn.execute(
-        "INSERT INTO artifacts(id, run_id, kind, path, body, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (art_id, run_id, kind, path, body, _now()),
-    )
-    conn.close()
-    # Also mirror to .omni/runs/<run_id>/ when cwd is a project
+    with _Conn() as conn:
+        conn.execute(
+            "INSERT INTO artifacts(id, run_id, kind, path, body, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (art_id, run_id, kind, raw_path, body, _now()),
+        )
+    # Mirror to .omni/runs/<run_id>/ under the current project, with traversal guard.
+    mirror_path: Optional[str] = None
+    mirror_error: Optional[str] = None
     try:
         cwd = Path(os.getcwd())
-        base = cwd / ".omni" / "runs" / (run_id or "adhoc")
+        base = cwd / ".omni" / "runs" / run_id
         base.mkdir(parents=True, exist_ok=True)
-        (base / path).write_text(body, encoding="utf-8")
-    except Exception:
-        pass
-    return _json_result({"id": art_id, "kind": kind, "path": path})
+        target = _safe_child_path(base, raw_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+        mirror_path = str(target)
+    except Exception as exc:  # surface — never silent
+        mirror_error = str(exc)
+    result: Dict[str, Any] = {"id": art_id, "kind": kind, "path": raw_path}
+    if mirror_path:
+        result["mirror_path"] = mirror_path
+    if mirror_error:
+        result["mirror_error"] = mirror_error
+    return _json_result(result)
 
 
 def _tool_artifact_read(args: Dict[str, Any]) -> Dict[str, Any]:
     art_id = args.get("id")
     run_id = args.get("run_id")
-    conn = _connect()
-    if art_id:
-        row = conn.execute("SELECT * FROM artifacts WHERE id=?", (art_id,)).fetchone()
-        conn.close()
-        return _json_result(dict(row) if row else {"error": "not found"})
-    if run_id:
-        rows = conn.execute("SELECT * FROM artifacts WHERE run_id=?", (run_id,)).fetchall()
-        conn.close()
-        return _json_result({"artifacts": [dict(r) for r in rows]})
-    conn.close()
+    with _Conn() as conn:
+        if art_id:
+            row = conn.execute("SELECT * FROM artifacts WHERE id=?", (art_id,)).fetchone()
+            return _json_result(dict(row) if row else {"error": "not found"})
+        if run_id:
+            rows = conn.execute(
+                "SELECT * FROM artifacts WHERE run_id=?", (run_id,)
+            ).fetchall()
+            return _json_result({"artifacts": [dict(r) for r in rows]})
     raise ValueError("id or run_id required")
 
 
@@ -356,9 +416,10 @@ def _tool_policy_check(args: Dict[str, Any]) -> Dict[str, Any]:
 
     policy_file = cwd / ".omni" / f"policy-{profile}.json"
     default = {
-        "deny_commands": ["sudo", "rm -rf /", "mkfs", "dd if=/dev/zero"],
+        "deny_commands": ["sudo", "rm -rf /", "mkfs", "dd if=/dev/zero",
+                          ":(){ :|:& };:"],
         "protected_paths": [".omni/config.json", ".github/copilot-instructions.md",
-                            ".claude-plugin/plugin.json"],
+                            ".claude-plugin/plugin.json", "AGENTS.md"],
     }
     policy = default
     if policy_file.exists():
@@ -367,18 +428,38 @@ def _tool_policy_check(args: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             pass
 
-    if tool == "shell":
-        cmd = str(tool_args.get("command", "")).lower()
+    if tool in ("shell", "bash"):
+        raw = str(tool_args.get("command", ""))
+        try:
+            tokens = shlex.split(raw, posix=True)
+        except ValueError:
+            tokens = raw.split()
+        lower_cmd = raw.lower()
+        token_set = {t.lower() for t in tokens}
+        basenames = {os.path.basename(t).lower() for t in tokens}
         for deny in policy.get("deny_commands", []):
-            if deny.lower() in cmd:
+            dlow = deny.lower().strip()
+            if not dlow:
+                continue
+            if " " in dlow:
+                if dlow in lower_cmd:
+                    return _json_result({
+                        "decision": "deny",
+                        "reason": f"policy({profile}): blocked pattern '{deny}'",
+                    })
+            elif dlow in token_set or dlow in basenames:
                 return _json_result({
                     "decision": "deny",
-                    "reason": f"policy({profile}): blocked pattern '{deny}'",
+                    "reason": f"policy({profile}): blocked command '{deny}'",
                 })
-    if tool in ("write", "edit"):
-        path = str(tool_args.get("file_path", ""))
+    if tool in ("write", "edit", "edit_file", "multi_edit",
+                "multiedit", "patch", "apply_patch", "str_replace_editor"):
+        raw_path = str(tool_args.get("file_path") or tool_args.get("path", ""))
+        norm = os.path.normpath(raw_path).replace("\\", "/").lower()
         for prot in policy.get("protected_paths", []):
-            if prot in path:
+            if not prot:
+                continue
+            if prot.replace("\\", "/").lower() in norm:
                 return _json_result({
                     "decision": "deny",
                     "reason": f"policy({profile}): protected path '{prot}'",
@@ -416,15 +497,15 @@ def _tool_state_read(args: Dict[str, Any]) -> Dict[str, Any]:
 
 def _tool_state_clear(args: Dict[str, Any]) -> Dict[str, Any]:
     mode = args.get("mode")
-    conn = _connect()
-    if mode:
-        cur = conn.execute("DELETE FROM state WHERE mode=?", (mode,))
-    elif args.get("all"):
-        cur = conn.execute("DELETE FROM state")
-    else:
-        raise ValueError("mode or all=true required")
-    conn.close()
-    return _json_result({"deleted": cur.rowcount})
+    with _Conn() as conn:
+        if mode:
+            cur = conn.execute("DELETE FROM state WHERE mode=?", (mode,))
+        elif args.get("all"):
+            cur = conn.execute("DELETE FROM state")
+        else:
+            raise ValueError("mode or all=true required")
+        deleted = cur.rowcount
+    return _json_result({"deleted": deleted})
 
 
 def _tool_wiki_write(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -502,15 +583,15 @@ def _tool_notepad_read(args: Dict[str, Any]) -> Dict[str, Any]:
 
 def _tool_notepad_prune(args: Dict[str, Any]) -> Dict[str, Any]:
     kind = args.get("kind")
-    conn = _connect()
-    if kind:
-        cur = conn.execute("DELETE FROM notepad WHERE kind=?", (kind,))
-    elif args.get("all"):
-        cur = conn.execute("DELETE FROM notepad")
-    else:
-        raise ValueError("kind or all=true required")
-    conn.close()
-    return _json_result({"deleted": cur.rowcount})
+    with _Conn() as conn:
+        if kind:
+            cur = conn.execute("DELETE FROM notepad WHERE kind=?", (kind,))
+        elif args.get("all"):
+            cur = conn.execute("DELETE FROM notepad")
+        else:
+            raise ValueError("kind or all=true required")
+        deleted = cur.rowcount
+    return _json_result({"deleted": deleted})
 
 
 def _tool_shared_memory_write(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -599,16 +680,18 @@ def _tool_subtask(args: Dict[str, Any]) -> Dict[str, Any]:
 def _tool_workspace(args: Dict[str, Any]) -> Dict[str, Any]:
     action = args.get("action", "list")
     cwd = Path(args.get("cwd") or os.getcwd())
-    workspaces_root = cwd / ".omni" / "workspaces"
+    workspaces_root = (cwd / ".omni" / "workspaces").resolve()
     workspaces_root.mkdir(parents=True, exist_ok=True)
     if action == "create":
-        name = args["name"]
+        name = _safe_identifier(args["name"], "workspace name")
         ws = workspaces_root / name
         ws.mkdir(parents=True, exist_ok=True)
         return _json_result({"name": name, "path": str(ws)})
     if action == "remove":
-        name = args["name"]
-        ws = workspaces_root / name
+        name = _safe_identifier(args["name"], "workspace name")
+        ws = (workspaces_root / name).resolve()
+        if workspaces_root != ws and workspaces_root not in ws.parents:
+            raise ValueError("workspace path escapes root")
         if ws.exists():
             import shutil
             shutil.rmtree(ws)
@@ -923,7 +1006,7 @@ TOOLS: Dict[str, Dict[str, Any]] = {
         "handler": _tool_workspace,
     },
     "support_bundle": {
-        "description": "Produce a redacted diagnostic support bundle.",
+        "description": "Produce a diagnostic support bundle with metadata and row counts. Does NOT automatically redact secrets — callers must redact before sharing externally.",
         "inputSchema": {
             "type": "object",
             "properties": {"cwd": {"type": "string"}},
