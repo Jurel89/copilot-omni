@@ -9,15 +9,72 @@ Policy file lookup order:
   1. $OMNI_POLICY_FILE
   2. <cwd>/.omni/policy-<profile>.json
   3. <plugin_root>/policies/<profile>.json (default: standard)
+
+Kill switches (checked first, before any imports):
+  OMNI_SKIP_HOOKS=1         — disable all hooks (canonical)
+  DISABLE_OMNI=1            — disable all hooks (canonical alternate)
+  OMC_SKIP_HOOKS=1          — legacy alias, deprecated, removed in v3.0.0
+  DISABLE_OMC=1             — legacy alias, deprecated, removed in v3.0.0
+  OMNI_SKIP_PRE_TOOL_USE=1  — disable only this hook
+
+shlex tokenisation note:
+  The hook always uses shlex.split(raw, posix=True).  On ValueError (e.g.
+  unclosed quotes), the raw input is treated as a single opaque token rather
+  than falling back to str.split().  This prevents quote-injection bypasses
+  where a malicious command like "rm'-rf /" would not match the "rm" deny
+  pattern under naive split().
 """
 from __future__ import annotations
+
+import sys
+import os as _os
+
+# ---------------------------------------------------------------------------
+# Kill-switch: evaluated before any expensive imports.
+# _hook_lib is imported inline so the fast path (kill-switch active) incurs
+# minimal overhead.
+# ---------------------------------------------------------------------------
+_HOOK_NAME = "pre_tool_use"
+
+# Fast path using raw env lookup (avoids importing _hook_lib on the hot path)
+def _quick_disabled() -> bool:
+    env = _os.environ
+    if env.get("DISABLE_OMNI") or env.get("OMNI_SKIP_HOOKS"):
+        return True
+    if env.get("DISABLE_OMC") or env.get("OMC_SKIP_HOOKS"):
+        # Lazy import to emit deprecation warning
+        import importlib.util as _iu
+        _lib_path = _os.path.join(_os.path.dirname(__file__), "_hook_lib.py")
+        _spec = _iu.spec_from_file_location("_hook_lib", _lib_path)
+        if _spec and _spec.loader:
+            _mod = _iu.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+            _mod._deprecation_warn()
+        return True
+    if env.get("OMNI_SKIP_PRE_TOOL_USE"):
+        return True
+    return False
+
+if _quick_disabled():
+    sys.stdout.write("{}")
+    sys.stdout.flush()
+    sys.exit(0)
 
 import json
 import os
 import shlex
-import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List
+
+# Import shared hook library
+import importlib.util as _iu
+_lib_path = os.path.join(os.path.dirname(__file__), "_hook_lib.py")
+_spec = _iu.spec_from_file_location("_hook_lib", _lib_path)
+_mod = _iu.module_from_spec(_spec)  # type: ignore[arg-type]
+_spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+_append_audit = _mod._append_audit
+_write_metric = _mod._write_metric
 
 
 def _load_policy() -> Dict[str, Any]:
@@ -43,7 +100,8 @@ def _load_policy() -> Dict[str, Any]:
     profile = os.environ.get("OMNI_POLICY_PROFILE", "standard")
     cwd = Path(os.getcwd())
     candidates.append(cwd / ".omni" / f"policy-{profile}.json")
-    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    # OMNI_PLUGIN_ROOT (primary) > CLAUDE_PLUGIN_ROOT (legacy fallback)
+    plugin_root = os.environ.get("OMNI_PLUGIN_ROOT") or os.environ.get("CLAUDE_PLUGIN_ROOT")
     if plugin_root:
         candidates.append(Path(plugin_root) / "policies" / f"{profile}.json")
     for p in candidates:
@@ -63,6 +121,7 @@ def _decision(decision: str, reason: str = "") -> Dict[str, Any]:
 
 
 def main() -> int:
+    t_start = time.monotonic()
     try:
         raw = sys.stdin.read()
         event = json.loads(raw) if raw.strip() else {}
@@ -74,12 +133,37 @@ def main() -> int:
                  or os.environ.get("COPILOT_TOOL_NAME") or "").lower()
     tool_args = event.get("tool_args") or event.get("toolArgs") or {}
 
+    action = "allow"
+    reason = ""
+
     if tool_name in ("shell", "bash"):
         cmd = str(tool_args.get("command", ""))
+        # Always use shlex.split with posix=True.
+        # On ValueError (e.g. unclosed quote), treat entire input as a single
+        # opaque token — this is the safe default that prevents quote-injection
+        # bypasses (audit finding 2.1).
         try:
             tokens: List[str] = shlex.split(cmd, posix=True)
         except ValueError:
-            tokens = cmd.split()
+            # Malformed shell input (e.g. unclosed quote): DENY immediately.
+            # Plan §2.WS7 contract: ValueError → DENY.
+            # Falling through to allow would violate the security contract because
+            # a crafted malformed command could bypass deny-pattern matching.
+            reason = "copilot-omni policy: malformed-shell-command (unclosed quote or invalid syntax)"
+            result = _decision("deny", reason)
+            sys.stdout.write(json.dumps(result))
+            _append_audit({
+                "hook": _HOOK_NAME,
+                "event_name": "pre_tool_use",
+                "tool_name": tool_name,
+                "prompt_excerpt": cmd[:120],
+                "action": "deny",
+                "reason": reason,
+            })
+            _write_metric("hook_exit_code", 0, {"hook": _HOOK_NAME, "action": "deny"})
+            _write_metric("hook_latency_ms", round((time.monotonic() - t_start) * 1000, 2),
+                          {"hook": _HOOK_NAME})
+            return 0
         lower_cmd = cmd.lower()
         token_set = {t.lower() for t in tokens}
         token_basenames = {os.path.basename(t).lower() for t in tokens}
@@ -90,18 +174,40 @@ def main() -> int:
             if " " in plower:
                 # Multi-token pattern: substring match against joined lowercase cmd
                 if plower in lower_cmd:
-                    sys.stdout.write(json.dumps(_decision(
-                        "deny",
-                        f"copilot-omni policy: blocked dangerous pattern '{pattern}'",
-                    )))
+                    action = "deny"
+                    reason = f"copilot-omni policy: blocked dangerous pattern '{pattern}'"
+                    result = _decision("deny", reason)
+                    sys.stdout.write(json.dumps(result))
+                    _append_audit({
+                        "hook": _HOOK_NAME,
+                        "event_name": "pre_tool_use",
+                        "tool_name": tool_name,
+                        "prompt_excerpt": cmd[:120],
+                        "action": "deny",
+                        "reason": reason,
+                    })
+                    _write_metric("hook_exit_code", 0, {"hook": _HOOK_NAME, "action": "deny"})
+                    _write_metric("hook_latency_ms", round((time.monotonic() - t_start) * 1000, 2),
+                                  {"hook": _HOOK_NAME})
                     return 0
             else:
                 # Single-token pattern: match against basename or whole token
                 if plower in token_set or plower in token_basenames:
-                    sys.stdout.write(json.dumps(_decision(
-                        "deny",
-                        f"copilot-omni policy: blocked command '{pattern}'",
-                    )))
+                    action = "deny"
+                    reason = f"copilot-omni policy: blocked command '{pattern}'"
+                    result = _decision("deny", reason)
+                    sys.stdout.write(json.dumps(result))
+                    _append_audit({
+                        "hook": _HOOK_NAME,
+                        "event_name": "pre_tool_use",
+                        "tool_name": tool_name,
+                        "prompt_excerpt": cmd[:120],
+                        "action": "deny",
+                        "reason": reason,
+                    })
+                    _write_metric("hook_exit_code", 0, {"hook": _HOOK_NAME, "action": "deny"})
+                    _write_metric("hook_latency_ms", round((time.monotonic() - t_start) * 1000, 2),
+                                  {"hook": _HOOK_NAME})
                     return 0
 
     if tool_name in ("edit", "write", "edit_file", "multi_edit",
@@ -119,13 +225,35 @@ def main() -> int:
                 continue
             prot_norm = protected.replace("\\", "/").lower()
             if prot_norm in lower_norm:
-                sys.stdout.write(json.dumps(_decision(
-                    "deny",
-                    f"copilot-omni policy: protected path '{protected}' — edit via `omni init` instead",
-                )))
+                action = "deny"
+                reason = f"copilot-omni policy: protected path '{protected}' — edit via `omni init` instead"
+                result = _decision("deny", reason)
+                sys.stdout.write(json.dumps(result))
+                _append_audit({
+                    "hook": _HOOK_NAME,
+                    "event_name": "pre_tool_use",
+                    "tool_name": tool_name,
+                    "prompt_excerpt": path_raw[:120],
+                    "action": "deny",
+                    "reason": reason,
+                })
+                _write_metric("hook_exit_code", 0, {"hook": _HOOK_NAME, "action": "deny"})
+                _write_metric("hook_latency_ms", round((time.monotonic() - t_start) * 1000, 2),
+                              {"hook": _HOOK_NAME})
                 return 0
 
     sys.stdout.write(json.dumps(_decision("allow")))
+    _append_audit({
+        "hook": _HOOK_NAME,
+        "event_name": "pre_tool_use",
+        "tool_name": tool_name,
+        "prompt_excerpt": "",
+        "action": "allow",
+        "reason": "",
+    })
+    _write_metric("hook_exit_code", 0, {"hook": _HOOK_NAME, "action": "allow"})
+    _write_metric("hook_latency_ms", round((time.monotonic() - t_start) * 1000, 2),
+                  {"hook": _HOOK_NAME})
     return 0
 
 

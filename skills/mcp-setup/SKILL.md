@@ -14,7 +14,7 @@ MCP servers provide additional tools that Claude Code agents can use. This skill
 
 ## Step 1: Show Available MCP Servers
 
-Present the user with available MCP server options using AskUserQuestion:
+Present the user with available MCP server options as plain chat and wait for their reply:
 
 **Question:** "Which MCP server would you like to configure?"
 
@@ -123,10 +123,10 @@ TROUBLESHOOTING:
 - If MCP servers don't appear, run `claude mcp list` to check status
 - Ensure you have Node.js 18+ installed for npx-based servers
 - For GitHub Docker option, ensure Docker is installed and running
-- Run /oh-my-claudecode:omc-doctor to diagnose issues
+- Run /copilot-omni:omni-doctor to diagnose issues
 
 MANAGING MCP SERVERS:
-- Add more servers: /oh-my-claudecode:mcp-setup or `claude mcp add ...`
+- Add more servers: /copilot-omni:mcp-setup or `claude mcp add ...`
 - List servers: `claude mcp list`
 - Remove a server: `claude mcp remove <server-name>`
 ```

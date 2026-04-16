@@ -34,7 +34,7 @@ def _cmd_version(_args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_doctor(_args: argparse.Namespace) -> int:
+def _cmd_doctor(args: argparse.Namespace) -> int:
     ok = True
     py_ok = sys.version_info >= (3, 9)
     print(f"python:        {sys.version.split()[0]:<12} "
@@ -77,7 +77,369 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
     print(f"omni_home:     {home}")
     home.mkdir(parents=True, exist_ok=True)
 
+    # WS3: router config check
+    _doctor_router(root, home, verbose=getattr(args, "verbose", False))
+
+    # WS4: model category fallback check
+    strict = getattr(args, "strict", False)
+    categories_ok = _doctor_categories(root, strict=strict)
+    if strict and not categories_ok:
+        ok = False
+
+    # WS5a: subagent pool state
+    pool_ok = _doctor_subagent_pool(root, strict=strict)
+    if strict and not pool_ok:
+        ok = False
+
+    # WS5a: recent runs summary
+    _doctor_recent_runs(root)
+
+    # WS5d: ralplan active runs + awaiting-input warning
+    ralplan_ok = _doctor_ralplan_runs(root, strict=strict)
+    if strict and not ralplan_ok:
+        ok = False
+
+    # WS6: active team runs + stale-team warning
+    team_ok = _doctor_team_runs(root, strict=strict)
+    if strict and not team_ok:
+        ok = False
+
     return 0 if ok else 1
+
+
+def _doctor_categories(root: Path, *, strict: bool = False) -> bool:
+    """WS4: resolve each model category and report; warn on drift.
+
+    Returns True if all categories resolve to their primary (or check failed).
+    Returns False only when strict=True and any category used a fallback.
+    """
+    resolver_path = root / "scripts" / "category_resolver.py"
+    if not resolver_path.exists():
+        print("models:        category_resolver.py not found — skipping")
+        return True
+
+    try:
+        import importlib.util as _ilu
+        spec = _ilu.spec_from_file_location("category_resolver", resolver_path)
+        if spec is None or spec.loader is None:
+            print("models:        could not load category_resolver — skipping")
+            return True
+        resolver = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(resolver)  # type: ignore[union-attr]
+    except Exception as exc:
+        print(f"models:        WARN: could not import category_resolver: {exc}")
+        return True
+
+    all_ok = True
+    all_failed = True  # track if every check failed (CLI not present)
+
+    for cat in sorted(resolver.known_categories()):
+        try:
+            res = resolver.resolve(cat)
+        except Exception as exc:
+            print(f"models:        {cat}: WARN resolve error: {exc}")
+            continue
+
+        check = res.get("available_check", "?")
+        model = res.get("model", "?")
+        primary = res.get("primary", "?")
+        tried = res.get("fallbacks_tried", [])
+
+        if check != "failed":
+            all_failed = False
+
+        if tried:
+            status = f"DRIFT (fallback: {model}; primary: {primary}; tried: {tried})"
+            print(f"models:        {cat} → {status}")
+            if strict:
+                all_ok = False
+        else:
+            check_note = f"; check: {check}" if check != "ok" else ""
+            print(f"models:        {cat} → {model} (primary{check_note})")
+
+    if all_failed:
+        print("models:        WARN: availability check failed for all categories "
+              "(copilot models subcommand may not be available) — assuming primary OK")
+
+    return all_ok
+
+
+def _doctor_router(root: Path, home: Path, *, verbose: bool = False) -> None:
+    """WS3: check and display router configuration."""
+    config_path = root / ".omni" / "config.json"
+    config: dict = {}
+    if config_path.exists():
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    router_cfg = config.get("router", {})
+    threshold = router_cfg.get("vagueness_threshold", None)
+
+    if threshold is None:
+        # Populate default
+        router_cfg["vagueness_threshold"] = 0.4
+        config["router"] = router_cfg
+        try:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+            threshold = 0.4
+            print(f"router:        vagueness_threshold=0.4 (defaulted OK)")
+        except Exception as exc:
+            print(f"router:        WARN: could not write default threshold: {exc}")
+    else:
+        print(f"router:        vagueness_threshold={threshold} OK")
+
+    if not verbose:
+        return
+
+    # Verbose: show last-N router decisions from MCP state
+    print("\n--- router decisions (last 5) ---")
+    try:
+        import importlib.util
+        state_path = root / "scripts" / "router_state.py"
+        spec = importlib.util.spec_from_file_location("router_state", state_path)
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            result = mod.read_pipeline_state(mode="router")
+            if result is None:
+                print("  (no router state found or MCP unavailable)")
+            else:
+                print(f"  decision:  {result.get('decision', '?')}")
+                print(f"  score:     {result.get('classifier_score', '?')}")
+                print(f"  excerpt:   {str(result.get('prompt_excerpt', ''))[:80]}")
+                print(f"  ts:        {result.get('ts', '?')}")
+    except Exception as exc:
+        print(f"  (could not read router state: {exc})")
+
+
+def _doctor_subagent_pool(root: Path, *, strict: bool = False) -> bool:
+    """WS5a: show subagent pool state (cap, acquired slots)."""
+    pool_path = root / "scripts" / "subagent_pool.py"
+    if not pool_path.exists():
+        print("subagent pool: subagent_pool.py not found — skipping")
+        return True
+
+    try:
+        import importlib.util as _ilu
+        spec = _ilu.spec_from_file_location("subagent_pool", pool_path)
+        if spec is None or spec.loader is None:
+            print("subagent pool: could not load subagent_pool — skipping")
+            return True
+        pool_mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(pool_mod)  # type: ignore[union-attr]
+    except Exception as exc:
+        print(f"subagent pool: WARN: could not import subagent_pool: {exc}")
+        return True
+
+    try:
+        cap = pool_mod.get_cap()
+        pool = pool_mod.SubagentPool(cap=cap)
+        status = pool.status()
+        acquired = status.get("acquired", [])
+        job_ids = [e.get("job_id", "?") for e in acquired]
+        print(
+            f"subagent pool: cap={cap}, acquired={len(acquired)}"
+            + (f" (job ids: {job_ids})" if job_ids else "")
+            + " OK"
+        )
+
+        if strict:
+            import time
+            now = time.time()
+            orphaned = [
+                e for e in acquired
+                if now - e.get("ts", now) > 1800  # 30 min
+            ]
+            if orphaned:
+                print(
+                    f"subagent pool: FAIL (--strict): {len(orphaned)} acquired"
+                    " entry(ies) older than 30 min (likely orphaned)"
+                )
+                return False
+    except Exception as exc:
+        print(f"subagent pool: WARN: could not read pool status: {exc}")
+
+    return True
+
+
+def _doctor_ralplan_runs(root: Path, *, strict: bool = False) -> bool:
+    """WS5d: show ralplan active runs and warn on stale awaiting-input (--strict)."""
+    runs_dir = root / ".omni" / "runs"
+    if not runs_dir.exists():
+        return True
+
+    import json as _json
+    import time as _time
+
+    ralplan_runs: list[dict] = []
+    try:
+        for run_dir in sorted(runs_dir.iterdir()):
+            if not run_dir.is_dir():
+                continue
+            if not run_dir.name.startswith("ralplan-"):
+                continue
+            sp = run_dir / "status.json"
+            if not sp.exists():
+                continue
+            try:
+                data = _json.loads(sp.read_text(encoding="utf-8"))
+                ralplan_runs.append({
+                    "name": run_dir.name,
+                    "state": data.get("state", "unknown"),
+                    "cycle": data.get("current_cycle", 0),
+                    "verdict": data.get("last_verdict"),
+                    "mtime": sp.stat().st_mtime,
+                })
+            except Exception:
+                pass
+    except Exception as exc:
+        print(f"ralplan runs:  WARN: could not read runs: {exc}")
+        return True
+
+    if not ralplan_runs:
+        print("ralplan runs:  (none)")
+        return True
+
+    active = [r for r in ralplan_runs if r["state"] not in ("converged", "unconverged", "rejected", "cancelled")]
+    print(f"ralplan runs:  {len(ralplan_runs)} total, {len(active)} active")
+    for r in ralplan_runs[-5:]:
+        print(f"  {r['name']}: state={r['state']}, cycle={r['cycle']}, verdict={r['verdict']}")
+
+    if not strict:
+        return True
+
+    # --strict: warn if any run has been awaiting-input for >24h
+    now = _time.time()
+    stale = [
+        r for r in ralplan_runs
+        if r["state"] == "awaiting-input" and (now - r["mtime"]) > 86400
+    ]
+    if stale:
+        print(
+            f"ralplan runs:  FAIL (--strict): {len(stale)} run(s) in state='awaiting-input'"
+            " for >24h (user may have abandoned the clarification)"
+        )
+        for r in stale:
+            age_h = (now - r["mtime"]) / 3600
+            print(f"  {r['name']}: awaiting-input for {age_h:.1f}h")
+        return False
+
+    return True
+
+
+def _doctor_recent_runs(root: Path) -> None:
+    """WS5a: show last 5 run IDs with job state counts."""
+    runs_dir = root / ".omni" / "runs"
+    if not runs_dir.exists():
+        print("recent runs:   (no .omni/runs/ directory)")
+        return
+
+    try:
+        run_dirs = sorted(
+            (d for d in runs_dir.iterdir() if d.is_dir()),
+            key=lambda d: d.stat().st_mtime,
+            reverse=True,
+        )[:5]
+
+        if not run_dirs:
+            print("recent runs:   (none)")
+            return
+
+        import json as _json
+        print("recent runs:")
+        for run_dir in run_dirs:
+            counts: dict = {}
+            for job_dir in run_dir.iterdir():
+                if not job_dir.is_dir():
+                    continue
+                sp = job_dir / "status.json"
+                if not sp.exists():
+                    continue
+                try:
+                    data = _json.loads(sp.read_text(encoding="utf-8"))
+                    state = data.get("state", "unknown")
+                    counts[state] = counts.get(state, 0) + 1
+                except Exception:
+                    counts["unreadable"] = counts.get("unreadable", 0) + 1
+            count_str = ", ".join(f"{s}={n}" for s, n in sorted(counts.items()))
+            print(f"  {run_dir.name}: {count_str or '(no jobs)'}")
+    except Exception as exc:
+        print(f"recent runs:   WARN: could not read runs: {exc}")
+
+
+def _doctor_team_runs(root: Path, *, strict: bool = False) -> bool:
+    """WS6: show active team runs (mode startswith 'team') with worker counts.
+
+    In strict mode, warn if any team has been in state='dispatched' for >24h
+    without collection (likely abandoned).
+    """
+    runs_dir = root / ".omni" / "runs"
+    if not runs_dir.exists():
+        print("team runs:     (no .omni/runs/ directory)")
+        return True
+
+    import json as _json
+    import time as _time
+
+    team_runs: list[dict] = []
+    try:
+        for run_dir in sorted(runs_dir.iterdir()):
+            if not run_dir.is_dir():
+                continue
+            if not run_dir.name.startswith("team-"):
+                continue
+            sp = run_dir / "status.json"
+            mp = run_dir / "manifest.json"
+            if not sp.exists():
+                continue
+            try:
+                status_data = _json.loads(sp.read_text(encoding="utf-8"))
+                manifest_data = _json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else {}
+                workers = manifest_data.get("workers", [])
+                team_runs.append({
+                    "name": run_dir.name,
+                    "state": status_data.get("state", "unknown"),
+                    "worker_count": len(workers),
+                    "mtime": sp.stat().st_mtime,
+                })
+            except Exception:
+                pass
+    except Exception as exc:
+        print(f"team runs:     WARN: could not read team runs: {exc}")
+        return True
+
+    if not team_runs:
+        print("team runs:     (none)")
+        return True
+
+    active = [r for r in team_runs if r["state"] not in ("cleaned", "cancelled", "done")]
+    print(f"team runs:     {len(team_runs)} total, {len(active)} active")
+    for r in team_runs[-5:]:
+        print(f"  {r['name']}: state={r['state']}, workers={r['worker_count']}")
+
+    if not strict:
+        return True
+
+    # --strict: warn if any team has been in state='dispatched' for >24h
+    now = _time.time()
+    stale = [
+        r for r in team_runs
+        if r["state"] == "dispatched" and (now - r["mtime"]) > 86400
+    ]
+    if stale:
+        print(
+            f"team runs:     FAIL (--strict): {len(stale)} team run(s) in"
+            " state='dispatched' for >24h (likely abandoned collection)"
+        )
+        for r in stale:
+            age_h = (now - r["mtime"]) / 3600
+            print(f"  {r['name']}: dispatched for {age_h:.1f}h, workers={r['worker_count']}")
+        return False
+
+    return True
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
@@ -167,7 +529,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("version").set_defaults(func=_cmd_version)
-    sub.add_parser("doctor").set_defaults(func=_cmd_doctor)
+    doctor = sub.add_parser("doctor")
+    doctor.add_argument("--verbose", action="store_true",
+                        help="Show router config and recent decisions")
+    doctor.add_argument("--strict", action="store_true",
+                        help="Fail if any model category resolves to a fallback (signals drift)")
+    doctor.set_defaults(func=_cmd_doctor)
 
     init = sub.add_parser("init", help="Scaffold .omni/ in the current project")
     init.add_argument("--path", default=None)

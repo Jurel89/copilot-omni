@@ -1,0 +1,5 @@
+{
+  "router": {
+    "vagueness_threshold": 0.4
+  }
+}

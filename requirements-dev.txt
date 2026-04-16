@@ -1,0 +1,10 @@
+# Development-only dependencies for copilot-omni.
+# Install with: pip install -r requirements-dev.txt
+# These are NOT required for production use or the test suite baseline.
+
+# Test framework (already in CI via: pip install pytest)
+pytest>=7.0
+
+# Line-coverage measurement (used by scripts/measure_coverage.py)
+# Run: python3 -m coverage run / report
+coverage>=7.0

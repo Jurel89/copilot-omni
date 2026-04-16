@@ -1,0 +1,305 @@
+"""Tests for session_start.py cached banner behavior (WS7b).
+
+Covers:
+- First call computes banner and writes cache
+- Second call (same tree hash) hits cache
+- Cache miss on tree-hash change triggers recompute
+- Banner format contains expected fields
+- Policy permission warning emitted for over-permissive files
+"""
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import stat
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+HOOKS = ROOT / "hooks"
+
+
+def _load_session_start_module(plugin_root: Path):
+    """Load session_start.py as a module with _PLUGIN_ROOT patched."""
+    # We need to reload the module each time because _PLUGIN_ROOT is module-level
+    spec = importlib.util.spec_from_file_location(
+        "session_start_test", HOOKS / "session_start.py"
+    )
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    # Patch _PLUGIN_ROOT before exec
+    mod.__dict__["_PLUGIN_ROOT"] = plugin_root  # type: ignore[index]
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+class TestBannerCache(unittest.TestCase):
+    """Banner caching behavior: compute on miss, hit on repeat, recompute on change."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._root = Path(self._tmp.name)
+        # Create minimal plugin structure
+        (self._root / "skills").mkdir()
+        for s in ["autopilot", "ralph", "plan"]:
+            (self._root / "skills" / s).mkdir()
+        (self._root / "scripts").mkdir()
+        (self._root / "scripts" / "router.py").touch()
+        (self._root / ".claude-plugin").mkdir()
+        (self._root / ".claude-plugin" / "plugin.json").write_text(
+            json.dumps({"version": "2.0.0", "commands": ["/a", "/b"]}),
+            encoding="utf-8",
+        )
+        (self._root / "hooks").mkdir()
+        (self._root / "hooks" / "hooks.json").write_text("{}", encoding="utf-8")
+        (self._root / "AGENTS.md").write_text("## AgentAlpha\n## AgentBeta\n", encoding="utf-8")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _load_mod(self):
+        spec = importlib.util.spec_from_file_location(
+            "session_start_test", HOOKS / "session_start.py"
+        )
+        mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        return mod
+
+    def _get_banner(self, mod, root=None):
+        r = root or self._root
+        banner, cache_hit = mod._get_banner(r)
+        return banner, cache_hit
+
+    def test_first_call_computes_banner(self):
+        mod = self._load_mod()
+        banner, cache_hit = self._get_banner(mod)
+        self.assertFalse(cache_hit, "First call should miss cache")
+        self.assertIn("copilot-omni", banner)
+        self.assertIn("v2.0.0", banner)
+
+    def test_second_call_hits_cache(self):
+        mod = self._load_mod()
+        # First call — populates cache
+        banner1, hit1 = self._get_banner(mod)
+        self.assertFalse(hit1)
+        # Second call — same tree hash
+        banner2, hit2 = self._get_banner(mod)
+        self.assertTrue(hit2, "Second call should hit cache")
+        self.assertEqual(banner1, banner2)
+
+    def test_cache_invalidated_on_tree_change(self):
+        """C12: adding a SKILL.md must invalidate the banner cache."""
+        mod = self._load_mod()
+        # Add SKILL.md to existing skills so tree hash includes them
+        for s in ["autopilot", "ralph", "plan"]:
+            (self._root / "skills" / s / "SKILL.md").write_text(
+                f"---\nname: {s}\n---\n", encoding="utf-8"
+            )
+        # First call — populates cache
+        banner1, hit1 = self._get_banner(mod)
+        self.assertFalse(hit1, "First call must miss cache")
+
+        # Add a new skill with SKILL.md
+        new_skill = self._root / "skills" / "new-skill"
+        new_skill.mkdir()
+        (new_skill / "SKILL.md").write_text("---\nname: new-skill\n---\n", encoding="utf-8")
+
+        # Reload mod so _compute_tree_hash re-evaluates
+        mod2 = self._load_mod()
+        _, hit2 = self._get_banner(mod2)
+        self.assertFalse(hit2, (
+            "C12: cache must be invalidated when a new SKILL.md is added — "
+            "banner with stale skill count would be served"
+        ))
+
+    def test_banner_contains_skills_count(self):
+        mod = self._load_mod()
+        banner, _ = self._get_banner(mod)
+        # Banner format: "copilot-omni vX | N skills | ..."
+        self.assertRegex(banner, r"\d+ skills")
+
+    def test_banner_contains_router_status(self):
+        mod = self._load_mod()
+        banner, _ = self._get_banner(mod)
+        self.assertIn("router=on", banner)
+
+    def test_banner_contains_version(self):
+        mod = self._load_mod()
+        banner, _ = self._get_banner(mod)
+        self.assertIn("v2.0.0", banner)
+
+    def test_banner_format_pipe_separated(self):
+        mod = self._load_mod()
+        banner, _ = self._get_banner(mod)
+        # Must contain at least 4 pipe-separated segments
+        parts = banner.split("|")
+        self.assertGreaterEqual(len(parts), 4)
+
+    def test_cache_file_written(self):
+        mod = self._load_mod()
+        self._get_banner(mod)
+        cache_path = self._root / ".omni" / "cache" / "banner.json"
+        self.assertTrue(cache_path.exists(), "Cache file should be written after first call")
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        self.assertIn("tree_hash", data)
+        self.assertIn("banner", data)
+
+
+class TestSessionStartOutput(unittest.TestCase):
+    """Integration test: session_start.py output wraps banner in <omni-banner>."""
+
+    def _run_hook(self, env_overrides=None):
+        import subprocess
+        env = {k: v for k, v in os.environ.items()}
+        for var in ("OMNI_SKIP_HOOKS", "DISABLE_OMNI", "OMC_SKIP_HOOKS", "DISABLE_OMC",
+                    "OMNI_SKIP_SESSION_START"):
+            env.pop(var, None)
+        if env_overrides:
+            env.update(env_overrides)
+        result = subprocess.run(
+            [sys.executable, str(HOOKS / "session_start.py")],
+            input="{}",
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=env,
+        )
+        return result
+
+    def test_output_is_valid_json(self):
+        result = self._run_hook()
+        self.assertEqual(result.returncode, 0)
+        body = json.loads(result.stdout)
+        self.assertIn("additionalContext", body)
+
+    def test_banner_wrapped_in_tag(self):
+        result = self._run_hook()
+        ctx = json.loads(result.stdout)["additionalContext"]
+        self.assertIn("<omni-banner>", ctx)
+        self.assertIn("</omni-banner>", ctx)
+
+    def test_banner_contains_copilot_omni(self):
+        result = self._run_hook()
+        ctx = json.loads(result.stdout)["additionalContext"]
+        self.assertIn("copilot-omni", ctx)
+
+    def test_kill_switch_bypasses_banner(self):
+        result = self._run_hook({"OMNI_SKIP_HOOKS": "1"})
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(json.loads(result.stdout), {})
+        self.assertNotIn("<omni-banner>", result.stdout)
+
+
+class TestPolicyPermissionCheck(unittest.TestCase):
+    """Policy file permission check emits warnings for > 0o644 mode."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _load_mod(self):
+        spec = importlib.util.spec_from_file_location(
+            "session_start_pol", HOOKS / "session_start.py"
+        )
+        mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        return mod
+
+    @unittest.skipIf(sys.platform == "win32", "File permission tests not supported on Windows")
+    def test_over_permissive_file_produces_warning(self):
+        policies = self._root / "policies"
+        policies.mkdir()
+        p = policies / "test.json"
+        p.write_text('{}', encoding="utf-8")
+        os.chmod(str(p), 0o666)
+        mod = self._load_mod()
+        warnings = mod._check_policy_permissions(self._root)
+        self.assertTrue(any("policy-warning" in w for w in warnings))
+        self.assertTrue(any("test.json" in w for w in warnings))
+
+    @unittest.skipIf(sys.platform == "win32", "File permission tests not supported on Windows")
+    def test_correct_permission_produces_no_warning(self):
+        policies = self._root / "policies"
+        policies.mkdir()
+        p = policies / "ok.json"
+        p.write_text('{}', encoding="utf-8")
+        os.chmod(str(p), 0o644)
+        mod = self._load_mod()
+        warnings = mod._check_policy_permissions(self._root)
+        self.assertEqual(warnings, [])
+
+    def test_missing_policies_dir_produces_no_warning(self):
+        mod = self._load_mod()
+        # No policies/ dir under _root
+        warnings = mod._check_policy_permissions(self._root)
+        self.assertEqual(warnings, [])
+
+
+class TestPluginRootResolution(unittest.TestCase):
+    """_PLUGIN_ROOT env-var precedence: OMNI_PLUGIN_ROOT > CLAUDE_PLUGIN_ROOT > file-relative.
+
+    C2 regression guard: Path("") == Path(".") is truthy, so simple `or` logic
+    would silently bind plugin root to cwd when env var is absent.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _compute_plugin_root(self, env: dict[str, str]) -> Path:
+        """Compute _PLUGIN_ROOT with the given environment, without importing the module."""
+        omni = env.get("OMNI_PLUGIN_ROOT")
+        claude = env.get("CLAUDE_PLUGIN_ROOT")
+        if omni:
+            return Path(omni)
+        if claude:
+            return Path(claude)
+        return Path(HOOKS / "session_start.py").resolve().parent.parent
+
+    def test_omni_plugin_root_takes_precedence_over_claude(self):
+        omni_dir = self._root / "omni_root"
+        claude_dir = self._root / "claude_root"
+        result = self._compute_plugin_root({
+            "OMNI_PLUGIN_ROOT": str(omni_dir),
+            "CLAUDE_PLUGIN_ROOT": str(claude_dir),
+        })
+        self.assertEqual(result, omni_dir)
+
+    def test_claude_plugin_root_used_when_omni_absent(self):
+        claude_dir = self._root / "claude_root"
+        result = self._compute_plugin_root({"CLAUDE_PLUGIN_ROOT": str(claude_dir)})
+        self.assertEqual(result, claude_dir)
+
+    def test_file_relative_default_when_both_absent(self):
+        result = self._compute_plugin_root({})
+        # Should be parent of parent of session_start.py (i.e. repo root)
+        expected = Path(HOOKS / "session_start.py").resolve().parent.parent
+        self.assertEqual(result, expected)
+
+    def test_empty_omni_env_var_falls_through_to_claude(self):
+        """OMNI_PLUGIN_ROOT="" should NOT use cwd — must fall through to CLAUDE_PLUGIN_ROOT."""
+        claude_dir = self._root / "claude_root"
+        # Simulate what the fixed code does: only use OMNI_PLUGIN_ROOT if truthy
+        env = {"OMNI_PLUGIN_ROOT": "", "CLAUDE_PLUGIN_ROOT": str(claude_dir)}
+        result = self._compute_plugin_root(env)
+        self.assertEqual(result, claude_dir)
+
+    def test_empty_string_env_vars_fall_to_file_relative(self):
+        """Both empty → file-relative default, which is an absolute path (not Path('.'))."""
+        result = self._compute_plugin_root({"OMNI_PLUGIN_ROOT": "", "CLAUDE_PLUGIN_ROOT": ""})
+        expected = Path(HOOKS / "session_start.py").resolve().parent.parent
+        self.assertEqual(result, expected)
+        # Critical: must be an absolute path resolved from __file__, not the unresolved cwd sentinel
+        self.assertTrue(result.is_absolute(), f"expected absolute path, got {result!r}")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,26 +1,197 @@
-# Migrating from Copilot Omni v0.1.0 (Go) to v1.0.0 (Python)
+# Migration Guide
 
-v1.0.0 is a **clean break**. There is no in-place upgrade. This is intentional: the v0.1.0 runtime was built on Go binaries (`omni-sidecar`, `omni`) that corporate EDRs quarantined as unsigned executables. v1.0.0 eliminates all compiled binaries.
+---
 
-## What changed
+## Migrating from v1.x to v2.0.0
+
+v2.0.0 is a **breaking release**. The changes are mechanical and a migration script handles
+the most disruptive one (directory rename). Work through the checklist below top-to-bottom.
+
+### Quick-migrate commands
+
+```bash
+# 1. Preview what the migrator will do
+python3 scripts/omni_migrate_v1_to_v2.py --dry-run
+
+# 2. Execute (renames .omc/ → .omni/ in repo and in ~/.omc/)
+python3 scripts/omni_migrate_v1_to_v2.py --apply
+
+# 3. Verify the plugin contract is still green
+python3 scripts/verify_plugin_contract.py --all
+
+# 4. Run tests
+python3 -m pytest -q
+```
+
+---
+
+### 1. Directory rename: `.omc/` → `.omni/`
+
+**What changed:** The per-project state directory was `.omc/`; it is now `.omni/`.
+The global user state was `~/.omc/`; it is now `~/.omni/`.
+
+**Migration:** `scripts/omni_migrate_v1_to_v2.py` handles this automatically.
+
+- `--dry-run` (default): prints what would move, makes no changes.
+- `--apply`: executes `shutil.move()` (or `git mv` inside a git repo).
+- Idempotent: if `.omni/` already exists at the target path, the script warns and skips.
+- The script never touches `.bashrc`, `.zshrc`, or any user dotfile. It prints guidance
+  for env-var updates instead.
+
+If you prefer to rename manually:
+
+```bash
+# Per-project
+git mv .omc .omni
+
+# User home (outside git)
+mv ~/.omc ~/.omni
+```
+
+---
+
+### 2. Env-var renames
+
+| v1.x var | v2.0.0 canonical | Removed in |
+|----------|-----------------|-----------|
+| `OMC_SKIP_HOOKS=1` | `OMNI_SKIP_HOOKS=1` | v3.0.0 |
+| `DISABLE_OMC=1` | `DISABLE_OMNI=1` | v3.0.0 |
+
+The old names still work in v2.x but emit a one-time deprecation warning to stderr.
+Update your shell profile now to avoid the warning and to be ready for v3.0.0:
+
+```bash
+# In ~/.bashrc or ~/.zshrc — replace:
+# export OMC_SKIP_HOOKS=1
+# with:
+export OMNI_SKIP_HOOKS=1
+
+# And replace:
+# export DISABLE_OMC=1
+# with:
+export DISABLE_OMNI=1
+```
+
+New per-hook kill switches (v2.0.0-only):
+- `OMNI_SKIP_PRE_TOOL_USE=1`
+- `OMNI_SKIP_POST_TOOL_USE=1`
+- `OMNI_SKIP_SESSION_START=1`
+- `OMNI_SKIP_USER_PROMPT_SUBMIT=1`
+
+---
+
+### 3. Slash-command rename
+
+All slash-commands moved to the `copilot-omni` namespace.
+
+| v1.x command | v2.0.0 command |
+|-------------|----------------|
+| `/oh-my-claudecode:omc-doctor` | `/copilot-omni:omni-doctor` |
+| `/oh-my-claudecode:omc-setup` | `/copilot-omni:omni-setup` |
+| `/oh-my-claudecode:omc-reference` | `/copilot-omni:omni-reference` |
+| `/oh-my-claudecode:omc-teams` | `/copilot-omni:omni-teams` |
+| `/oh-my-claudecode:autopilot` | `/copilot-omni:autopilot` |
+| `/oh-my-claudecode:ralph` | `/copilot-omni:ralph` |
+| `/oh-my-claudecode:team` | `/copilot-omni:team` |
+| `/oh-my-claudecode:cancel` | `/copilot-omni:cancel` |
+
+Update any saved macros, shell aliases, or documentation that reference the old namespace.
+
+---
+
+### 4. Skill deletions (ADR-0002)
+
+Seven Claude-Code-only skills were deleted. If you relied on any, see the git history
+(`git log --all --full-history -- skills/<name>/`) to retrieve the last version.
+
+| Deleted skill | Reason | Alternative |
+|---------------|--------|-------------|
+| `ccg` | Violated decision 7 (no external CLIs: codex, gemini) | Use `deep` model category directly |
+| `learner` | Paper-only; no Copilot surface | Use `wiki` + `remember` |
+| `project-session-manager` | Claude-Code-worktree-specific | Use `omni team` (WS6 rebuild) |
+| `sciomc` | Deepest brand contamination; Claude-specific orchestration | Use `sciomni` (clean rebuild) |
+| `self-improve` | Claude tournament-selection loop; no Copilot surface | Use `autopilot` + `ralph` |
+| `visual-verdict` | No vision primitive available in Copilot CLI | Deferred to Phase C |
+| `writer-memory` | Deep brand contamination, low ROI | Use `remember` + `wiki` |
+
+`configure-notifications` was deferred (not deleted) — it lives in
+`.omni/deferred/configure-notifications/` and is retrievable from git history.
+
+---
+
+### 5. Agent model frontmatter
+
+v1.x agent files used `model: claude-sonnet-4.5` or similar concrete model names.
+v2.0.0 uses semantic categories resolved at runtime.
+
+| v1.x frontmatter | v2.0.0 frontmatter |
+|-----------------|-------------------|
+| `model: claude-haiku-4-5` | `category: quick` |
+| `model: claude-sonnet-4.5` | `category: deep` |
+| `model: claude-opus-4-6` | `category: ultrabrain` |
+
+If you have custom agents in your project, update their frontmatter.
+Override the resolved model in `.omni/config.json`:
+
+```json
+{
+  "models": {
+    "quick":      { "primary": "claude-haiku-4-5", "fallbacks": ["gpt-5-mini"] },
+    "deep":       { "primary": "claude-sonnet-4.5", "fallbacks": ["gpt-5"] },
+    "ultrabrain": { "primary": "claude-opus-4-6",  "fallbacks": ["gpt-5-codex"] }
+  }
+}
+```
+
+---
+
+### 6. MCP tools — surface change (30 → 22)
+
+Two tools were removed; use the equivalents below.
+
+| Removed tool | v2.0.0 equivalent |
+|-------------|-------------------|
+| `subtask` | `state_write` + `scripts/subagent.py` |
+| `workspace` | `scripts/omni_worktree.py` + team state |
+
+All remaining tools now validate their input payload against a JSON schema.
+Invalid `tools/call` requests return a structured error instead of silently failing.
+See `docs/STATE_MODES.md` for the full tool inventory and ownership matrix.
+
+---
+
+### 7. What stayed the same
+
+- `.omni/runs/<run-id>/` artifact layout (JSON + Markdown) — forward-compatible.
+- MCP tool names (other than the 2 removed) — no changes.
+- Policy files (`policies/strict.json`, `standard.json`, `permissive.json`) — unchanged.
+- `python3 scripts/omni.py doctor` — still the first thing to run.
+- `pytest` invocation — `python3 -m pytest -q` still runs the full suite.
+
+---
+
+## Migrating from v0.1.0 (Go runtime) to v1.0.0 (Python)
+
+v1.0.0 was a clean break from the Go sidecar runtime. See below for reference if you are
+upgrading from the original Go-based release.
+
+### What changed (v0.1.0 → v1.0.0)
 
 | v0.1.0 | v1.0.0 |
 |--------|--------|
 | Go `omni-sidecar` binary | `python3 mcp/server.py` (stdlib only) |
 | Go `omni` wrapper binary | `python3 scripts/omni.py` (stdlib only) |
-| `plugin/plugin.json` | `.claude-plugin/plugin.json` (Copilot-discoverable path) |
+| `plugin/plugin.json` | `.claude-plugin/plugin.json` |
 | `plugin/.mcp.json` | `.mcp.json` at repo root |
 | `plugin/hooks.json` (inline bash) | `hooks/hooks.json` + `hooks/*.py` |
 | 5 agents, 8 skills | 19 agents, 37 skills |
-| SQLite in Go `modernc.org/sqlite` | SQLite via Python stdlib `sqlite3` |
+| SQLite via Go `modernc.org/sqlite` | SQLite via Python stdlib `sqlite3` |
 | `go build` to install | `git clone`, done |
 
-## Migrating your project data
+### MCP tool renames (v0.1.0 → v1.0.0)
 
-If you had `.omni/runs/*/` artifacts from v0.1.0, they still work — the artifact layout is unchanged (JSON and Markdown). The MCP tool names changed (dropped `omni_` prefix); update any custom scripts that called them:
-
-| v0.1.0 MCP tool | v1.0.0 MCP tool |
-|-----------------|-----------------|
+| v0.1.0 tool | v1.0.0 tool |
+|-------------|-------------|
 | `omni_health` | `health` |
 | `omni_doctor` | `doctor` |
 | `omni_artifact_write` | `artifact_write` |
@@ -31,27 +202,17 @@ If you had `.omni/runs/*/` artifacts from v0.1.0, they still work — the artifa
 | `omni_memory_search` | `memory_search` |
 | `omni_policy_check` | `policy_check` |
 | `omni_support_bundle` | `support_bundle` |
-| *(v1.0.0-new)* | `wiki_*`, `notepad_*`, `state_*`, `shared_memory_*`, `trace_*`, `session_search` |
 
-## Removed features
+### Removed in v1.0.0
 
-- **Signed release bundles + SBOM** — we don't ship binaries anymore, so there's nothing to sign. Provenance is the git tag.
-- **`omni_guarded_patch`** — Copilot's native edit tool + the `preToolUse` policy hook cover this.
-- **`omni_release_bundle`** — no binary releases.
-- **`omni_benchmark`** — postponed to v1.1.
-- **`omni_enterprise_diagnose`** — superseded by `doctor` + `support_bundle`.
+- **Signed release bundles + SBOM** — no binaries, so nothing to sign.
+- **`omni_guarded_patch`** — covered by native Copilot edit + `preToolUse` policy hook.
+- **`omni_release_bundle`**, **`omni_benchmark`**, **`omni_enterprise_diagnose`** — removed.
 
-## Uninstalling v0.1.0 before installing v1.0.0
+### Uninstalling v0.1.0
 
 ```bash
-# Remove old binaries if you compiled them
 rm -f /usr/local/bin/omni /usr/local/bin/omni-sidecar
-
-# Uninstall old plugin
 copilot plugin uninstall copilot-omni || true
-
-# Install v1.0.0
 copilot plugin install Jurel89/copilot-omni
 ```
-
-Your per-project `.omni/` directories are forward-compatible and need no changes.

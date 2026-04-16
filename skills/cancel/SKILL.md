@@ -1,15 +1,15 @@
 ---
 name: cancel
-description: Cancel any active OMC mode (autopilot, ralph, ultrawork, ultraqa, swarm, ultrapilot, pipeline, team)
+description: Cancel any active copilot-omni mode (autopilot, ralph, ultrawork, ultraqa, swarm, ultrapilot, pipeline, team)
 argument-hint: "[--force|--all]"
 level: 2
 ---
 
 # Cancel Skill
 
-Intelligent cancellation that detects and cancels the active OMC mode.
+Intelligent cancellation that detects and cancels the active copilot-omni mode.
 
-**The cancel skill is the standard way to complete and exit any OMC mode.**
+**The cancel skill is the standard way to complete and exit any copilot-omni mode.**
 When the stop hook detects work is complete, it instructs the LLM to invoke
 this skill for proper state cleanup. If cancel fails or is interrupted,
 retry with `--force` flag, or wait for the 2-hour staleness timeout as
@@ -25,25 +25,27 @@ Automatically detects which mode is active and cancels it:
 - **Swarm**: Stops coordinated agent swarm, releases claimed tasks
 - **Ultrapilot**: Stops parallel autopilot workers
 - **Pipeline**: Stops sequential agent pipeline
-- **Team**: Sends shutdown_request to all teammates, waits for responses, calls TeamDelete, clears linked ralph if present
+- **Team**: Signals all workers via cancel cascade (`omni_team.py cancel`), waits for responses, runs cleanup, clears linked ralph if present
 - **Team+Ralph (linked)**: Cancels team first (graceful shutdown), then clears ralph state. Cancelling ralph when linked also cancels team first.
 
 ## Usage
 
 ```
-/oh-my-claudecode:cancel
+/copilot-omni:cancel
 ```
 
 Or say: "cancelomc", "stopomc"
 
 ## Critical: Deferred Tool Handling
 
-The state management tools (`state_clear`, `state_read`, `state_write`, `state_list_active`,
+The state management tools (`state_clear`, `state_read`, `state_write`, `state_list`,
 `state_get_status`) may be registered as **deferred tools** by Claude Code. Before calling
 any state tool, you MUST first load all of them via `ToolSearch`:
 
-```
-ToolSearch(query="select:mcp__plugin_oh-my-claudecode_t__state_clear,mcp__plugin_oh-my-claudecode_t__state_read,mcp__plugin_oh-my-claudecode_t__state_write,mcp__plugin_oh-my-claudecode_t__state_list_active,mcp__plugin_oh-my-claudecode_t__state_get_status")
+```bash
+# Load state MCP tools before calling any state_* function
+# (Copilot CLI: use scripts/subagent.py state_clear / state_read / state_write as fallback)
+python3 scripts/subagent.py state_read "check active mode" 2>/dev/null || true
 ```
 
 If `state_clear` is unavailable or fails, use this **bash fallback** as an **emergency
@@ -53,58 +55,52 @@ autopilot→ralph/ultraqa) must be cleared separately by running the fallback on
 
 Replace `MODE` with the specific mode (e.g. `ralplan`, `ralph`, `ultrawork`, `ultraqa`).
 
-**WARNING:** Do NOT use this fallback for `autopilot` or `omc-teams`. Autopilot requires
-`state_write(active=false)` to preserve resume data. omc-teams requires tmux session
+**WARNING:** Do NOT use this fallback for `autopilot` or `omni-teams`. Autopilot requires
+`state_write(active=false)` to preserve resume data. omni-teams requires tmux session
 cleanup that cannot be done via file deletion alone.
 
 ```bash
 # Fallback: direct file removal when state_clear MCP tool is unavailable
-SESSION_ID="${CLAUDE_SESSION_ID:-${CLAUDECODE_SESSION_ID:-}}"
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || { d="$PWD"; while [ "$d" != "/" ] && [ ! -d "$d/.omc" ]; do d="$(dirname "$d")"; done; echo "$d"; })"
+SESSION_ID="${OMNI_SESSION_ID:-}"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || { d="$PWD"; while [ "$d" != "/" ] && [ ! -d "$d/.omni" ]; do d="$(dirname "$d")"; done; echo "$d"; })"
 
-# Cross-platform SHA-256 (macOS: shasum, Linux: sha256sum)
-sha256portable() { printf '%s' "$1" | (sha256sum 2>/dev/null || shasum -a 256) | cut -c1-16; }
-
-# Resolve state directory (supports OMC_STATE_DIR centralized storage)
-if [ -n "${OMC_STATE_DIR:-}" ]; then
-  # Mirror getProjectIdentifier() from worktree-paths.ts
-  SOURCE="$(git remote get-url origin 2>/dev/null || echo "$REPO_ROOT")"
-  HASH="$(sha256portable "$SOURCE")"
-  DIR_NAME="$(basename "$REPO_ROOT" | sed 's/[^a-zA-Z0-9_-]/_/g')"
-  OMC_STATE="$OMC_STATE_DIR/${DIR_NAME}-${HASH}/state"
-  [ ! -d "$OMC_STATE" ] && { echo "ERROR: State dir not found at $OMC_STATE" >&2; exit 1; }
-elif [ "$REPO_ROOT" != "/" ] && [ -d "$REPO_ROOT/.omc" ]; then
-  OMC_STATE="$REPO_ROOT/.omc/state"
+# Resolve state directory (OMNI_PLUGIN_ROOT primary, CLAUDE_PLUGIN_ROOT legacy fallback)
+PLUGIN_ROOT="${OMNI_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -n "${OMNI_STATE_DIR:-}" ]; then
+  OMNI_STATE="$OMNI_STATE_DIR/state"
+  [ ! -d "$OMNI_STATE" ] && { echo "ERROR: State dir not found at $OMNI_STATE" >&2; exit 1; }
+elif [ "$REPO_ROOT" != "/" ] && [ -d "$REPO_ROOT/.omni" ]; then
+  OMNI_STATE="$REPO_ROOT/.omni/state"
 else
-  echo "ERROR: Could not locate .omc state directory" >&2
+  echo "ERROR: Could not locate .omni state directory" >&2
   exit 1
 fi
 MODE="ralplan"  # <-- replace with the target mode
 
 # Clear session-scoped state for the specific mode
-if [ -n "$SESSION_ID" ] && [ -d "$OMC_STATE/sessions/$SESSION_ID" ]; then
-  rm -f "$OMC_STATE/sessions/$SESSION_ID/${MODE}-state.json"
-  rm -f "$OMC_STATE/sessions/$SESSION_ID/${MODE}-stop-breaker.json"
-  rm -f "$OMC_STATE/sessions/$SESSION_ID/skill-active-state.json"
+if [ -n "$SESSION_ID" ] && [ -d "$OMNI_STATE/sessions/$SESSION_ID" ]; then
+  rm -f "$OMNI_STATE/sessions/$SESSION_ID/${MODE}-state.json"
+  rm -f "$OMNI_STATE/sessions/$SESSION_ID/${MODE}-stop-breaker.json"
+  rm -f "$OMNI_STATE/sessions/$SESSION_ID/skill-active-state.json"
   # Write cancel signal so stop hook detects cancellation in progress
   NOW_ISO="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   EXPIRES_ISO="$(date -u -d "+30 seconds" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || python3 - <<'PY'\nfrom datetime import datetime, timedelta, timezone\nprint((datetime.now(timezone.utc) + timedelta(seconds=30)).strftime('%Y-%m-%dT%H:%M:%SZ'))\nPY\n)"
   printf '{"active":true,"requested_at":"%s","expires_at":"%s","mode":"%s","source":"bash_fallback"}' \
-    "$NOW_ISO" "$EXPIRES_ISO" "$MODE" > "$OMC_STATE/sessions/$SESSION_ID/cancel-signal-state.json"
+    "$NOW_ISO" "$EXPIRES_ISO" "$MODE" > "$OMNI_STATE/sessions/$SESSION_ID/cancel-signal-state.json"
 fi
 
 # Clear legacy state only if no session ID (avoid clearing another session's state)
 if [ -z "$SESSION_ID" ]; then
-  rm -f "$OMC_STATE/${MODE}-state.json"
+  rm -f "$OMNI_STATE/${MODE}-state.json"
 fi
 ```
 
 ## Auto-Detection
 
-`/oh-my-claudecode:cancel` follows the session-aware state contract:
-- By default the command inspects the current session via `state_list_active` and `state_get_status`, navigating `.omc/state/sessions/{sessionId}/…` to discover which mode is active.
-- When a session id is provided or already known, that session-scoped path is authoritative. Legacy files in `.omc/state/*.json` are consulted only as a compatibility fallback if the session id is missing or empty.
-- Swarm is a shared SQLite/marker mode (`.omc/state/swarm.db` / `.omc/state/swarm-active.marker`) and is not session-scoped.
+`/copilot-omni:cancel` follows the session-aware state contract:
+- By default the command inspects the current session via `state_list` and `state_get_status`, navigating `.omni/state/sessions/{sessionId}/…` to discover which mode is active.
+- When a session id is provided or already known, that session-scoped path is authoritative. Legacy files in `.omni/state/*.json` are consulted only as a compatibility fallback if the session id is missing or empty.
+- Swarm is a shared SQLite/marker mode (`.omni/state/swarm.db` / `.omni/state/swarm-active.marker`) and is not session-scoped.
 - The default cleanup flow calls `state_clear` with the session id to remove only the matching session files; modes stay bound to their originating session.
 
 Active modes are still cancelled in dependency order:
@@ -116,57 +112,57 @@ Active modes are still cancelled in dependency order:
 6. Ultrapilot (standalone)
 7. Pipeline (standalone)
 8. Team (Claude Code native)
-9. OMC Teams (tmux CLI workers)
+9. copilot-omni Teams (tmux CLI workers)
 10. Plan Consensus (standalone)
-11. Self-Improve (standalone — clear state, clean orphaned worktrees, preserve iteration_state for resume, set status: "user_stopped" in .omc/self-improve/state/agent-settings.json)
+11. Self-Improve (standalone — clear state, clean orphaned worktrees, preserve iteration_state for resume, set status: "user_stopped" in .omni/self-improve/state/agent-settings.json)
 
 ## Force Clear All
 
 Use `--force` or `--all` when you need to erase every session plus legacy artifacts, e.g., to reset the workspace entirely.
 
 ```
-/oh-my-claudecode:cancel --force
+/copilot-omni:cancel --force
 ```
 
 ```
-/oh-my-claudecode:cancel --all
+/copilot-omni:cancel --all
 ```
 
 Steps under the hood:
-1. `state_list_active` enumerates `.omc/state/sessions/{sessionId}/…` to find every known session.
+1. `state_list` enumerates `.omni/state/sessions/{sessionId}/…` to find every known session.
 2. `state_clear` runs once per session to drop that session’s files.
-3. A global `state_clear` without `session_id` removes legacy files under `.omc/state/*.json`, `.omc/state/swarm*.db`, and compatibility artifacts (see list).
-4. Team artifacts (`~/.claude/teams/*/`, `~/.claude/tasks/*/`, `.omc/state/team-state.json`) are best-effort cleared as part of the legacy fallback.
-   - Cancel for native team does NOT affect omc-teams state, and vice versa.
+3. A global `state_clear` without `session_id` removes legacy files under `.omni/state/*.json`, `.omni/state/swarm*.db`, and compatibility artifacts (see list).
+4. Team artifacts (`~/.claude/teams/*/`, `~/.claude/tasks/*/`, `.omni/state/team-state.json`) are best-effort cleared as part of the legacy fallback.
+   - Cancel for native team does NOT affect omni-teams state, and vice versa.
 
 Every `state_clear` command honors the `session_id` argument, so even force mode still uses the session-aware paths first before deleting legacy files.
 
 Legacy compatibility list (removed only under `--force`/`--all`):
-- `.omc/state/autopilot-state.json`
-- `.omc/state/ralph-state.json`
-- `.omc/state/ralph-plan-state.json`
-- `.omc/state/ralph-verification.json`
-- `.omc/state/ultrawork-state.json`
-- `.omc/state/ultraqa-state.json`
-- `.omc/state/swarm.db`
-- `.omc/state/swarm.db-wal`
-- `.omc/state/swarm.db-shm`
-- `.omc/state/swarm-active.marker`
-- `.omc/state/swarm-tasks.db`
-- `.omc/state/ultrapilot-state.json`
-- `.omc/state/ultrapilot-ownership.json`
-- `.omc/state/pipeline-state.json`
-- `.omc/state/omc-teams-state.json`
-- `.omc/state/plan-consensus.json`
-- `.omc/state/ralplan-state.json`
-- `.omc/state/boulder.json`
-- `.omc/state/hud-state.json`
-- `.omc/state/subagent-tracking.json`
-- `.omc/state/subagent-tracker.lock`
-- `.omc/state/rate-limit-daemon.pid`
-- `.omc/state/rate-limit-daemon.log`
-- `.omc/state/checkpoints/` (directory)
-- `.omc/state/sessions/` (empty directory cleanup after clearing sessions)
+- `.omni/state/autopilot-state.json`
+- `.omni/state/ralph-state.json`
+- `.omni/state/ralph-plan-state.json`
+- `.omni/state/ralph-verification.json`
+- `.omni/state/ultrawork-state.json`
+- `.omni/state/ultraqa-state.json`
+- `.omni/state/swarm.db`
+- `.omni/state/swarm.db-wal`
+- `.omni/state/swarm.db-shm`
+- `.omni/state/swarm-active.marker`
+- `.omni/state/swarm-tasks.db`
+- `.omni/state/ultrapilot-state.json`
+- `.omni/state/ultrapilot-ownership.json`
+- `.omni/state/pipeline-state.json`
+- `.omni/state/omni-teams-state.json`
+- `.omni/state/plan-consensus.json`
+- `.omni/state/ralplan-state.json`
+- `.omni/state/boulder.json`
+- `.omni/state/hud-state.json`
+- `.omni/state/subagent-tracking.json`
+- `.omni/state/subagent-tracker.lock`
+- `.omni/state/rate-limit-daemon.pid`
+- `.omni/state/rate-limit-daemon.log`
+- `.omni/state/checkpoints/` (directory)
+- `.omni/state/sessions/` (empty directory cleanup after clearing sessions)
 
 ## Implementation Steps
 
@@ -185,9 +181,9 @@ fi
 ### 2. Detect Active Modes
 
 The skill now relies on the session-aware state contract rather than hard-coded file paths:
-1. Call `state_list_active` to enumerate `.omc/state/sessions/{sessionId}/…` and discover every active session.
+1. Call `state_list` to enumerate `.omni/state/sessions/{sessionId}/…` and discover every active session.
 2. For each session id, call `state_get_status` to learn which mode is running (`autopilot`, `ralph`, `ultrawork`, etc.) and whether dependent modes exist.
-3. If a `session_id` was supplied to `/oh-my-claudecode:cancel`, skip legacy fallback entirely and operate solely within that session path; otherwise, consult legacy files in `.omc/state/*.json` only if the state tools report no active session. Swarm remains a shared SQLite/marker mode outside session scoping.
+3. If a `session_id` was supplied to `/copilot-omni:cancel`, skip legacy fallback entirely and operate solely within that session path; otherwise, consult legacy files in `.omni/state/*.json` only if the state tools report no active session. Swarm remains a shared SQLite/marker mode outside session scoping.
 4. Any cancellation logic in this doc mirrors the dependency order discovered via state tools (autopilot → ralph → …).
 
 ### 3A. Force Mode (if --force or --all)
@@ -205,56 +201,42 @@ Teams are detected by checking for config files in `${CLAUDE_CONFIG_DIR:-~/.clau
 TEAM_CONFIGS=$(find "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/teams -name config.json -maxdepth 2 2>/dev/null)
 ```
 
-**Two-pass cancellation protocol:**
+**Cancellation protocol (WS6 — omni_team.py):**
 
-**Pass 1: Graceful Shutdown**
-```
-For each team found in ${CLAUDE_CONFIG_DIR:-~/.claude}/teams/:
-  1. Read config.json to get team_name and members list
-  2. For each non-lead member:
-     a. Send shutdown_request via SendMessage
-     b. Wait up to 15 seconds for shutdown_response
-     c. If response received: member terminates and is auto-removed
-     d. If timeout: mark member as unresponsive, continue to next
-  3. Log: "Graceful pass: X/Y members responded"
+**Pass 1: Signal workers via cancel cascade**
+```bash
+# Write cancel.signal at team root + every worker run-dir
+python3 scripts/omni_team.py cancel <run_id> --reason "user-cancel"
+# -> workers poll PARENT_RUN_DIR/cancel.signal and stop
+# -> worker status.json transitions to state="cancelled"
+# -> team status.json transitions to state="cancelled"
 ```
 
-**Pass 2: Reconciliation**
-```
-After graceful pass:
-  1. Re-read config.json to check remaining members
-  2. If only lead remains (or config is empty): proceed to TeamDelete
-  3. If unresponsive members remain:
-     a. Wait 5 more seconds (they may still be processing)
-     b. Re-read config.json again
-     c. If still stuck: attempt TeamDelete anyway
-     d. If TeamDelete fails: report manual cleanup path
+**Pass 2: Cleanup**
+```bash
+python3 scripts/omni_team.py cleanup <run_id>
+# -> removes worktrees, prunes git state, clears transient artifacts
 ```
 
-**TeamDelete + Cleanup:**
+**State Cleanup:**
 ```
-  1. Call TeamDelete() — removes ~/.claude/teams/{name}/ and ~/.claude/tasks/{name}/
-  2. Clear team state: state_clear(mode="team")
-  3. Check for linked ralph: state_read(mode="ralph") — if linked_team is true:
-     a. Clear ralph state: state_clear(mode="ralph")
-     b. Clear linked ultrawork if present: state_clear(mode="ultrawork")
-  4. Run orphan scan (see below)
+  1. state_clear(mode="team", session_id)
+  2. For each worker slug: state_clear(mode="team.<slug>", session_id)
+  3. If linked ralph: state_clear(mode="ralph", session_id)
+  4. If linked ultrawork: state_clear(mode="ultrawork", session_id)
   5. Emit structured cancel report
 ```
 
 **Orphan Detection (Post-Cleanup):**
 
-After TeamDelete, verify no agent processes remain:
+After cleanup, verify no agent processes remain using the Python orchestrator:
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-orphans.mjs" --team-name "{team_name}"
+# Check for orphan workers (processes still running after cancel+cleanup)
+python3 scripts/omni_team.py cleanup <run_id> --force
 ```
 
-The orphan scanner:
-1. Checks `ps aux` (Unix) or `tasklist` (Windows) for processes with `--team-name` matching the deleted team
-2. For each orphan whose team config no longer exists: sends SIGTERM, waits 5s, sends SIGKILL if still alive
-3. Reports cleanup results as JSON
-
-Use `--dry-run` to inspect without killing. The scanner is safe to run multiple times.
+The cleanup command removes worktrees, prunes git state, and clears transient artifacts.
+Use `--force` to remove even workers that have not reached a terminal state.
 
 **Structured Cancel Report:**
 ```
@@ -262,20 +244,21 @@ Team "{team_name}" cancelled:
   - Members signaled: N
   - Responses received: M
   - Unresponsive: K (list names if any)
-  - TeamDelete: success/failed
+  - Cleanup: success/failed
   - Manual cleanup needed: yes/no
-    Path: ~/.claude/teams/{name}/ and ~/.claude/tasks/{name}/
+    Path: .omni/runs/team-{run_id}/
 ```
 
-**Implementation note:** The cancel skill is executed by the LLM, not as a bash script. When you detect an active team:
-1. Read `${CLAUDE_CONFIG_DIR:-~/.claude}/teams/*/config.json` to find active teams
-2. If multiple teams exist, cancel oldest first (by `createdAt`)
-3. For each non-lead member, call `SendMessage(type: "shutdown_request", recipient: member-name, content: "Cancelling")`
-4. Wait briefly for shutdown responses (15s per member timeout)
-5. Re-read config.json to check for remaining members (reconciliation pass)
-6. Call `TeamDelete()` to clean up
-7. Clear team state: `state_clear(mode="team", session_id)`
-8. Report structured summary to user
+**Implementation note:** The cancel skill is executed by the LLM, not as a bash script. When you detect an active team (WS6 runtime):
+1. Read team state via `state_read(mode="team", session_id)` to get the `run_id`
+2. Cancel via orchestrator: `python3 scripts/omni_team.py cancel <run_id> --reason "user-cancel"`
+   (This writes cancel.signal at team root + each worker dir; workers poll and stop)
+3. Wait up to 15s for worker status.json files to transition to `state="cancelled"`
+4. Cleanup: `python3 scripts/omni_team.py cleanup <run_id>`
+   (Removes worktrees, prunes git state)
+5. Clear team state: `state_clear(mode="team", session_id)`
+6. For each worker slug found in manifest: `state_clear(mode="team.<slug>", session_id)`
+7. Report structured summary to user
 
 #### If Autopilot Active
 
@@ -309,16 +292,16 @@ Clear directly: `state_clear(mode="ultraqa", session_id)`
 
 #### No Active Modes
 
-Report: "No active OMC modes detected. Use --force to clear all state files anyway."
+Report: "No active copilot-omni modes detected. Use --force to clear all state files anyway."
 
 ## Implementation Notes
 
 The cancel skill runs as follows:
 1. Parse the `--force` / `--all` flags, tracking whether cleanup should span every session or stay scoped to the current session id.
-2. Use `state_list_active` to enumerate known session ids and `state_get_status` to learn the active mode (`autopilot`, `ralph`, `ultrawork`, etc.) for each session.
+2. Use `state_list` to enumerate known session ids and `state_get_status` to learn the active mode (`autopilot`, `ralph`, `ultrawork`, etc.) for each session.
 3. When operating in default mode, call `state_clear` with that session_id to remove only the session’s files, then run mode-specific cleanup (autopilot → ralph → …) based on the state tool signals.
-4. In force mode, iterate every active session, call `state_clear` per session, then run a global `state_clear` without `session_id` to drop legacy files (`.omc/state/*.json`, compatibility artifacts) and report success. Swarm remains a shared SQLite/marker mode outside session scoping.
-5. Team artifacts (`~/.claude/teams/*/`, `~/.claude/tasks/*/`, `.omc/state/team-state.json`) remain best-effort cleanup items invoked during the legacy/global pass.
+4. In force mode, iterate every active session, call `state_clear` per session, then run a global `state_clear` without `session_id` to drop legacy files (`.omni/state/*.json`, compatibility artifacts) and report success. Swarm remains a shared SQLite/marker mode outside session scoping.
+5. Team artifacts (`~/.claude/teams/*/`, `~/.claude/tasks/*/`, `.omni/state/team-state.json`) remain best-effort cleanup items invoked during the legacy/global pass.
 6. **Always** clear skill-active state as the final step, regardless of which mode was active or whether `--force` was used:
    ```
    state_clear(mode="skill-active", session_id)
@@ -341,14 +324,14 @@ Mode-specific subsections below describe what extra cleanup each handler perform
 | Pipeline | "Pipeline cancelled. Sequential agent chain stopped." |
 | Team | "Team cancelled. Teammates shut down and cleaned up." |
 | Plan Consensus | "Plan Consensus cancelled. Planning session ended." |
-| Force | "All OMC modes cleared. You are free to start fresh." |
-| None | "No active OMC modes detected." |
+| Force | "All copilot-omni modes cleared. You are free to start fresh." |
+| None | "No active copilot-omni modes detected." |
 
 ## What Gets Preserved
 
 | Mode | State Preserved | Resume Command |
 |------|-----------------|----------------|
-| Autopilot | Yes (phase, files, spec, plan, verdicts) | `/oh-my-claudecode:autopilot` |
+| Autopilot | Yes (phase, files, spec, plan, verdicts) | `/copilot-omni:autopilot` |
 | Ralph | No | N/A |
 | Ultrawork | No | N/A |
 | UltraQA | No | N/A |
@@ -362,7 +345,7 @@ Mode-specific subsections below describe what extra cleanup each handler perform
 - **Dependency-aware**: Autopilot cancellation cleans up Ralph and UltraQA
 - **Link-aware**: Ralph cancellation cleans up linked Ultrawork
 - **Safe**: Only clears linked Ultrawork, preserves standalone Ultrawork
-- **Local-only**: Clears state files in `.omc/state/` directory
+- **Local-only**: Clears state files in `.omni/state/` directory
 - **Resume-friendly**: Autopilot state is preserved for seamless resume
 - **Team-aware**: Detects native Claude Code teams and performs graceful shutdown
 
@@ -370,18 +353,18 @@ Mode-specific subsections below describe what extra cleanup each handler perform
 
 When cancelling modes that may have spawned MCP workers (team bridge daemons), the cancel skill should also:
 
-1. **Check for active MCP workers**: Look for heartbeat files at `.omc/state/team-bridge/{team}/*.heartbeat.json`
+1. **Check for active MCP workers**: Look for heartbeat files at `.omni/state/team-bridge/{team}/*.heartbeat.json`
 2. **Send shutdown signals**: Write shutdown signal files for each active worker
-3. **Kill tmux sessions**: Run `tmux kill-session -t omc-team-{team}-{worker}` for each worker
+3. **Kill tmux sessions**: Run `tmux kill-session -t omni-team-{team}-{worker}` for each worker
 4. **Clean up heartbeat files**: Remove all heartbeat files for the team
-5. **Clean up shadow registry**: Remove `.omc/state/team-mcp-workers.json`
+5. **Clean up shadow registry**: Remove `.omni/state/team-mcp-workers.json`
 
 ### Force Clear Addition
 
 When `--force` is used, also clean up:
 ```bash
-rm -rf .omc/state/team-bridge/       # Heartbeat files
-rm -f .omc/state/team-mcp-workers.json  # Shadow registry
-# Kill all omc-team-* tmux sessions
-tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^omc-team-' | while read s; do tmux kill-session -t "$s" 2>/dev/null; done
+rm -rf .omni/state/team-bridge/       # Heartbeat files
+rm -f .omni/state/team-mcp-workers.json  # Shadow registry
+# Kill all omni-team-* tmux sessions
+tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^omni-team-' | while read s; do tmux kill-session -t "$s" 2>/dev/null; done
 ```

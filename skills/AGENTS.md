@@ -1,13 +1,13 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-01-28 | Updated: 2026-03-02 -->
+<!-- Generated: 2026-01-28 | Updated: 2026-04-16 -->
 
 # skills
 
-30 skill directories for workflow automation and specialized behaviors.
+29 skill directories for workflow automation and specialized behaviors.
 
 ## Purpose
 
-Skills are reusable workflow templates that can be invoked via `/oh-my-claudecode:skill-name`. Each skill provides:
+Skills are reusable workflow templates that can be invoked via `/copilot-omni:skill-name`. Each skill provides:
 - Structured prompts for specific workflows
 - Activation triggers (manual or automatic)
 - Integration with execution modes
@@ -28,7 +28,7 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 
 | File | Skill | Purpose |
 |-----------|-------|---------|
-| `plan/SKILL.md` | omc-plan | Strategic planning with interview workflow |
+| `plan/SKILL.md` | omni-plan | Strategic planning with interview workflow |
 | `ralplan/SKILL.md` | ralplan | Iterative planning (Planner+Architect+Critic) with RALPLAN-DR structured deliberation (`--deliberate` for high-risk) |
 | `deep-interview/SKILL.md` | deep-interview | Socratic deep interview with mathematical ambiguity gating (Ouroboros-inspired) |
 | `ralph-init/SKILL.md` | ralph-init | Initialize PRD for structured ralph |
@@ -38,28 +38,20 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 | File | Skill | Purpose |
 |-----------|-------|---------|
 | `deepinit/SKILL.md` | deepinit | Generate hierarchical AGENTS.md |
-| `sciomc/SKILL.md` | sciomc | Parallel scientist orchestration |
-
-### Visual Skills
-
-| File | Skill | Purpose |
-|-----------|-------|---------|
-| `visual-verdict/SKILL.md` | visual-verdict | Structured visual QA verdict for screenshot/reference comparisons |
 
 ### Utility Skills
 
 | File | Skill | Purpose |
 |-----------|-------|---------|
 | `ai-slop-cleaner/SKILL.md` | ai-slop-cleaner | Regression-safe cleanup workflow for AI-generated code slop |
-| `learner/SKILL.md` | learner | Extract reusable skill from session |
 | `ask/SKILL.md` | ask | Ask Claude, Codex, or Gemini via `omc ask` and capture an artifact |
 | `note/SKILL.md` | note | Save notes for compaction resilience |
-| `cancel/SKILL.md` | cancel | Cancel any active OMC mode |
+| `cancel/SKILL.md` | cancel | Cancel any active copilot-omni mode |
 | `hud/SKILL.md` | hud | Configure HUD display |
-| `omc-doctor/SKILL.md` | omc-doctor | Diagnose installation issues |
+| `omni-doctor/SKILL.md` | omni-doctor | Diagnose installation issues |
 | `setup/SKILL.md` | setup | Unified setup entrypoint for install, diagnostics, and MCP configuration |
-| `omc-setup/SKILL.md` | omc-setup | One-time setup wizard |
-| `omc-help/SKILL.md` | omc-help | Usage guide |
+| `omni-setup/SKILL.md` | omni-setup | One-time setup wizard |
+| `omni-help/SKILL.md` | omni-help | Usage guide |
 | `mcp-setup/SKILL.md` | mcp-setup | Configure MCP servers |
 | `skill/SKILL.md` | skill | Manage local skills |
 
@@ -67,9 +59,7 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 
 | File | Skill | Purpose |
 |-----------|-------|---------|
-| `project-session-manager/SKILL.md` | project-session-manager (+ `psm` alias) | Isolated dev environments |
-| `writer-memory/SKILL.md` | writer-memory | Agentic memory for writers |
-| `release/SKILL.md` | release | Generic release assistant — analyzes repo CI/rules, caches in `.omc/RELEASE_RULE.md`, guides the release |
+| `release/SKILL.md` | release | Generic release assistant — analyzes repo CI/rules, caches in `.omni/RELEASE_RULE.md`, guides the release |
 
 ## For AI Agents
 
@@ -89,7 +79,7 @@ model: sonnet    # Optional: model override
 pipeline: [skill-name, follow-up-skill]  # Optional: standardized multi-skill flow
 next-skill: follow-up-skill              # Optional: explicit handoff target
 next-skill-args: --direct                # Optional: arguments for the next skill
-handoff: .omc/plans/example.md           # Optional: artifact/context handed to next skill
+handoff: .omni/plans/example.md           # Optional: artifact/context handed to next skill
 ---
 
 # Skill Name
@@ -113,10 +103,10 @@ Any configurable options.
 
 ```bash
 # Manual invocation
-/oh-my-claudecode:skill-name
+/copilot-omni:skill-name
 
 # With arguments
-/oh-my-claudecode:skill-name arg1 arg2
+/copilot-omni:skill-name arg1 arg2
 
 # Auto-detected from keywords
 "autopilot build me a REST API"  # Triggers autopilot skill
@@ -143,7 +133,7 @@ Any configurable options.
 4. Invoke `qa-tester` for verification
 ```
 
-If `pipeline` / `next-skill` metadata is present, OMC appends a standardized **Skill Pipeline** handoff block to the rendered skill prompt so downstream steps are explicit.
+If `pipeline` / `next-skill` metadata is present, copilot-omni appends a standardized **Skill Pipeline** handoff block to the rendered skill prompt so downstream steps are explicit.
 
 **Conditional behavior:**
 ```markdown
@@ -157,7 +147,7 @@ If `pipeline` / `next-skill` metadata is present, OMC appends a standardized **S
 ### Testing Requirements
 
 - Skills are verified via integration tests
-- Test skill invocation with `/oh-my-claudecode:skill-name`
+- Test skill invocation with `/copilot-omni:skill-name`
 - Verify trigger keywords activate correct skill
 - For git-related skills, follow `templates/rules/git-workflow.md`
 
@@ -177,10 +167,10 @@ None - pure markdown files.
 |----------|--------|------------------|
 | Execution | autopilot, ultrawork, ralph, team, ultraqa | "autopilot", "ulw", "ralph", "team" |
 | Cleanup | ai-slop-cleaner | "deslop", "anti-slop", cleanup/refactor + slop smells |
-| Planning | omc-plan, ralplan, deep-interview, ralph-init | "plan this", "interview me", "ouroboros" |
-| Exploration | deepinit, sciomc, external-context | "deepinit", "research" |
-| Utility | learner, note, cancel, hud, setup, omc-doctor, omc-setup, omc-help, mcp-setup | "stop", "cancel" |
-| Domain | psm, writer-memory, release | psm context |
+| Planning | omni-plan, ralplan, deep-interview, ralph-init | "plan this", "interview me", "ouroboros" |
+| Exploration | deepinit, external-context | "deepinit", "research" |
+| Utility | note, cancel, hud, setup, omni-doctor, omni-setup, omni-help, mcp-setup | "stop", "cancel" |
+| Domain | release | release context |
 
 ## Auto-Activation
 

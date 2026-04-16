@@ -12,15 +12,15 @@ Fetch external documentation, references, and context for a query. Decomposes in
 ## Usage
 
 ```
-/oh-my-claudecode:external-context <topic or question>
+/copilot-omni:external-context <topic or question>
 ```
 
 ### Examples
 
 ```
-/oh-my-claudecode:external-context What are the best practices for JWT token rotation in Node.js?
-/oh-my-claudecode:external-context Compare Prisma vs Drizzle ORM for PostgreSQL
-/oh-my-claudecode:external-context Latest React Server Components patterns and conventions
+/copilot-omni:external-context What are the best practices for JWT token rotation in Node.js?
+/copilot-omni:external-context Compare Prisma vs Drizzle ORM for PostgreSQL
+/copilot-omni:external-context Latest React Server Components patterns and conventions
 ```
 
 ## Protocol
@@ -44,12 +44,14 @@ Given a query, decompose into 2-5 independent search facets:
 
 ### Step 2: Parallel Agent Invocation
 
-Fire independent facets in parallel via Task tool:
+Fire independent facets in parallel via subagent shell invocations:
 
-```
-Task(subagent_type="oh-my-claudecode:document-specialist", model="sonnet", prompt="Search for: <facet 1 description>. Use WebSearch and WebFetch to find official documentation and examples. Cite all sources with URLs.")
+```bash
+python3 scripts/subagent.py document-specialist "Search for: <facet 1 description>. Use WebSearch and WebFetch to find official documentation and examples. Cite all sources with URLs." &
 
-Task(subagent_type="oh-my-claudecode:document-specialist", model="sonnet", prompt="Search for: <facet 2 description>. Use WebSearch and WebFetch to find official documentation and examples. Cite all sources with URLs.")
+python3 scripts/subagent.py document-specialist "Search for: <facet 2 description>. Use WebSearch and WebFetch to find official documentation and examples. Cite all sources with URLs." &
+
+wait
 ```
 
 Maximum 5 parallel document-specialist agents.

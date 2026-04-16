@@ -1,0 +1,41 @@
+name: Full suite (heavy tests + coverage)
+
+# Not on every push — GitHub Actions minutes were being burned on ~40-min
+# matrix runs per PR. This workflow runs the subprocess-heavy e2e tests
+# and the coverage gate on a weekly schedule and on manual dispatch.
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly Monday 04:00 UTC
+    - cron: '0 4 * * 1'
+
+concurrency:
+  group: full-suite-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-pytest:
+    name: full pytest suite (py 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pytest
+        run: python3 -m pip install --quiet pytest
+      - name: Run full pytest suite (including heavy e2e)
+        run: python3 -m pytest -q
+
+  coverage:
+    name: per-module coverage gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dev deps (pytest + coverage)
+        run: python3 -m pip install --quiet pytest coverage
+      - name: Run coverage check
+        run: python3 scripts/measure_coverage.py --check
