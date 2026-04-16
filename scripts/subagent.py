@@ -253,9 +253,17 @@ def _mcp_write_best_effort(mode: str, body: dict, session_id: Optional[str]) -> 
 # ---------------------------------------------------------------------------
 
 
-def _job_dir(run_id: str, job_id: str) -> Path:
-    """Return path to .omni/runs/<run-id>/<job-id>/"""
+def _job_dir(run_id: str, job_id: str, parent_run_id: Optional[str] = None) -> Path:
+    """Return path to the job directory.
+
+    B5 (cancel cascade): if parent_run_id is set AND the agent is a known skill,
+    nest the job under .omni/runs/<parent_run_id>/inner/<run-id>/<job-id>/ so that
+    cancel.signal written to the outer run-dir is visible to the inner skill.
+    Otherwise use the flat layout .omni/runs/<run-id>/<job-id>/.
+    """
     here = Path(__file__).resolve().parent.parent
+    if parent_run_id:
+        return here / ".omni" / "runs" / parent_run_id / "inner" / run_id / job_id
     return here / ".omni" / "runs" / run_id / job_id
 
 
@@ -267,12 +275,13 @@ def _init_run_dir(
     model_used: Optional[str],
     prompt: str,
     session_id: Optional[str],
+    parent_run_id: Optional[str] = None,
 ) -> tuple[Path, dict]:
     """Create run-directory, write spec.json + initial status.json.
 
     Returns (job_dir, status_dict).
     """
-    job_dir = _job_dir(run_id, job_id)
+    job_dir = _job_dir(run_id, job_id, parent_run_id=parent_run_id)
     job_dir.mkdir(parents=True, exist_ok=True)
 
     spec = {
@@ -282,6 +291,7 @@ def _init_run_dir(
         "category": category,
         "model_used": model_used,
         "session_id": session_id,
+        "parent_run_id": parent_run_id,
         "prompt_excerpt": prompt[:200],
     }
     _write_json_atomic(job_dir / "spec.json", spec)
@@ -320,8 +330,17 @@ def spawn(
     run_id: Optional[str] = None,
     job_id: Optional[str] = None,
     timeout: int = 1800,
+    parent_run_id: Optional[str] = None,
 ) -> dict:
     """Spawn a subagent.
+
+    Parameters
+    ----------
+    parent_run_id:
+        B5 (cancel cascade): when set, the inner skill's run-dir is nested
+        under the outer run-dir as .omni/runs/<parent_run_id>/inner/<agent>-<job_id>/.
+        The PARENT_RUN_ID env var is passed to the inner process so it can
+        check <parent_run_dir>/cancel.signal.
 
     Returns:
     - foreground: {job_id, run_id, exit_code, stdout, stderr, status_path}
@@ -345,7 +364,8 @@ def spawn(
 
     # Create run-dir + write spec.json + pending status.json BEFORE spawn
     job_dir, status = _init_run_dir(
-        run_id, job_id, agent, category, model_used, prompt, session_id
+        run_id, job_id, agent, category, model_used, prompt, session_id,
+        parent_run_id=parent_run_id,
     )
     status_path = str(job_dir / "status.json")
 
@@ -365,12 +385,14 @@ def spawn(
         if background:
             return _spawn_background(
                 agent, prompt, effective_model, allow_all, timeout,
-                job_id, run_id, job_dir, status, status_path, session_id, pool
+                job_id, run_id, job_dir, status, status_path, session_id, pool,
+                parent_run_id=parent_run_id,
             )
         else:
             return _spawn_foreground(
                 agent, prompt, effective_model, allow_all, timeout,
-                job_id, run_id, job_dir, status, status_path, session_id, pool
+                job_id, run_id, job_dir, status, status_path, session_id, pool,
+                parent_run_id=parent_run_id,
             )
     finally:
         # For foreground: pool is released inside _spawn_foreground via try/finally
@@ -498,6 +520,7 @@ def _spawn_foreground(
     status_path: str,
     session_id: Optional[str],
     pool=None,
+    parent_run_id: Optional[str] = None,
 ) -> dict:
     """Run synchronously, tee stdout/stderr to logs + terminal."""
     cmd = _build_cmd(agent, prompt, effective_model, allow_all)
@@ -523,13 +546,21 @@ def _spawn_foreground(
     exit_code = 1
     error_text: Optional[str] = None
 
+    # B5: build subprocess env with PARENT_RUN_ID so inner skills can find
+    # the outer cancel.signal.
+    proc_env = _fake_env(agent) if _FAKE else dict(os.environ)
+    if parent_run_id:
+        proc_env["PARENT_RUN_ID"] = parent_run_id
+        here = Path(__file__).resolve().parent.parent
+        proc_env["PARENT_RUN_DIR"] = str(here / ".omni" / "runs" / parent_run_id)
+
     try:
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env=_fake_env(agent) if _FAKE else None,
+            env=proc_env if (_FAKE or parent_run_id) else None,
         )
 
         # Tee stdout/stderr: relay to terminal AND write to log files
@@ -606,6 +637,7 @@ def _spawn_background(
     status_path: str,
     session_id: Optional[str],
     pool,
+    parent_run_id: Optional[str] = None,
 ) -> dict:
     """Spawn detached; return immediately with pid."""
     cmd = _build_cmd(agent, prompt, effective_model, allow_all)
@@ -625,6 +657,7 @@ def _spawn_background(
     # T9: write config JSON sidecar and invoke static wrapper module.
     # This eliminates f-string interpolation of dynamic values into Python source.
     wrapper_script = _wrapper_module_path()
+    here = Path(__file__).resolve().parent.parent
     config = {
         "cmd": cmd,
         "status_path": str(job_dir / "status.json"),
@@ -636,12 +669,21 @@ def _spawn_background(
         "session_id": session_id,
         "timeout_secs": timeout,
         "scripts_dir": str(Path(__file__).resolve().parent),
+        # B5: cancel cascade
+        "parent_run_id": parent_run_id,
+        "parent_run_dir": str(here / ".omni" / "runs" / parent_run_id) if parent_run_id else None,
     }
     config_path = job_dir / "_wrapper_config.json"
     _write_json_atomic(config_path, config)
 
     # B2: for fake mode, pass values via environment, not source interpolation
-    spawn_env = _fake_env(agent) if _FAKE else None
+    # B5: pass PARENT_RUN_ID / PARENT_RUN_DIR so inner skills can check outer cancel.signal
+    spawn_env = _fake_env(agent) if _FAKE else dict(os.environ)
+    if parent_run_id:
+        spawn_env["PARENT_RUN_ID"] = parent_run_id
+        spawn_env["PARENT_RUN_DIR"] = config["parent_run_dir"] or ""
+    elif not _FAKE:
+        spawn_env = None  # no override needed; inherit parent env
 
     # Transition status to running immediately (wrapper will update too)
     # We leave it as "pending" — the wrapper transitions to "running" when it starts.
@@ -809,6 +851,14 @@ def main() -> int:
         "--timeout", type=int, default=1800,
         help="Timeout in seconds (default: 1800)",
     )
+    parser.add_argument(
+        "--parent-run-id", default=None, dest="parent_run_id",
+        help=(
+            "B5 cancel cascade: outer run-id. When set, this inner skill's "
+            "run-dir is nested under .omni/runs/<parent-run-id>/inner/. "
+            "PARENT_RUN_ID and PARENT_RUN_DIR env vars are set in the child."
+        ),
+    )
     args = parser.parse_args()
 
     if args.background:
@@ -823,6 +873,7 @@ def main() -> int:
             run_id=args.run_id,
             job_id=args.job_id,
             timeout=args.timeout,
+            parent_run_id=args.parent_run_id,
         )
         print(json.dumps(result))
         return 0 if "error" not in result else 1
@@ -838,6 +889,7 @@ def main() -> int:
         run_id=args.run_id,
         job_id=args.job_id,
         timeout=args.timeout,
+        parent_run_id=args.parent_run_id,
     )
     return result.get("exit_code", 1)
 

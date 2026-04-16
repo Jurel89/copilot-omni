@@ -163,10 +163,12 @@ mkdir -p "${PHASE_DIR}"
 
 # Spawn ralplan as subprocess (per ADR-0006: subprocess-only composition)
 # ralplan writes its own run-dir artifacts and MCP state under mode="autopilot.ralplan"
+export RALPLAN_MODE=autopilot.ralplan
 python3 scripts/subagent.py ralplan "${EXPAND_SPEC}" \
   --category deep \
   --session-id "$OMNI_SESSION_ID" \
   --run-id "${AUTOPILOT_RUN_ID}" \
+  --parent-run-id "${AUTOPILOT_RUN_ID}" \
   --background \
   > "${PHASE_DIR}/ralplan-job.json" 2>/dev/null
 

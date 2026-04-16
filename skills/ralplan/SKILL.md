@@ -168,7 +168,16 @@ PYEOF
 
 ```bash
 _ralplan_check_cancel() {
+  # B5 cancel cascade: honor both own cancel.signal and outer (parent) cancel.signal
+  local _cancel_detected=0
   if [ -f "${RUN_DIR}/cancel.signal" ]; then
+    _cancel_detected=1
+  fi
+  # If running as inner skill under an autopilot/outer run, check parent cancel.signal
+  if [ -n "${PARENT_RUN_DIR:-}" ] && [ -f "${PARENT_RUN_DIR}/cancel.signal" ]; then
+    _cancel_detected=1
+  fi
+  if [ "${_cancel_detected}" = "1" ]; then
     python3 - <<'PYEOF'
 import json, os
 from pathlib import Path
@@ -184,7 +193,8 @@ tmp = status_path.with_suffix(".tmp")
 tmp.write_text(json.dumps(status, indent=2))
 import os as _os
 _os.replace(str(tmp), str(status_path))
-print("ralplan: cancel.signal detected — state=cancelled")
+src = os.environ.get("PARENT_RUN_DIR", "") and "outer cancel.signal" or "own cancel.signal"
+print(f"ralplan: cancel detected ({src}) — state=cancelled")
 PYEOF
     exit 1
   fi
