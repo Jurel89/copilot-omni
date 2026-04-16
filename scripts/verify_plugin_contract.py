@@ -12,20 +12,213 @@ Contract: stdlib only. No third-party deps. Idempotent.
 
 Usage:
     python3 scripts/verify_plugin_contract.py --all
+    python3 scripts/verify_plugin_contract.py --check-rename
     python3 scripts/verify_plugin_contract.py --check-rename-stub
     python3 scripts/verify_plugin_contract.py --list-checks
+    python3 scripts/verify_plugin_contract.py --list-rename-exemptions
 """
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from typing import Callable, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 
-
 CheckResult = Tuple[bool, list]
+
+# ---------------------------------------------------------------------------
+# Allowlisted paths — these files legitimately cite upstream project names.
+# Paths are relative to ROOT and support fnmatch-style glob prefix matching.
+# ---------------------------------------------------------------------------
+ALLOWLIST_PATHS: tuple[str, ...] = (
+    ".omni/research/",
+    ".omni/plans/phase-b-master-plan-v1-backup.md",
+    ".omni/plans/phase-b-critique-",   # prefix match
+    ".omni/plans/phase-b-master-plan.md",
+    "docs/ADR/ADR-0000",               # prefix match
+    # Runtime state dirs — not source files
+    ".omc/",
+    ".git/",
+)
+
+# Banned token patterns
+BANNED_PATTERNS: tuple[str, ...] = (
+    r"oh-my-claudecode",
+    r"\.omc/",
+    r"omc-",
+    r"\bOMC\b",
+)
+
+# File extensions to scan (text files only)
+SCAN_EXTENSIONS: frozenset[str] = frozenset({
+    ".md", ".py", ".json", ".yaml", ".yml", ".toml", ".txt",
+    ".cfg", ".sh", ".bash", ".zsh", ".ps1", ".cmd", ".bat",
+    ".html", ".rst", ".ini",
+})
+
+# Max allowed inline exemptions across the whole tree
+MAX_EXEMPTIONS = 10
+
+# Marker pattern for inline allowlist
+ALLOW_MARKER_RE = re.compile(r"<!--\s*omni-rename-allow\s*:.*?-->", re.IGNORECASE)
+
+
+def _is_allowlisted_path(rel: str) -> bool:
+    """Return True if this relative path is in the hard allowlist."""
+    for prefix in ALLOWLIST_PATHS:
+        if rel.startswith(prefix):
+            return True
+    return False
+
+
+def _strip_code_fences(lines: list[str]) -> list[str]:
+    """Return lines with code-fence blocks replaced by blank lines.
+
+    We blank out lines *inside* fenced blocks (``` ... ```) so that
+    tokens inside fences are not flagged. The fence delimiter line itself
+    is also blanked so its content does not trigger false positives.
+    """
+    result: list[str] = []
+    in_fence = False
+    fence_re = re.compile(r"^(\s*)(```|~~~)")
+    for line in lines:
+        if fence_re.match(line):
+            in_fence = not in_fence
+            result.append("")  # blank the fence line
+        elif in_fence:
+            result.append("")  # blank interior
+        else:
+            result.append(line)
+    return result
+
+
+def _has_allow_marker_nearby(lines: list[str], line_idx: int, window: int = 3) -> bool:
+    """Return True if an omni-rename-allow marker is within `window` lines."""
+    start = max(0, line_idx - window)
+    end = min(len(lines), line_idx + window + 1)
+    for i in range(start, end):
+        if ALLOW_MARKER_RE.search(lines[i]):
+            return True
+    return False
+
+
+def check_rename() -> CheckResult:
+    """Walk the whole tree and verify no banned tokens remain outside allowlisted paths.
+
+    Algorithm:
+    1. Walk every file under ROOT.
+    2. Skip allowlisted paths, non-text files, and binary files.
+    3. Strip markdown code fences from content before scanning.
+    4. For each banned token hit, check for an omni-rename-allow marker within 3 lines.
+    5. Report exemptions; fail if any residual hit lacks a marker or if exemptions > MAX_EXEMPTIONS.
+    """
+    compiled = [re.compile(p) for p in BANNED_PATTERNS]
+    violations: list[str] = []
+    exemptions: list[dict] = []
+
+    for path in sorted(ROOT.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = str(path.relative_to(ROOT)).replace("\\", "/")
+        if _is_allowlisted_path(rel):
+            continue
+        if path.suffix not in SCAN_EXTENSIONS and path.suffix != "":
+            # Still scan extensionless files that are text (e.g. shebang scripts)
+            # but skip binary-ish extensions quickly
+            continue
+
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+
+        lines_raw = raw.splitlines()
+        lines = _strip_code_fences(lines_raw)
+
+        for line_idx, line in enumerate(lines):
+            for pattern in compiled:
+                if pattern.search(line):
+                    if _has_allow_marker_nearby(lines_raw, line_idx):
+                        exemptions.append({
+                            "file": rel,
+                            "line": line_idx + 1,
+                            "text": lines_raw[line_idx].strip()[:120],
+                        })
+                    else:
+                        violations.append(
+                            f"  {rel}:{line_idx + 1}: {lines_raw[line_idx].strip()[:120]}"
+                        )
+                    break  # only report once per line
+
+    messages: list[str] = []
+    ok = True
+
+    if exemptions:
+        messages.append(
+            f"rename-allow exemptions ({len(exemptions)}/{MAX_EXEMPTIONS}):"
+        )
+        for e in exemptions:
+            messages.append(f"  [exempt] {e['file']}:{e['line']}: {e['text']}")
+
+    if len(exemptions) > MAX_EXEMPTIONS:
+        ok = False
+        messages.append(
+            f"FAIL: too many inline exemptions ({len(exemptions)} > {MAX_EXEMPTIONS})"
+        )
+
+    if violations:
+        ok = False
+        messages.append(f"FAIL: {len(violations)} residual banned-token hit(s):")
+        messages.extend(violations)
+    else:
+        if ok:
+            messages.append("rename check passed — no residual banned tokens")
+
+    return ok, messages
+
+
+def _list_rename_exemptions() -> int:
+    """Print the exemption map and exit."""
+    compiled = [re.compile(p) for p in BANNED_PATTERNS]
+    exemptions: list[dict] = []
+
+    for path in sorted(ROOT.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = str(path.relative_to(ROOT)).replace("\\", "/")
+        if _is_allowlisted_path(rel):
+            continue
+        if path.suffix not in SCAN_EXTENSIONS and path.suffix != "":
+            continue
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        lines_raw = raw.splitlines()
+        lines = _strip_code_fences(lines_raw)
+        for line_idx, line in enumerate(lines):
+            for pattern in compiled:
+                if pattern.search(line):
+                    if _has_allow_marker_nearby(lines_raw, line_idx):
+                        exemptions.append({
+                            "file": rel,
+                            "line": line_idx + 1,
+                            "reason": "omni-rename-allow marker found",
+                            "text": lines_raw[line_idx].strip()[:120],
+                        })
+                    break
+
+    if not exemptions:
+        print("No rename exemptions found.")
+        return 0
+    print(f"Rename exemptions ({len(exemptions)} total):")
+    for e in exemptions:
+        print(f"  {e['file']}:{e['line']} — {e['reason']}")
+        print(f"    {e['text']}")
+    return 0
 
 
 def check_rename_stub() -> CheckResult:
@@ -38,6 +231,7 @@ def check_rename_stub() -> CheckResult:
 
 
 CHECKS: dict = {
+    "rename": check_rename,
     "rename-stub": check_rename_stub,
 }
 
@@ -62,6 +256,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Phase-B plugin-contract verifier")
     parser.add_argument("--all", action="store_true", help="Run every registered check")
     parser.add_argument("--list-checks", action="store_true", help="Print the registered checks and exit")
+    parser.add_argument("--list-rename-exemptions", action="store_true",
+                        help="Print the inline rename-allowlist exemption map and exit")
     for name in CHECKS:
         parser.add_argument(f"--check-{name}", action="append_const",
                             dest="requested", const=name,
@@ -73,6 +269,9 @@ def main() -> int:
         for name in CHECKS:
             print(name)
         return 0
+
+    if args.list_rename_exemptions:
+        return _list_rename_exemptions()
 
     if args.all:
         names = list(CHECKS.keys())
