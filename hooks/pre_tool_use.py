@@ -64,8 +64,23 @@ import json
 import os
 import shlex
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List
+
+
+def _nfc(s: str) -> str:
+    """Return *s* in Unicode NFC form.
+
+    Guard against macOS/Windows filesystem normalisation mismatches: a path can
+    be received in NFD (decomposed) form while the policy entries are written
+    in NFC (composed). Without normalisation the substring match below misses
+    and a protected path is allowed through.
+    """
+    try:
+        return unicodedata.normalize("NFC", s)
+    except Exception:
+        return s
 
 # Import shared hook library
 import importlib.util as _iu
@@ -214,16 +229,18 @@ def main() -> int:
                      "multiedit", "patch", "apply_patch",
                      "str_replace_editor", "create_file"):
         path_raw = str(tool_args.get("file_path") or tool_args.get("path") or "")
-        # Normalize path separators and resolve `..` where possible
+        # Normalize path separators and resolve `..` where possible.
+        # Apply Unicode NFC normalisation so a decomposed (NFD) path can't
+        # bypass a composed (NFC) protected-path entry.
         try:
             norm = os.path.normpath(path_raw).replace("\\", "/")
         except Exception:
             norm = path_raw.replace("\\", "/")
-        lower_norm = norm.lower()
+        lower_norm = _nfc(norm).lower()
         for protected in policy.get("protected_paths", []):
             if not protected:
                 continue
-            prot_norm = protected.replace("\\", "/").lower()
+            prot_norm = _nfc(protected.replace("\\", "/")).lower()
             if prot_norm in lower_norm:
                 action = "deny"
                 reason = f"copilot-omni policy: protected path '{protected}' — edit via `omni init` instead"
