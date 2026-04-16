@@ -80,7 +80,7 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 | `deepinit` | Deep project initialisation with full scan |
 | `hud` | Display current mode / state HUD |
 
-## MCP tools (22 tools, schema-validated)
+## MCP tools (20 tools, schema-validated)
 
 All tools are served by `mcp/server.py` (stdio JSON-RPC 2.0, stdlib only).
 Every `tools/call` is schema-validated; invalid payloads return a structured error.

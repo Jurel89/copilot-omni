@@ -13,7 +13,7 @@
 - **`configure-notifications` deferred** — moved to `.omni/deferred/configure-notifications/`. Retrievable from git. Phase-C.
 - **`CLAUDE.md` deleted** — `AGENTS.md` is the sole agent entrypoint.
 - **`CLAUDE_PLUGIN_ROOT` → `COPILOT_PLUGIN_ROOT`** — env-var used in skill bodies updated.
-- **MCP tool surface shrank from 30 → 22** — removed `subtask`, `workspace`, `memory_prune`, `run_status` (last two still callable but not documented). Use `state_*` for orchestration.
+- **MCP tool surface shrank from 30 → 20** — removed `subtask`, `workspace`, `memory_prune`, `run_status`. Use `state_*` for orchestration.
 - **`model: claude-*`** frontmatter dropped — use `category: quick|deep|ultrabrain` in agent files.
 
 ### Added — Wave 1: rename + decontamination (WS1, WS2, WS9)
@@ -27,7 +27,7 @@
 
 - **Front-door intent router** (`scripts/router.py`, ADR-0005): concreteness scorer; `score < 0.4` redirects to `deep-interview`; `--skip-interview` bypasses.
 - **Semantic model categories** (`scripts/category_resolver.py`, ADR-0003): `quick|deep|ultrabrain` resolved at runtime. Overridable in `.omni/config.json`.
-- **MCP server rewrite** (`mcp/server.py`): 22 tools, schema-validated `tools/call`, WAL-mode SQLite, `UNIQUE(mode, session_id)` constraint, exception message sanitisation.
+- **MCP server rewrite** (`mcp/server.py`): 20 tools, schema-validated `tools/call`, WAL-mode SQLite, `UNIQUE(mode, session_id)` constraint, exception message sanitisation.
 - **Autonomous pipeline modes**: `autopilot`, `ralph`, `ultrawork`, `ultraqa`, `ralplan` rebuilt with typed mode-key registry (ADR-0006) and cancel-cascade semantics.
 - **Subagent back-pressure** (`scripts/subagent.py`, ADR-0010): file-lock semaphore, default cap `min(8, cpu_count())`, configurable via `.omni/config.json`.
 - **Skill-as-agent dispatcher** (B1): `subagent.py` routes known skills via `/copilot-omni:<name>`, real agents via `--agent <name>`. No more silent fall-through.

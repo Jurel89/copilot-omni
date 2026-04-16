@@ -710,49 +710,6 @@ def _tool_trace_timeline(args: Dict[str, Any]) -> Dict[str, Any]:
     return _json_result({"timeline": [dict(r) for r in rows]})
 
 
-def _tool_subtask(args: Dict[str, Any]) -> Dict[str, Any]:
-    action = args.get("action", "status")
-    if action == "create":
-        run_id = args.get("run_id") or _new_id()
-        title = args.get("title", "subtask")
-        with _Conn() as conn:
-            conn.execute(
-                "INSERT INTO runs(id, phase, status, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (run_id, "subtask", "pending", json.dumps({"title": title}), _now(), _now()),
-            )
-        return _json_result({"run_id": run_id, "status": "pending"})
-    if action == "status":
-        return _tool_run_status({"run_id": args.get("run_id")})
-    if action == "route":
-        return _json_result({"route": "executor", "reason": "default routing"})
-    raise ValueError(f"unknown action: {action}")
-
-
-def _tool_workspace(args: Dict[str, Any]) -> Dict[str, Any]:
-    action = args.get("action", "list")
-    cwd = Path(args.get("cwd") or os.getcwd())
-    workspaces_root = (cwd / ".omni" / "workspaces").resolve()
-    workspaces_root.mkdir(parents=True, exist_ok=True)
-    if action == "create":
-        name = _safe_identifier(args["name"], "workspace name")
-        ws = workspaces_root / name
-        ws.mkdir(parents=True, exist_ok=True)
-        return _json_result({"name": name, "path": str(ws)})
-    if action == "remove":
-        name = _safe_identifier(args["name"], "workspace name")
-        ws = (workspaces_root / name).resolve()
-        if workspaces_root != ws and workspaces_root not in ws.parents:
-            raise ValueError("workspace path escapes root")
-        if ws.exists():
-            shutil.rmtree(ws)
-        return _json_result({"removed": name})
-    if action == "list":
-        return _json_result({
-            "workspaces": [p.name for p in workspaces_root.iterdir() if p.is_dir()],
-        })
-    raise ValueError(f"unknown action: {action}")
-
-
 # ------------------------------------------------------------------ registry
 
 
@@ -940,31 +897,9 @@ TOOLS: Dict[str, Dict[str, Any]] = {
         },
         "handler": _tool_trace_timeline,
     },
-    "subtask": {
-        "description": "Create, inspect, or route a subtask.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["create", "status", "route"]},
-                "run_id": {"type": "string"},
-                "title": {"type": "string"},
-            },
-        },
-        "handler": _tool_subtask,
-    },
-    "workspace": {
-        "description": "Manage local workspaces (create/remove/list).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["create", "remove", "list"]},
-                "name": {"type": "string"},
-                "cwd": {"type": "string"},
-            },
-        },
-        "handler": _tool_workspace,
-    },
 }
+# NOTE: subtask and workspace tools were removed (CHANGELOG 2.0.0 §Breaking Changes).
+# They are no longer registered or callable.
 
 
 # ------------------------------------------------------------------ schema validation dispatch

@@ -15,7 +15,7 @@ Pure Python stdlib + Markdown. Zero compiled binaries. Zero pip dependencies.
 - **Semantic model categories** — `quick`, `deep`, `ultrabrain` resolve to your Copilot subscription's best available model. No hardcoded model names in skill code.
 - **Autonomous pipeline modes** — `autopilot`, `ralph`, `ultrawork`, `ultraqa`, `ralplan` compose via a typed mode-key registry with full cancel-cascade semantics (ADR-0006).
 - **Team orchestration** — real tmux + git-worktree parallelism (`omni team`). Subprocess fallback for non-tmux environments. MCP-backed state machine tracks every worker.
-- **MCP-backed state** — 22 tools over stdio JSON-RPC 2.0. Schema-validated on every `tools/call`. WAL-mode SQLite with UNIQUE(mode, session_id).
+- **MCP-backed state** — 20 tools over stdio JSON-RPC 2.0. Schema-validated on every `tools/call`. WAL-mode SQLite with UNIQUE(mode, session_id).
 - **17-check contract validator** — `scripts/verify_plugin_contract.py --all` is the merge gate. Checks rename hygiene, Claude-primitive absence, mode-key registry, cancel-signal pairing, worktree hygiene, and more.
 - **Subagent back-pressure** — file-lock semaphore caps parallel subagents at `min(8, cpu_count())`. Configurable in `.omni/config.json`. Blocks instead of fails.
 - **Hook hardening** — atomic audit logging, 5 kill-switch env vars, per-hook switches, deprecated `OMC_*` aliases with v3.0.0 removal warning, session-start banner, policy permission checks.
@@ -27,7 +27,7 @@ Pure Python stdlib + Markdown. Zero compiled binaries. Zero pip dependencies.
 - **29 skills** — autopilot, ralph, ultrawork, ultraqa, ralplan, team, plan, deep-interview, deep-dive, verify, debug, trace, remember, wiki, external-context, ask, ai-slop-cleaner, skill, skillify, setup, omni-setup, omni-doctor, omni-reference, omni-teams, mcp-setup, release, cancel, deepinit, hud. (`omni list skills` for the full list.)
 - **19 agents** — analyst, architect, planner, critic, executor, explore, debugger, tracer, verifier, qa-tester, test-engineer, code-reviewer, security-reviewer, code-simplifier, document-specialist, writer, git-master, designer, scientist.
 - **10 slash commands** — `/omni-init`, `/omni-doctor`, `/omni-status`, `/omni-list`, `/omni-plan`, `/omni-ship`, `/omni-verify`, `/omni-memory`, `/omni-team`, `/omni-cancel`.
-- **22 MCP tools** via one stdio Python server — memory, wiki, notepad, state, shared-memory, trace, session, policy, health, doctor, config, support-bundle.
+- **20 MCP tools** via one stdio Python server — memory, wiki, notepad, state, shared-memory, trace, session, policy, health, doctor, config, support-bundle.
 - **4 lifecycle hooks** (sessionStart, preToolUse, postToolUse, userPromptSubmit) with atomic audit logging and kill-switch matrix.
 
 ## Install

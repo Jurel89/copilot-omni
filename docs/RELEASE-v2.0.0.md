@@ -21,7 +21,7 @@ the new invariants.
    `DISABLE_OMNI`. Aliases work through v2.x; removed in v3.0.0.
 4. **7 skills deleted** (ADR-0002) — `ccg`, `learner`, `project-session-manager`,
    `sciomc`, `self-improve`, `visual-verdict`, `writer-memory`.
-5. **MCP surface shrank from 30 → 22 tools** — `subtask` and `workspace` removed;
+5. **MCP surface shrank from 30 → 20 tools** — `subtask` and `workspace` removed;
    use `state_write` + team orchestration instead.
 
 See [docs/MIGRATION.md](MIGRATION.md) for the complete upgrade path.
@@ -38,7 +38,7 @@ See [docs/MIGRATION.md](MIGRATION.md) for the complete upgrade path.
   with typed mode-key registry and cancel-cascade semantics (ADR-0006).
 - **Team orchestration** — real tmux + git-worktree parallelism with MCP state machine
   per worker. Subprocess fallback for non-tmux environments.
-- **MCP-backed state** — 22 tools, schema-validated `tools/call`, WAL-mode SQLite,
+- **MCP-backed state** — 20 tools, schema-validated `tools/call`, WAL-mode SQLite,
   `UNIQUE(mode, session_id)` constraint.
 - **17-check contract validator** — `scripts/verify_plugin_contract.py --all` is the
   merge gate. Checks rename hygiene, primitive absence, mode-key registry, cancel-signal
