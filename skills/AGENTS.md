@@ -1,9 +1,9 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-01-28 | Updated: 2026-03-02 -->
+<!-- Generated: 2026-01-28 | Updated: 2026-04-16 -->
 
 # skills
 
-30 skill directories for workflow automation and specialized behaviors.
+29 skill directories for workflow automation and specialized behaviors.
 
 ## Purpose
 
@@ -38,20 +38,12 @@ Skills are reusable workflow templates that can be invoked via `/copilot-omni:sk
 | File | Skill | Purpose |
 |-----------|-------|---------|
 | `deepinit/SKILL.md` | deepinit | Generate hierarchical AGENTS.md |
-| `sciomc/SKILL.md` | sciomni | Parallel scientist orchestration |
-
-### Visual Skills
-
-| File | Skill | Purpose |
-|-----------|-------|---------|
-| `visual-verdict/SKILL.md` | visual-verdict | Structured visual QA verdict for screenshot/reference comparisons |
 
 ### Utility Skills
 
 | File | Skill | Purpose |
 |-----------|-------|---------|
 | `ai-slop-cleaner/SKILL.md` | ai-slop-cleaner | Regression-safe cleanup workflow for AI-generated code slop |
-| `learner/SKILL.md` | learner | Extract reusable skill from session |
 | `ask/SKILL.md` | ask | Ask Claude, Codex, or Gemini via `omc ask` and capture an artifact |
 | `note/SKILL.md` | note | Save notes for compaction resilience |
 | `cancel/SKILL.md` | cancel | Cancel any active copilot-omni mode |
@@ -67,8 +59,6 @@ Skills are reusable workflow templates that can be invoked via `/copilot-omni:sk
 
 | File | Skill | Purpose |
 |-----------|-------|---------|
-| `project-session-manager/SKILL.md` | project-session-manager (+ `psm` alias) | Isolated dev environments |
-| `writer-memory/SKILL.md` | writer-memory | Agentic memory for writers |
 | `release/SKILL.md` | release | Generic release assistant — analyzes repo CI/rules, caches in `.omni/RELEASE_RULE.md`, guides the release |
 
 ## For AI Agents
@@ -178,9 +168,9 @@ None - pure markdown files.
 | Execution | autopilot, ultrawork, ralph, team, ultraqa | "autopilot", "ulw", "ralph", "team" |
 | Cleanup | ai-slop-cleaner | "deslop", "anti-slop", cleanup/refactor + slop smells |
 | Planning | omni-plan, ralplan, deep-interview, ralph-init | "plan this", "interview me", "ouroboros" |
-| Exploration | deepinit, sciomni, external-context | "deepinit", "research" |
-| Utility | learner, note, cancel, hud, setup, omni-doctor, omni-setup, omni-help, mcp-setup | "stop", "cancel" |
-| Domain | psm, writer-memory, release | psm context |
+| Exploration | deepinit, external-context | "deepinit", "research" |
+| Utility | note, cancel, hud, setup, omni-doctor, omni-setup, omni-help, mcp-setup | "stop", "cancel" |
+| Domain | release | release context |
 
 ## Auto-Activation
 
