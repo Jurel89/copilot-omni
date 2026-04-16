@@ -12,6 +12,27 @@ WS5a additions
 - pool back-pressure (subagent_pool.py)
 - MCP state write (best-effort, mode="subagent")
 - OMNI_SUBAGENT_FAKE=1 test hook — bypasses real copilot exec
+
+WS5c additions (OMNI_SUBAGENT_FAKE_* env-var contract)
+-------------------------------------------------------
+OMNI_SUBAGENT_FAKE=1
+    Bypass real copilot execution. Runs a synthetic Python one-liner instead.
+
+OMNI_SUBAGENT_FAKE_SLEEP_SECS=<float>  (default: 1.0)
+    How long the fake subagent sleeps before exiting. Keep tiny in tests (0.05).
+
+OMNI_SUBAGENT_FAKE_EXIT_CODE=<int>  (default: 0)
+    Exit code the fake subagent returns. Set to non-zero to simulate failures.
+    Example: OMNI_SUBAGENT_FAKE_EXIT_CODE=1 causes the job to end in state="failed".
+
+OMNI_SUBAGENT_FAKE_STDERR=<string>  (default: "")
+    Text written to stderr by the fake subagent. Used to simulate error messages
+    for same-error-signature detection in ultraqa tests.
+    Example: OMNI_SUBAGENT_FAKE_STDERR="AssertionError: expected True got False"
+
+All three vars are read at command-build time in _build_cmd(). They are ignored
+when OMNI_SUBAGENT_FAKE is not set. The contract is additive: existing tests that
+only set OMNI_SUBAGENT_FAKE=1 continue to work unchanged (exit_code=0, stderr="").
 """
 from __future__ import annotations
 
@@ -297,11 +318,18 @@ def _build_cmd(
     allow_all: bool,
 ) -> Optional[list]:
     """Build the copilot command. Returns None if copilot not found."""
-    # OMNI_SUBAGENT_FAKE=1: bypass real copilot, use fake sleep-then-exit
+    # OMNI_SUBAGENT_FAKE=1: bypass real copilot, use synthetic exit
     if _env_bool("OMNI_SUBAGENT_FAKE", False):
         sleep_secs = float(os.environ.get("OMNI_SUBAGENT_FAKE_SLEEP_SECS", "1"))
+        exit_code = int(os.environ.get("OMNI_SUBAGENT_FAKE_EXIT_CODE", "0"))
+        fake_stderr = os.environ.get("OMNI_SUBAGENT_FAKE_STDERR", "")
+        # Build a one-liner: sleep, optionally write stderr, then exit
+        stderr_part = ""
+        if fake_stderr:
+            escaped = fake_stderr.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
+            stderr_part = f"import sys; sys.stderr.write('{escaped}\\n'); "
         return [sys.executable, "-c",
-                f"import time; time.sleep({sleep_secs}); print('OK')"]
+                f"import time; time.sleep({sleep_secs}); {stderr_part}print('OK'); exit({exit_code})"]
 
     copilot = shutil.which("copilot")
     if not copilot:
