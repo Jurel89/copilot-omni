@@ -86,6 +86,14 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     if strict and not categories_ok:
         ok = False
 
+    # WS5a: subagent pool state
+    pool_ok = _doctor_subagent_pool(root, strict=strict)
+    if strict and not pool_ok:
+        ok = False
+
+    # WS5a: recent runs summary
+    _doctor_recent_runs(root)
+
     return 0 if ok else 1
 
 
@@ -195,6 +203,96 @@ def _doctor_router(root: Path, home: Path, *, verbose: bool = False) -> None:
                 print(f"  ts:        {result.get('ts', '?')}")
     except Exception as exc:
         print(f"  (could not read router state: {exc})")
+
+
+def _doctor_subagent_pool(root: Path, *, strict: bool = False) -> bool:
+    """WS5a: show subagent pool state (cap, acquired slots)."""
+    pool_path = root / "scripts" / "subagent_pool.py"
+    if not pool_path.exists():
+        print("subagent pool: subagent_pool.py not found — skipping")
+        return True
+
+    try:
+        import importlib.util as _ilu
+        spec = _ilu.spec_from_file_location("subagent_pool", pool_path)
+        if spec is None or spec.loader is None:
+            print("subagent pool: could not load subagent_pool — skipping")
+            return True
+        pool_mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(pool_mod)  # type: ignore[union-attr]
+    except Exception as exc:
+        print(f"subagent pool: WARN: could not import subagent_pool: {exc}")
+        return True
+
+    try:
+        cap = pool_mod.get_cap()
+        pool = pool_mod.SubagentPool(cap=cap)
+        status = pool.status()
+        acquired = status.get("acquired", [])
+        job_ids = [e.get("job_id", "?") for e in acquired]
+        print(
+            f"subagent pool: cap={cap}, acquired={len(acquired)}"
+            + (f" (job ids: {job_ids})" if job_ids else "")
+            + " OK"
+        )
+
+        if strict:
+            import time
+            now = time.time()
+            orphaned = [
+                e for e in acquired
+                if now - e.get("ts", now) > 1800  # 30 min
+            ]
+            if orphaned:
+                print(
+                    f"subagent pool: FAIL (--strict): {len(orphaned)} acquired"
+                    " entry(ies) older than 30 min (likely orphaned)"
+                )
+                return False
+    except Exception as exc:
+        print(f"subagent pool: WARN: could not read pool status: {exc}")
+
+    return True
+
+
+def _doctor_recent_runs(root: Path) -> None:
+    """WS5a: show last 5 run IDs with job state counts."""
+    runs_dir = root / ".omni" / "runs"
+    if not runs_dir.exists():
+        print("recent runs:   (no .omni/runs/ directory)")
+        return
+
+    try:
+        run_dirs = sorted(
+            (d for d in runs_dir.iterdir() if d.is_dir()),
+            key=lambda d: d.stat().st_mtime,
+            reverse=True,
+        )[:5]
+
+        if not run_dirs:
+            print("recent runs:   (none)")
+            return
+
+        import json as _json
+        print("recent runs:")
+        for run_dir in run_dirs:
+            counts: dict = {}
+            for job_dir in run_dir.iterdir():
+                if not job_dir.is_dir():
+                    continue
+                sp = job_dir / "status.json"
+                if not sp.exists():
+                    continue
+                try:
+                    data = _json.loads(sp.read_text(encoding="utf-8"))
+                    state = data.get("state", "unknown")
+                    counts[state] = counts.get(state, 0) + 1
+                except Exception:
+                    counts["unreadable"] = counts.get("unreadable", 0) + 1
+            count_str = ", ".join(f"{s}={n}" for s, n in sorted(counts.items()))
+            print(f"  {run_dir.name}: {count_str or '(no jobs)'}")
+    except Exception as exc:
+        print(f"recent runs:   WARN: could not read runs: {exc}")
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
