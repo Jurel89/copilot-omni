@@ -114,13 +114,14 @@ def wait_for_jobs(
         {job_id, run_id, state, exit_code, duration_s, stdout_path, stderr_path}
 
     Returns:
-        0  — all done
-        1  — any failed/cancelled
-        124 — timeout
+        0   — all jobs reached terminal state, all succeeded
+        1   — all jobs reached terminal state, ≥1 was failed/cancelled
+        2   — config/usage error (no status paths, no jobs found)
+        124 — timeout (≥1 job still pending)
     """
     if not status_paths:
         print("wait_for_jobs: no status paths provided", file=sys.stderr)
-        return 1
+        return 2  # T6: config error, not job failure
 
     pending = {str(p): p for p in status_paths}
     terminal_states: dict[str, dict] = {}  # path -> status dict
@@ -237,7 +238,7 @@ def main() -> int:
                 f"wait_for_jobs: no jobs found for run-id {args.run_id!r}",
                 file=sys.stderr,
             )
-            return 1
+            return 2  # T6: config error — no jobs found, not a job failure
         paths.extend(extra)
 
     if args.session_id:
@@ -247,7 +248,7 @@ def main() -> int:
                 f"wait_for_jobs: no jobs found for session-id {args.session_id!r}",
                 file=sys.stderr,
             )
-            return 1
+            return 2  # T6: config error — no jobs found, not a job failure
         paths.extend(extra)
 
     if not paths:

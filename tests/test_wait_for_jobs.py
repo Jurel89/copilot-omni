@@ -288,3 +288,30 @@ def test_cli_no_args_exit_2(capsys):
         sys.argv = old_argv
 
     assert rc == 2
+
+
+# ---------------------------------------------------------------------------
+# T6: exit-code semantics — 2 for config errors, 1 only for job failures
+# ---------------------------------------------------------------------------
+
+
+def test_empty_status_paths_returns_2(capsys):
+    """T6: wait_for_jobs([]) returns 2 (config error), not 1."""
+    rc = wfj.wait_for_jobs([], timeout=5)
+    assert rc == 2, f"Expected 2 for no paths, got {rc}"
+
+
+def test_failed_job_returns_1_not_2(tmp_path):
+    """T6: a failed job returns 1 (job failure), not 2."""
+    p = tmp_path / "status.json"
+    _write_status(p, _make_status("job1", "run1", "failed", exit_code=1))
+    rc = wfj.wait_for_jobs([p], timeout=5)
+    assert rc == 1, f"Expected 1 for failed job, got {rc}"
+
+
+def test_succeeded_job_returns_0(tmp_path):
+    """T6: all done jobs returns 0."""
+    p = tmp_path / "status.json"
+    _write_status(p, _make_status("job1", "run1", "done", exit_code=0))
+    rc = wfj.wait_for_jobs([p], timeout=5)
+    assert rc == 0, f"Expected 0 for all-done, got {rc}"
