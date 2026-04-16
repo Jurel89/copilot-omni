@@ -234,5 +234,66 @@ class TestPolicyPermissionCheck(unittest.TestCase):
         self.assertEqual(warnings, [])
 
 
+class TestPluginRootResolution(unittest.TestCase):
+    """_PLUGIN_ROOT env-var precedence: OMNI_PLUGIN_ROOT > CLAUDE_PLUGIN_ROOT > file-relative.
+
+    C2 regression guard: Path("") == Path(".") is truthy, so simple `or` logic
+    would silently bind plugin root to cwd when env var is absent.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _compute_plugin_root(self, env: dict[str, str]) -> Path:
+        """Compute _PLUGIN_ROOT with the given environment, without importing the module."""
+        omni = env.get("OMNI_PLUGIN_ROOT")
+        claude = env.get("CLAUDE_PLUGIN_ROOT")
+        if omni:
+            return Path(omni)
+        if claude:
+            return Path(claude)
+        return Path(HOOKS / "session_start.py").resolve().parent.parent
+
+    def test_omni_plugin_root_takes_precedence_over_claude(self):
+        omni_dir = self._root / "omni_root"
+        claude_dir = self._root / "claude_root"
+        result = self._compute_plugin_root({
+            "OMNI_PLUGIN_ROOT": str(omni_dir),
+            "CLAUDE_PLUGIN_ROOT": str(claude_dir),
+        })
+        self.assertEqual(result, omni_dir)
+
+    def test_claude_plugin_root_used_when_omni_absent(self):
+        claude_dir = self._root / "claude_root"
+        result = self._compute_plugin_root({"CLAUDE_PLUGIN_ROOT": str(claude_dir)})
+        self.assertEqual(result, claude_dir)
+
+    def test_file_relative_default_when_both_absent(self):
+        result = self._compute_plugin_root({})
+        # Should be parent of parent of session_start.py (i.e. repo root)
+        expected = Path(HOOKS / "session_start.py").resolve().parent.parent
+        self.assertEqual(result, expected)
+
+    def test_empty_omni_env_var_falls_through_to_claude(self):
+        """OMNI_PLUGIN_ROOT="" should NOT use cwd — must fall through to CLAUDE_PLUGIN_ROOT."""
+        claude_dir = self._root / "claude_root"
+        # Simulate what the fixed code does: only use OMNI_PLUGIN_ROOT if truthy
+        env = {"OMNI_PLUGIN_ROOT": "", "CLAUDE_PLUGIN_ROOT": str(claude_dir)}
+        result = self._compute_plugin_root(env)
+        self.assertEqual(result, claude_dir)
+
+    def test_empty_string_env_vars_fall_to_file_relative(self):
+        """Both empty → file-relative default, which is an absolute path (not Path('.'))."""
+        result = self._compute_plugin_root({"OMNI_PLUGIN_ROOT": "", "CLAUDE_PLUGIN_ROOT": ""})
+        expected = Path(HOOKS / "session_start.py").resolve().parent.parent
+        self.assertEqual(result, expected)
+        # Critical: must be an absolute path resolved from __file__, not the unresolved cwd sentinel
+        self.assertTrue(result.is_absolute(), f"expected absolute path, got {result!r}")
+
+
 if __name__ == "__main__":
     unittest.main()

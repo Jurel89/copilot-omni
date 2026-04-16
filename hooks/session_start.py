@@ -57,8 +57,13 @@ _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
 _append_audit = _mod._append_audit
 _write_metric = _mod._write_metric
 
-# Plugin root is either CLAUDE_PLUGIN_ROOT env or the parent of this file
-_PLUGIN_ROOT = Path(os.environ.get("CLAUDE_PLUGIN_ROOT", "")) or Path(__file__).resolve().parent.parent
+# Plugin root: OMNI_PLUGIN_ROOT (primary) > CLAUDE_PLUGIN_ROOT (legacy fallback) > file-relative default.
+# NOTE: Path("") == Path(".") which is truthy, so we must NOT use `or` with Path("").
+_PLUGIN_ROOT = (
+    Path(os.environ["OMNI_PLUGIN_ROOT"]) if os.environ.get("OMNI_PLUGIN_ROOT")
+    else Path(os.environ["CLAUDE_PLUGIN_ROOT"]) if os.environ.get("CLAUDE_PLUGIN_ROOT")
+    else Path(__file__).resolve().parent.parent
+)
 
 
 # ---------------------------------------------------------------------------
