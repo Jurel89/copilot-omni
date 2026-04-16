@@ -8,3 +8,9 @@ pytest>=7.0
 # Line-coverage measurement (used by scripts/measure_coverage.py)
 # Run: python3 -m coverage run / report
 coverage>=7.0
+
+# Phase-C C29: mutation testing. Optional. Invoke the wrapper via:
+#   python3 scripts/run_mutation.py
+# mutmut is NOT required for the fast CI lane — the wrapper exits 0 when
+# it cannot import mutmut.
+mutmut>=2.4
