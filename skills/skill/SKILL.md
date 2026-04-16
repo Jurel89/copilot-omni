@@ -759,6 +759,7 @@ Good skills are:
 
 ## Related Skills
 
+<!-- omni-ref-allow: example learner/note are planned skills, not yet implemented -->
 - `/copilot-omni:learner` - Extract a skill from current conversation
 - `/copilot-omni:note` - Save quick notes (less formal than skills)
 - `/copilot-omni:deepinit` - Generate AGENTS.md codebase hierarchy
@@ -832,6 +833,7 @@ What would you like to do?
 
 ## Related Skills
 
+<!-- omni-ref-allow: example learner/note are planned skills, not yet implemented -->
 - `/copilot-omni:learner` - Extract a skill from current conversation
 - `/copilot-omni:note` - Save quick notes (less formal than skills)
 - `/copilot-omni:deepinit` - Generate AGENTS.md codebase hierarchy
