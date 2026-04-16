@@ -73,6 +73,8 @@ ALLOWLIST_PATHS: tuple[str, ...] = (
     ".omni/plans/wave-3-WS6-report.md",
     # WS7 report documents hook hardening; legitimately cites OMC legacy env vars
     ".omni/plans/wave-3-WS7-report.md",
+    # WS10 report documents test strategy; cites historical module names
+    ".omni/plans/wave-3-WS10-report.md",
     # WS7 hook library legitimately references the legacy sentinel filename for backward compat
     "hooks/_hook_lib.py",
     # WS7 tests reference the sentinel filename to test the deprecation-warn path
