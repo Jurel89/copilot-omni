@@ -30,7 +30,28 @@ OMNI_SUBAGENT_FAKE_STDERR=<string>  (default: "")
     for same-error-signature detection in ultraqa tests.
     Example: OMNI_SUBAGENT_FAKE_STDERR="AssertionError: expected True got False"
 
-All three vars are read at command-build time in _build_cmd(). They are ignored
+WS5d additions
+--------------
+OMNI_SUBAGENT_FAKE_RESPONSE_FILE=<path>  (default: "")
+    Path to a JSON file mapping agent_name → list_of_responses_in_order.
+    When set (and OMNI_SUBAGENT_FAKE=1), each call to agent X pops the next
+    response string from responses[X] and writes it to stdout instead of "OK".
+    Responses are consumed in order; once the list is exhausted the fake falls
+    back to "OK". Invocation counts are tracked in a sidecar file at
+    <response_file>.counts.json (agent_name → int) using atomic writes so
+    parallel invocations are safe within a single test process.
+
+    Format of the JSON file:
+    {
+      "planner": ["plan text cycle 1", "plan text cycle 2"],
+      "critic":  ["VERDICT: REVISE", "VERDICT: APPROVE"],
+      "architect": ["arch review cycle 1"]
+    }
+
+    Each string becomes the full stdout of the fake subagent for that invocation.
+    The response file is read-only; counts are written to the sidecar.
+
+All vars are read at command-build time in _build_cmd(). They are ignored
 when OMNI_SUBAGENT_FAKE is not set. The contract is additive: existing tests that
 only set OMNI_SUBAGENT_FAKE=1 continue to work unchanged (exit_code=0, stderr="").
 """
@@ -311,6 +332,55 @@ def spawn(
         pass
 
 
+def _get_fake_response(agent: str) -> str:
+    """Return the next scripted response for *agent* from OMNI_SUBAGENT_FAKE_RESPONSE_FILE.
+
+    Reads the JSON response file, looks up responses[agent], pops the first
+    entry, persists the updated counts to a sidecar file, and returns the
+    response string.  Falls back to "OK" when the file is absent, the agent
+    has no entry, or the list is exhausted.
+    """
+    response_file = os.environ.get("OMNI_SUBAGENT_FAKE_RESPONSE_FILE", "")
+    if not response_file:
+        return "OK"
+
+    import json as _json
+    rf = Path(response_file)
+    if not rf.exists():
+        return "OK"
+
+    try:
+        responses: dict = _json.loads(rf.read_text(encoding="utf-8"))
+    except Exception:
+        return "OK"
+
+    agent_responses = responses.get(agent, [])
+    if not agent_responses:
+        return "OK"
+
+    # Track invocation count via sidecar file (atomic read-modify-write)
+    counts_file = rf.with_suffix(".counts.json")
+    try:
+        counts: dict = _json.loads(counts_file.read_text(encoding="utf-8")) if counts_file.exists() else {}
+    except Exception:
+        counts = {}
+
+    idx = counts.get(agent, 0)
+    if idx >= len(agent_responses):
+        return "OK"
+
+    response_text = agent_responses[idx]
+    counts[agent] = idx + 1
+    try:
+        tmp = counts_file.with_suffix(".tmp")
+        tmp.write_text(_json.dumps(counts, indent=2), encoding="utf-8")
+        os.replace(str(tmp), str(counts_file))
+    except Exception:
+        pass  # sidecar write failure is non-fatal
+
+    return response_text
+
+
 def _build_cmd(
     agent: str,
     prompt: str,
@@ -323,13 +393,16 @@ def _build_cmd(
         sleep_secs = float(os.environ.get("OMNI_SUBAGENT_FAKE_SLEEP_SECS", "1"))
         exit_code = int(os.environ.get("OMNI_SUBAGENT_FAKE_EXIT_CODE", "0"))
         fake_stderr = os.environ.get("OMNI_SUBAGENT_FAKE_STDERR", "")
+        # Check for scripted per-agent response
+        fake_output = _get_fake_response(agent)
         # Build a one-liner: sleep, optionally write stderr, then exit
         stderr_part = ""
         if fake_stderr:
             escaped = fake_stderr.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
             stderr_part = f"import sys; sys.stderr.write('{escaped}\\n'); "
+        escaped_output = fake_output.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
         return [sys.executable, "-c",
-                f"import time; time.sleep({sleep_secs}); {stderr_part}print('OK'); exit({exit_code})"]
+                f"import time; time.sleep({sleep_secs}); {stderr_part}print('{escaped_output}'); exit({exit_code})"]
 
     copilot = shutil.which("copilot")
     if not copilot:

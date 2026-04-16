@@ -1,0 +1,14 @@
+{
+  "planner": [
+    "# Plan v1\n\nBasic CLI bookmark manager.\n\nPLAN COMPLETE",
+    "# Plan v2\n\nImproved CLI bookmark manager with error handling.\n\n## Acceptance criteria\n- `bm add <url> <tag>` stores bookmark\n- `bm list` lists all bookmarks\n- Error messages for invalid input\n\nPLAN COMPLETE"
+  ],
+  "architect": [
+    "# Architect Review v1\n\nPlan is thin — missing error handling.\n\nARCHITECT REVIEW COMPLETE",
+    "# Architect Review v2\n\nImproved plan addresses concerns. Structurally sound.\n\nARCHITECT REVIEW COMPLETE"
+  ],
+  "critic": [
+    "# Critic Review v1\n\nMissing error handling and edge cases.\n\nVERDICT: REVISE",
+    "# Critic Review v2\n\nAll concerns addressed. Plan is solid.\n\nVERDICT: APPROVE"
+  ]
+}
