@@ -26,9 +26,51 @@ _VERDICT_RE = re.compile(r"^VERDICT:\s*(APPROVE|REVISE|REJECT)\s*$")
 
 _VALID_VERDICTS = frozenset({"APPROVE", "REVISE", "REJECT"})
 
+# Matches opening and closing markdown code fences (``` or ~~~, with optional language tag)
+_FENCE_OPEN_RE = re.compile(r"^(`{3,}|~{3,})\S*\s*$")
+_FENCE_CLOSE_RE = re.compile(r"^(`{3,}|~{3,})\s*$")
+
+
+def _strip_code_fences(text: str) -> str:
+    """Remove content inside markdown code fences from *text*.
+
+    T7 fix: LLM-generated reviews sometimes illustrate what a VERDICT line
+    should look like inside a fenced code block.  We must not treat VERDICT
+    lines inside fences as authoritative.
+
+    Returns the text with all fenced-block content replaced by empty lines so
+    that line numbers are preserved.
+    """
+    result: list[str] = []
+    in_fence = False
+    fence_marker: str = ""
+
+    for line in text.splitlines():
+        stripped = line.rstrip()
+        if not in_fence:
+            m = _FENCE_OPEN_RE.match(stripped)
+            if m:
+                in_fence = True
+                fence_marker = m.group(1)[0] * 3  # normalise to 3 chars
+                result.append("")  # replace fence line with blank
+            else:
+                result.append(line)
+        else:
+            # Look for closing fence with same character
+            close = _FENCE_CLOSE_RE.match(stripped)
+            if close and stripped.startswith(fence_marker):
+                in_fence = False
+                fence_marker = ""
+            result.append("")  # blank out all lines inside fence
+
+    return "\n".join(result)
+
 
 def extract_verdict(text: str) -> str | None:
     """Return the LAST valid verdict word from *text*, or None if absent.
+
+    T7 fix: strips markdown code fences before scanning so that VERDICT lines
+    inside illustrative code blocks are not mistaken for the authoritative verdict.
 
     Parameters
     ----------
@@ -39,8 +81,9 @@ def extract_verdict(text: str) -> str | None:
     -------
     ``"APPROVE"``, ``"REVISE"``, ``"REJECT"``, or ``None``.
     """
+    stripped = _strip_code_fences(text)
     last: str | None = None
-    for line in text.splitlines():
+    for line in stripped.splitlines():
         m = _VERDICT_RE.match(line.rstrip())
         if m:
             last = m.group(1)

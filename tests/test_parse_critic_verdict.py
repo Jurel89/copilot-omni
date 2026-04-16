@@ -155,3 +155,73 @@ def test_main_reject_prints_and_exits_0(tmp_path, capsys):
     assert rc == 0
     out = capsys.readouterr().out
     assert out.strip() == "REJECT"
+
+
+# ---------------------------------------------------------------------------
+# T7: fence-stripping adversarial tests
+# ---------------------------------------------------------------------------
+
+
+def test_verdict_inside_fence_ignored():
+    """T7: VERDICT line inside a fenced code block must NOT win."""
+    text = (
+        "The critic's outside verdict is APPROVE.\n"
+        "VERDICT: APPROVE\n"
+        "\n"
+        "Here is what a REJECT looks like:\n"
+        "```\n"
+        "VERDICT: REJECT\n"
+        "```\n"
+    )
+    # The outside APPROVE must win, not the fenced REJECT
+    assert extract_verdict(text) == "APPROVE"
+
+
+def test_verdict_inside_tilde_fence_ignored():
+    """T7: tilde fences are also stripped."""
+    text = (
+        "VERDICT: REVISE\n"
+        "~~~\n"
+        "VERDICT: REJECT\n"
+        "~~~\n"
+    )
+    assert extract_verdict(text) == "REVISE"
+
+
+def test_only_fenced_verdict_returns_none():
+    """T7: if the only VERDICT line is inside a fence, return None."""
+    text = (
+        "This is a review with no outside verdict.\n"
+        "```markdown\n"
+        "VERDICT: APPROVE\n"
+        "```\n"
+    )
+    assert extract_verdict(text) is None
+
+
+def test_fence_then_outside_verdict():
+    """T7: a VERDICT after the closing fence is picked up correctly."""
+    text = (
+        "```\n"
+        "VERDICT: REJECT\n"
+        "```\n"
+        "Actually the plan is fine.\n"
+        "VERDICT: APPROVE\n"
+    )
+    assert extract_verdict(text) == "APPROVE"
+
+
+def test_multiple_fences_last_outside_wins():
+    """T7: last VERDICT outside any fence wins."""
+    text = (
+        "VERDICT: REVISE\n"
+        "```\n"
+        "VERDICT: REJECT\n"
+        "```\n"
+        "Further reflection:\n"
+        "VERDICT: APPROVE\n"
+        "```\n"
+        "VERDICT: REJECT\n"
+        "```\n"
+    )
+    assert extract_verdict(text) == "APPROVE"
