@@ -25,7 +25,7 @@ Automatically detects which mode is active and cancels it:
 - **Swarm**: Stops coordinated agent swarm, releases claimed tasks
 - **Ultrapilot**: Stops parallel autopilot workers
 - **Pipeline**: Stops sequential agent pipeline
-- **Team**: Sends shutdown_request to all teammates, waits for responses, calls TeamDelete, clears linked ralph if present
+- **Team**: Signals all workers via cancel cascade (`omni_team.py cancel`), waits for responses, runs cleanup, clears linked ralph if present
 - **Team+Ralph (linked)**: Cancels team first (graceful shutdown), then clears ralph state. Cancelling ralph when linked also cancels team first.
 
 ## Usage
@@ -61,43 +61,37 @@ cleanup that cannot be done via file deletion alone.
 
 ```bash
 # Fallback: direct file removal when state_clear MCP tool is unavailable
-SESSION_ID="${CLAUDE_SESSION_ID:-${CLAUDECODE_SESSION_ID:-}}"
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || { d="$PWD"; while [ "$d" != "/" ] && [ ! -d "$d/.omc" ]; do d="$(dirname "$d")"; done; echo "$d"; })"
+SESSION_ID="${OMNI_SESSION_ID:-}"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || { d="$PWD"; while [ "$d" != "/" ] && [ ! -d "$d/.omni" ]; do d="$(dirname "$d")"; done; echo "$d"; })"
 
-# Cross-platform SHA-256 (macOS: shasum, Linux: sha256sum)
-sha256portable() { printf '%s' "$1" | (sha256sum 2>/dev/null || shasum -a 256) | cut -c1-16; }
-
-# Resolve state directory (supports OMC_STATE_DIR centralized storage)
-if [ -n "${OMC_STATE_DIR:-}" ]; then
-  # Mirror getProjectIdentifier() from worktree-paths.ts
-  SOURCE="$(git remote get-url origin 2>/dev/null || echo "$REPO_ROOT")"
-  HASH="$(sha256portable "$SOURCE")"
-  DIR_NAME="$(basename "$REPO_ROOT" | sed 's/[^a-zA-Z0-9_-]/_/g')"
-  OMC_STATE="$OMC_STATE_DIR/${DIR_NAME}-${HASH}/state"
-  [ ! -d "$OMC_STATE" ] && { echo "ERROR: State dir not found at $OMC_STATE" >&2; exit 1; }
-elif [ "$REPO_ROOT" != "/" ] && [ -d "$REPO_ROOT/.omc" ]; then
-  OMC_STATE="$REPO_ROOT/.omni/state"
+# Resolve state directory (OMNI_PLUGIN_ROOT primary, CLAUDE_PLUGIN_ROOT legacy fallback)
+PLUGIN_ROOT="${OMNI_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -n "${OMNI_STATE_DIR:-}" ]; then
+  OMNI_STATE="$OMNI_STATE_DIR/state"
+  [ ! -d "$OMNI_STATE" ] && { echo "ERROR: State dir not found at $OMNI_STATE" >&2; exit 1; }
+elif [ "$REPO_ROOT" != "/" ] && [ -d "$REPO_ROOT/.omni" ]; then
+  OMNI_STATE="$REPO_ROOT/.omni/state"
 else
-  echo "ERROR: Could not locate .omc state directory" >&2
+  echo "ERROR: Could not locate .omni state directory" >&2
   exit 1
 fi
 MODE="ralplan"  # <-- replace with the target mode
 
 # Clear session-scoped state for the specific mode
-if [ -n "$SESSION_ID" ] && [ -d "$OMC_STATE/sessions/$SESSION_ID" ]; then
-  rm -f "$OMC_STATE/sessions/$SESSION_ID/${MODE}-state.json"
-  rm -f "$OMC_STATE/sessions/$SESSION_ID/${MODE}-stop-breaker.json"
-  rm -f "$OMC_STATE/sessions/$SESSION_ID/skill-active-state.json"
+if [ -n "$SESSION_ID" ] && [ -d "$OMNI_STATE/sessions/$SESSION_ID" ]; then
+  rm -f "$OMNI_STATE/sessions/$SESSION_ID/${MODE}-state.json"
+  rm -f "$OMNI_STATE/sessions/$SESSION_ID/${MODE}-stop-breaker.json"
+  rm -f "$OMNI_STATE/sessions/$SESSION_ID/skill-active-state.json"
   # Write cancel signal so stop hook detects cancellation in progress
   NOW_ISO="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   EXPIRES_ISO="$(date -u -d "+30 seconds" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || python3 - <<'PY'\nfrom datetime import datetime, timedelta, timezone\nprint((datetime.now(timezone.utc) + timedelta(seconds=30)).strftime('%Y-%m-%dT%H:%M:%SZ'))\nPY\n)"
   printf '{"active":true,"requested_at":"%s","expires_at":"%s","mode":"%s","source":"bash_fallback"}' \
-    "$NOW_ISO" "$EXPIRES_ISO" "$MODE" > "$OMC_STATE/sessions/$SESSION_ID/cancel-signal-state.json"
+    "$NOW_ISO" "$EXPIRES_ISO" "$MODE" > "$OMNI_STATE/sessions/$SESSION_ID/cancel-signal-state.json"
 fi
 
 # Clear legacy state only if no session ID (avoid clearing another session's state)
 if [ -z "$SESSION_ID" ]; then
-  rm -f "$OMC_STATE/${MODE}-state.json"
+  rm -f "$OMNI_STATE/${MODE}-state.json"
 fi
 ```
 
@@ -235,17 +229,14 @@ python3 scripts/omni_team.py cleanup <run_id>
 
 **Orphan Detection (Post-Cleanup):**
 
-After TeamDelete, verify no agent processes remain:
+After cleanup, verify no agent processes remain using the Python orchestrator:
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-orphans.mjs" --team-name "{team_name}"
+# Check for orphan workers (processes still running after cancel+cleanup)
+python3 scripts/omni_team.py cleanup <run_id> --force
 ```
 
-The orphan scanner:
-1. Checks `ps aux` (Unix) or `tasklist` (Windows) for processes with `--team-name` matching the deleted team
-2. For each orphan whose team config no longer exists: sends SIGTERM, waits 5s, sends SIGKILL if still alive
-3. Reports cleanup results as JSON
-
-Use `--dry-run` to inspect without killing. The scanner is safe to run multiple times.
+The cleanup command removes worktrees, prunes git state, and clears transient artifacts.
+Use `--force` to remove even workers that have not reached a terminal state.
 
 **Structured Cancel Report:**
 ```
@@ -253,9 +244,9 @@ Team "{team_name}" cancelled:
   - Members signaled: N
   - Responses received: M
   - Unresponsive: K (list names if any)
-  - TeamDelete: success/failed
+  - Cleanup: success/failed
   - Manual cleanup needed: yes/no
-    Path: ~/.claude/teams/{name}/ and ~/.claude/tasks/{name}/
+    Path: .omni/runs/team-{run_id}/
 ```
 
 **Implementation note:** The cancel skill is executed by the LLM, not as a bash script. When you detect an active team (WS6 runtime):
