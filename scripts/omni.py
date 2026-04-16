@@ -80,7 +80,70 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     # WS3: router config check
     _doctor_router(root, home, verbose=getattr(args, "verbose", False))
 
+    # WS4: model category fallback check
+    strict = getattr(args, "strict", False)
+    categories_ok = _doctor_categories(root, strict=strict)
+    if strict and not categories_ok:
+        ok = False
+
     return 0 if ok else 1
+
+
+def _doctor_categories(root: Path, *, strict: bool = False) -> bool:
+    """WS4: resolve each model category and report; warn on drift.
+
+    Returns True if all categories resolve to their primary (or check failed).
+    Returns False only when strict=True and any category used a fallback.
+    """
+    resolver_path = root / "scripts" / "category_resolver.py"
+    if not resolver_path.exists():
+        print("models:        category_resolver.py not found — skipping")
+        return True
+
+    try:
+        import importlib.util as _ilu
+        spec = _ilu.spec_from_file_location("category_resolver", resolver_path)
+        if spec is None or spec.loader is None:
+            print("models:        could not load category_resolver — skipping")
+            return True
+        resolver = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(resolver)  # type: ignore[union-attr]
+    except Exception as exc:
+        print(f"models:        WARN: could not import category_resolver: {exc}")
+        return True
+
+    all_ok = True
+    all_failed = True  # track if every check failed (CLI not present)
+
+    for cat in sorted(resolver.known_categories()):
+        try:
+            res = resolver.resolve(cat)
+        except Exception as exc:
+            print(f"models:        {cat}: WARN resolve error: {exc}")
+            continue
+
+        check = res.get("available_check", "?")
+        model = res.get("model", "?")
+        primary = res.get("primary", "?")
+        tried = res.get("fallbacks_tried", [])
+
+        if check != "failed":
+            all_failed = False
+
+        if tried:
+            status = f"DRIFT (fallback: {model}; primary: {primary}; tried: {tried})"
+            print(f"models:        {cat} → {status}")
+            if strict:
+                all_ok = False
+        else:
+            check_note = f"; check: {check}" if check != "ok" else ""
+            print(f"models:        {cat} → {model} (primary{check_note})")
+
+    if all_failed:
+        print("models:        WARN: availability check failed for all categories "
+              "(copilot models subcommand may not be available) — assuming primary OK")
+
+    return all_ok
 
 
 def _doctor_router(root: Path, home: Path, *, verbose: bool = False) -> None:
@@ -224,6 +287,8 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor")
     doctor.add_argument("--verbose", action="store_true",
                         help="Show router config and recent decisions")
+    doctor.add_argument("--strict", action="store_true",
+                        help="Fail if any model category resolves to a fallback (signals drift)")
     doctor.set_defaults(func=_cmd_doctor)
 
     init = sub.add_parser("init", help="Scaffold .omni/ in the current project")
