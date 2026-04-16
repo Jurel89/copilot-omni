@@ -4,6 +4,8 @@ description: Expert code review specialist with severity-rated feedback, logic d
 model: claude-opus-4-6
 level: 3
 disallowedTools: Write, Edit
+# Read-only reviewer: must not modify project files
+writable: false
 ---
 
 <Agent_Prompt>
