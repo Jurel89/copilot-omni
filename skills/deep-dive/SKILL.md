@@ -7,10 +7,10 @@ triggers:
   - "deep-dive"
   - "trace and interview"
   - "investigate deeply"
-pipeline: [deep-dive, omc-plan, autopilot]
-next-skill: omc-plan
+pipeline: [deep-dive, omni-plan, autopilot]
+next-skill: omni-plan
 next-skill-args: --consensus --direct
-handoff: .omc/specs/deep-dive-{slug}.md
+handoff: .omni/specs/deep-dive-{slug}.md
 ---
 
 <Purpose>
@@ -119,7 +119,7 @@ After confirmation, update state to `current_phase: "trace-executing"`.
 
 ## Phase 3: Trace Execution
 
-Run the trace autonomously using the `oh-my-claudecode:trace` skill's behavioral contract.
+Run the trace autonomously using the `copilot-omni:trace` skill's behavioral contract.
 
 ### Team Mode Orchestration
 
@@ -142,7 +142,7 @@ Use **Claude built-in team mode** to run 3 parallel tracer lanes:
 
 ### Trace Output Structure
 
-Save to `.omc/specs/deep-dive-trace-{slug}.md`:
+Save to `.omni/specs/deep-dive-trace-{slug}.md`:
 
 ```markdown
 # Deep Dive Trace: {slug}
@@ -190,14 +190,14 @@ Save to `.omc/specs/deep-dive-trace-{slug}.md`:
 ```
 
 After saving:
-- Persist `trace_path` in state: `state_write` with `state.trace_path = ".omc/specs/deep-dive-trace-{slug}.md"`
+- Persist `trace_path` in state: `state_write` with `state.trace_path = ".omni/specs/deep-dive-trace-{slug}.md"`
 - Update `current_phase: "trace-complete"`
 
 ## Phase 4: Interview with Trace Injection
 
 ### Architecture: Reference-not-Copy
 
-Phase 4 follows the `oh-my-claudecode:deep-interview` SKILL.md Phases 2-4 (Interview Loop, Challenge Agents, Crystallize Spec) as the base behavioral contract. The executor MUST read the deep-interview SKILL.md to understand the full interview protocol. Deep-dive does NOT duplicate the interview protocol — it specifies exactly **3 initialization overrides**:
+Phase 4 follows the `copilot-omni:deep-interview` SKILL.md Phases 2-4 (Interview Loop, Challenge Agents, Crystallize Spec) as the base behavioral contract. The executor MUST read the deep-interview SKILL.md to understand the full interview protocol. Deep-dive does NOT duplicate the interview protocol — it specifies exactly **3 initialization overrides**:
 
 ### 3-Point Injection (the core differentiator)
 
@@ -253,8 +253,8 @@ When ambiguity ≤ threshold (default 0.2), generate the spec in **standard deep
 
 - All standard sections: Goal, Constraints, Non-Goals, Acceptance Criteria, Assumptions Exposed, Technical Context, Ontology, Ontology Convergence, Interview Transcript
 - **Additional section: "Trace Findings"** — summarizes the trace results (most likely explanation, per-lane critical unknowns resolved, evidence that shaped the interview)
-- Save to `.omc/specs/deep-dive-{slug}.md`
-- Persist `spec_path` in state: `state_write` with `state.spec_path = ".omc/specs/deep-dive-{slug}.md"`
+- Save to `.omni/specs/deep-dive-{slug}.md`
+- Persist `spec_path` in state: `state_write` with `state.spec_path = ".omni/specs/deep-dive-{slug}.md"`
 - Update `current_phase: "spec-complete"`
 
 ## Phase 5: Execution Bridge
@@ -269,20 +269,20 @@ Present execution options via `AskUserQuestion`:
 
 1. **Ralplan → Autopilot (Recommended)**
    - Description: "3-stage pipeline: consensus-refine this spec with Planner/Architect/Critic, then execute with full autopilot. Maximum quality."
-   - Action: Invoke `Skill("oh-my-claudecode:omc-plan")` with `--consensus --direct` flags and the spec file path (`spec_path` from state) as context. The `--direct` flag skips the omc-plan skill's interview phase (the deep-dive interview already gathered requirements), while `--consensus` triggers the Planner/Architect/Critic loop. When consensus completes and produces a plan in `.omc/plans/`, invoke `Skill("oh-my-claudecode:autopilot")` with the consensus plan as Phase 0+1 output — autopilot skips both Expansion and Planning, starting directly at Phase 2 (Execution).
-   - Pipeline: `deep-dive spec → omc-plan --consensus --direct → autopilot execution`
+   - Action: Invoke `Skill("copilot-omni:omni-plan")` with `--consensus --direct` flags and the spec file path (`spec_path` from state) as context. The `--direct` flag skips the omni-plan skill's interview phase (the deep-dive interview already gathered requirements), while `--consensus` triggers the Planner/Architect/Critic loop. When consensus completes and produces a plan in `.omni/plans/`, invoke `Skill("copilot-omni:autopilot")` with the consensus plan as Phase 0+1 output — autopilot skips both Expansion and Planning, starting directly at Phase 2 (Execution).
+   - Pipeline: `deep-dive spec → omni-plan --consensus --direct → autopilot execution`
 
 2. **Execute with autopilot (skip ralplan)**
    - Description: "Full autonomous pipeline — planning, parallel implementation, QA, validation. Faster but without consensus refinement."
-   - Action: Invoke `Skill("oh-my-claudecode:autopilot")` with the spec file path as context. The spec replaces autopilot's Phase 0 — autopilot starts at Phase 1 (Planning).
+   - Action: Invoke `Skill("copilot-omni:autopilot")` with the spec file path as context. The spec replaces autopilot's Phase 0 — autopilot starts at Phase 1 (Planning).
 
 3. **Execute with ralph**
    - Description: "Persistence loop with architect verification — keeps working until all acceptance criteria pass."
-   - Action: Invoke `Skill("oh-my-claudecode:ralph")` with the spec file path as the task definition.
+   - Action: Invoke `Skill("copilot-omni:ralph")` with the spec file path as the task definition.
 
 4. **Execute with team**
    - Description: "N coordinated parallel agents — fastest execution for large specs."
-   - Action: Invoke `Skill("oh-my-claudecode:team")` with the spec file path as the shared plan.
+   - Action: Invoke `Skill("copilot-omni:team")` with the spec file path as the shared plan.
 
 5. **Refine further**
    - Description: "Continue interviewing to improve clarity (current: {score}%)."
@@ -308,11 +308,11 @@ Output: spec.md            Output: consensus-plan.md        Output: working code
 
 <Tool_Usage>
 - Use `AskUserQuestion` for lane confirmation (Phase 2) and each interview question (Phase 4)
-- Use `Agent(subagent_type="oh-my-claudecode:explore", model="haiku")` for brownfield codebase exploration (Phase 1)
+- Use `Agent(subagent_type="copilot-omni:explore", model="haiku")` for brownfield codebase exploration (Phase 1)
 - Use Claude built-in team mode for 3 parallel tracer lanes (Phase 3)
 - Use `state_write(mode="deep-interview")` with `state.source = "deep-dive"` for all state persistence
 - Use `state_read(mode="deep-interview")` for resume — check `state.source === "deep-dive"` to distinguish
-- Use `Write` tool to save trace result and final spec to `.omc/specs/`
+- Use `Write` tool to save trace result and final spec to `.omni/specs/`
 - Use `Skill()` to bridge to execution modes (Phase 5) — never implement directly
 - Wrap all trace-derived text in `<trace-context>` delimiters when injecting into prompts
 </Tool_Usage>
@@ -346,7 +346,7 @@ User: /deep-dive "Production DAG fails intermittently on the transformation step
   → Interview continues until ambiguity ≤ 20%
 
 [Phase 5] Spec ready. User selects ralplan → autopilot.
-  → omc-plan --consensus --direct runs on the spec
+  → omni-plan --consensus --direct runs on the spec
   → Consensus plan produced
   → autopilot invoked with consensus plan, starts at Phase 2 (Execution)
 ```
@@ -407,15 +407,15 @@ Why bad: Duplicates deep-interview's behavioral contract. These values should be
 - [ ] Phase 1 detects brownfield/greenfield and generates 3 hypotheses
 - [ ] Phase 2 confirms hypotheses via AskUserQuestion (1 round)
 - [ ] Phase 3 runs trace with 3 parallel lanes (team mode, sequential fallback)
-- [ ] Phase 3 saves trace result to `.omc/specs/deep-dive-trace-{slug}.md` with per-lane critical unknowns
+- [ ] Phase 3 saves trace result to `.omni/specs/deep-dive-trace-{slug}.md` with per-lane critical unknowns
 - [ ] Phase 4 starts with 3-point injection (initial_idea, codebase_context, question_queue from per-lane unknowns)
 - [ ] Phase 4 references deep-interview SKILL.md Phases 2-4 (not duplicated inline)
 - [ ] Phase 4 handles low-confidence trace gracefully
 - [ ] Phase 4 wraps trace-derived text in `<trace-context>` delimiters (untrusted data guard)
-- [ ] Final spec saved to `.omc/specs/deep-dive-{slug}.md` in standard deep-interview format
+- [ ] Final spec saved to `.omni/specs/deep-dive-{slug}.md` in standard deep-interview format
 - [ ] Final spec contains "Trace Findings" section
 - [ ] Phase 5 execution bridge passes spec_path explicitly to downstream skills
-- [ ] Phase 5 "Ralplan → Autopilot" option explicitly invokes autopilot after omc-plan consensus completes
+- [ ] Phase 5 "Ralplan → Autopilot" option explicitly invokes autopilot after omni-plan consensus completes
 - [ ] State uses `mode="deep-interview"` with `state.source = "deep-dive"` discriminator
 - [ ] State schema matches deep-interview fields: `interview_id`, `rounds`, `codebase_context`, `challenge_modes_used`, `ontology_snapshots`
 - [ ] `slug`, `trace_path`, `spec_path` persisted in state for resume resilience
@@ -445,16 +445,16 @@ If interrupted, run `/deep-dive` again. The skill reads state from `state_read(m
 
 ## Integration with Existing Pipeline
 
-Deep-dive's output (`.omc/specs/deep-dive-{slug}.md`) feeds into the standard omc pipeline:
+Deep-dive's output (`.omni/specs/deep-dive-{slug}.md`) feeds into the standard omc pipeline:
 
 ```
 /deep-dive "problem"
   → Trace (3 parallel lanes) + Interview (Socratic Q&A)
-  → Spec: .omc/specs/deep-dive-{slug}.md
+  → Spec: .omni/specs/deep-dive-{slug}.md
 
-  → /omc-plan --consensus --direct (spec as input)
+  → /omni-plan --consensus --direct (spec as input)
     → Planner/Architect/Critic consensus
-    → Plan: .omc/plans/ralplan-*.md
+    → Plan: .omni/plans/ralplan-*.md
 
   → /autopilot (plan as input, skip Phase 0+1)
     → Execution → QA → Validation

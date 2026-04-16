@@ -21,11 +21,11 @@ Parse the goal from arguments. Supported formats:
 
 | Invocation | Goal Type | What to Check |
 |------------|-----------|---------------|
-| `/oh-my-claudecode:ultraqa --tests` | tests | All test suites pass |
-| `/oh-my-claudecode:ultraqa --build` | build | Build succeeds with exit 0 |
-| `/oh-my-claudecode:ultraqa --lint` | lint | No lint errors |
-| `/oh-my-claudecode:ultraqa --typecheck` | typecheck | No TypeScript errors |
-| `/oh-my-claudecode:ultraqa --custom "pattern"` | custom | Custom success pattern in output |
+| `/copilot-omni:ultraqa --tests` | tests | All test suites pass |
+| `/copilot-omni:ultraqa --build` | build | Build succeeds with exit 0 |
+| `/copilot-omni:ultraqa --lint` | lint | No lint errors |
+| `/copilot-omni:ultraqa --typecheck` | typecheck | No TypeScript errors |
+| `/copilot-omni:ultraqa --custom "pattern"` | custom | Custom success pattern in output |
 
 If no structured goal provided, interpret the argument as a custom goal.
 
@@ -41,7 +41,7 @@ If no structured goal provided, interpret the argument as a custom goal.
    - `--custom`: Run appropriate command and check for pattern
    - `--interactive`: Use qa-tester for interactive CLI/service testing:
      ```
-     Task(subagent_type="oh-my-claudecode:qa-tester", model="sonnet", prompt="TEST:
+     Task(subagent_type="copilot-omni:qa-tester", model="sonnet", prompt="TEST:
      Goal: [describe what to verify]
      Service: [how to start]
      Test cases: [specific scenarios to verify]")
@@ -53,7 +53,7 @@ If no structured goal provided, interpret the argument as a custom goal.
 
 3. **ARCHITECT DIAGNOSIS**: Spawn architect to analyze failure
    ```
-   Task(subagent_type="oh-my-claudecode:architect", model="opus", prompt="DIAGNOSE FAILURE:
+   Task(subagent_type="copilot-omni:architect", model="opus", prompt="DIAGNOSE FAILURE:
    Goal: [goal type]
    Output: [test/build output]
    Provide root cause and specific fix recommendations.")
@@ -61,7 +61,7 @@ If no structured goal provided, interpret the argument as a custom goal.
 
 4. **FIX ISSUES**: Apply architect's recommendations
    ```
-   Task(subagent_type="oh-my-claudecode:executor", model="sonnet", prompt="FIX:
+   Task(subagent_type="copilot-omni:executor", model="sonnet", prompt="FIX:
    Issue: [architect diagnosis]
    Files: [affected files]
    Apply the fix precisely as recommended.")
@@ -93,7 +93,7 @@ Output progress each cycle:
 
 ## State Tracking
 
-Track state in `.omc/ultraqa-state.json`:
+Track state in `.omni/ultraqa-state.json`:
 ```json
 {
   "active": true,
@@ -109,7 +109,7 @@ Track state in `.omc/ultraqa-state.json`:
 
 ## Cancellation
 
-User can cancel with `/oh-my-claudecode:cancel` which clears the state file.
+User can cancel with `/copilot-omni:cancel` which clears the state file.
 
 ## Important Rules
 
@@ -127,7 +127,7 @@ When goal is met OR max cycles reached OR exiting early:
 
 ```bash
 # Delete ultraqa state file
-rm -f .omc/state/ultraqa-state.json
+rm -f .omni/state/ultraqa-state.json
 ```
 
 This ensures clean state for future sessions. Stale state files with `active: false` should not be left behind.

@@ -16,9 +16,9 @@ psm_init() {
         cat > "$PSM_PROJECTS" << 'EOF'
 {
   "aliases": {
-    "omc": {
-      "repo": "Yeachan-Heo/oh-my-claudecode",
-      "local": "~/Workspace/oh-my-claudecode",
+    "omni": {
+      "repo": "Jurel89/copilot-omni",
+      "local": "~/Workspace/copilot-omni",
       "default_base": "main"
     }
   },

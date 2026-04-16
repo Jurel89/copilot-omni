@@ -1,11 +1,11 @@
 ---
 name: skillify
-description: Turn a repeatable workflow from the current session into a reusable OMC skill draft
+description: Turn a repeatable workflow from the current session into a reusable copilot-omni skill draft
 ---
 
 # Skillify
 
-Use this skill when the current session uncovered a repeatable workflow that should become a reusable OMC skill.
+Use this skill when the current session uncovered a repeatable workflow that should become a reusable copilot-omni skill.
 
 ## Goal
 Capture a successful multi-step workflow as a concrete skill draft instead of rediscovering it later.
@@ -35,8 +35,8 @@ Capture a successful multi-step workflow as a concrete skill draft instead of re
      ---
      ```
    - Write learned/user/project skills to:
-     - `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/omc-learned/<skill-name>.md`
-     - `.omc/skills/<skill-name>.md`
+     - `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/omni-learned/<skill-name>.md`
+     - `.omni/skills/<skill-name>.md`
 5. Draft the rest of the skill file with clear triggers, steps, and success criteria.
 6. Point out anything still too fuzzy to encode safely.
 

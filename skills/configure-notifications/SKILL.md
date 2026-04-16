@@ -18,7 +18,7 @@ level: 2
 
 # Configure Notifications
 
-Set up OMC notification integrations so you're alerted when sessions end, need input, or complete background tasks.
+Set up copilot-omni notification integrations so you're alerted when sessions end, need input, or complete background tasks.
 
 ## Routing
 
@@ -39,16 +39,16 @@ Detect which provider the user wants based on their request or argument:
 
 ## Telegram Setup
 
-Set up Telegram notifications so OMC can message you when sessions end, need input, or complete background tasks.
+Set up Telegram notifications so copilot-omni can message you when sessions end, need input, or complete background tasks.
 
 ### How This Skill Works
 
-This is an interactive, natural-language configuration skill. Walk the user through setup by asking questions with AskUserQuestion. Write the result to `${CLAUDE_CONFIG_DIR:-~/.claude}/.omc-config.json`.
+This is an interactive, natural-language configuration skill. Walk the user through setup by asking questions with AskUserQuestion. Write the result to `${CLAUDE_CONFIG_DIR:-~/.claude}/.omni-config.json`.
 
 ### Step 1: Detect Existing Configuration
 
 ```bash
-CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omc-config.json"
+CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omni-config.json"
 
 if [ -f "$CONFIG_FILE" ]; then
   HAS_TELEGRAM=$(jq -r '.notifications.telegram.enabled // false' "$CONFIG_FILE" 2>/dev/null)
@@ -79,7 +79,7 @@ To set up Telegram notifications, you need a Telegram bot token and your chat ID
 CREATE A BOT (if you don't have one):
 1. Open Telegram and search for @BotFather
 2. Send /newbot
-3. Choose a name (e.g., "My OMC Notifier")
+3. Choose a name (e.g., "My copilot-omni Notifier")
 4. Choose a username (e.g., "my_omc_bot")
 5. BotFather will give you a token like: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz
 
@@ -151,7 +151,7 @@ Default selection: session-end + ask-user-question.
 Read the existing config, merge the new Telegram settings, and write back:
 
 ```bash
-CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omc-config.json"
+CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omni-config.json"
 mkdir -p "$(dirname "$CONFIG_FILE")"
 
 if [ -f "$CONFIG_FILE" ]; then
@@ -209,7 +209,7 @@ RESPONSE=$(curl -s -w "\n%{http_code}" \
   "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
   -d "chat_id=${CHAT_ID}" \
   -d "parse_mode=${PARSE_MODE}" \
-  -d "text=OMC test notification - Telegram is configured!")
+  -d "text=copilot-omni test notification - Telegram is configured!")
 
 HTTP_CODE=$(echo "$RESPONSE" | tail -1)
 BODY=$(echo "$RESPONSE" | head -1)
@@ -239,15 +239,15 @@ Telegram Notifications Configured!
   Format:     Markdown
   Events:     session-end, ask-user-question
 
-Config saved to: ~/.claude/.omc-config.json
+Config saved to: ~/.claude/.omni-config.json
 
 You can also set these via environment variables:
   OMC_TELEGRAM_BOT_TOKEN=123456789:ABCdefGHI...
   OMC_TELEGRAM_CHAT_ID=123456789
 
-To reconfigure: /oh-my-claudecode:configure-notifications telegram
-To configure Discord: /oh-my-claudecode:configure-notifications discord
-To configure Slack: /oh-my-claudecode:configure-notifications slack
+To reconfigure: /copilot-omni:configure-notifications telegram
+To configure Discord: /copilot-omni:configure-notifications discord
+To configure Slack: /copilot-omni:configure-notifications slack
 ```
 
 ### Environment Variable Alternative
@@ -259,22 +259,22 @@ export OMC_TELEGRAM_BOT_TOKEN="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 export OMC_TELEGRAM_CHAT_ID="123456789"
 ```
 
-Env vars are auto-detected by the notification system without needing `.omc-config.json`.
+Env vars are auto-detected by the notification system without needing `.omni-config.json`.
 
 ---
 
 ## Discord Setup
 
-Set up Discord notifications so OMC can ping you when sessions end, need input, or complete background tasks.
+Set up Discord notifications so copilot-omni can ping you when sessions end, need input, or complete background tasks.
 
 ### How This Skill Works
 
-This is an interactive, natural-language configuration skill. Walk the user through setup by asking questions with AskUserQuestion. Write the result to `${CLAUDE_CONFIG_DIR:-~/.claude}/.omc-config.json`.
+This is an interactive, natural-language configuration skill. Walk the user through setup by asking questions with AskUserQuestion. Write the result to `${CLAUDE_CONFIG_DIR:-~/.claude}/.omni-config.json`.
 
 ### Step 1: Detect Existing Configuration
 
 ```bash
-CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omc-config.json"
+CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omni-config.json"
 
 if [ -f "$CONFIG_FILE" ]; then
   # Check for existing discord config
@@ -376,7 +376,7 @@ Use AskUserQuestion:
 **Question:** "Custom bot display name? (Shows as the webhook sender name in Discord)"
 
 **Options:**
-1. **OMC (default)** - Display as "OMC"
+1. **copilot-omni (default)** - Display as "copilot-omni"
 2. **Claude Code** - Display as "Claude Code"
 3. **Custom** - Enter a custom name
 
@@ -385,7 +385,7 @@ Use AskUserQuestion:
 Read the existing config, merge the new Discord settings, and write back:
 
 ```bash
-CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omc-config.json"
+CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omni-config.json"
 mkdir -p "$(dirname "$CONFIG_FILE")"
 
 if [ -f "$CONFIG_FILE" ]; then
@@ -397,7 +397,7 @@ fi
 
 #### For Webhook method:
 
-Build the notifications object with the collected values and merge into `.omc-config.json` using jq:
+Build the notifications object with the collected values and merge into `.omni-config.json` using jq:
 
 ```bash
 # WEBHOOK_URL, MENTION, USERNAME are collected from user
@@ -463,7 +463,7 @@ Use AskUserQuestion:
 # For webhook:
 curl -s -o /dev/null -w "%{http_code}" \
   -H "Content-Type: application/json" \
-  -d "{\"content\": \"${MENTION:+$MENTION\\n}OMC test notification - Discord is configured!\"}" \
+  -d "{\"content\": \"${MENTION:+$MENTION\\n}copilot-omni test notification - Discord is configured!\"}" \
   "$WEBHOOK_URL"
 ```
 
@@ -479,17 +479,17 @@ Discord Notifications Configured!
   Method:   Webhook / Bot API
   Mention:  <@1465264645320474637> (or "none")
   Events:   session-end, ask-user-question
-  Username: OMC
+  Username: copilot-omni
 
-Config saved to: ~/.claude/.omc-config.json
+Config saved to: ~/.claude/.omni-config.json
 
 You can also set these via environment variables:
   OMC_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
   OMC_DISCORD_MENTION=<@1465264645320474637>
 
-To reconfigure: /oh-my-claudecode:configure-notifications discord
-To configure Telegram: /oh-my-claudecode:configure-notifications telegram
-To configure Slack: /oh-my-claudecode:configure-notifications slack
+To reconfigure: /copilot-omni:configure-notifications discord
+To configure Telegram: /copilot-omni:configure-notifications telegram
+To configure Slack: /copilot-omni:configure-notifications slack
 ```
 
 ### Environment Variable Alternative
@@ -509,22 +509,22 @@ export OMC_DISCORD_NOTIFIER_CHANNEL="your-channel-id"
 export OMC_DISCORD_MENTION="<@1465264645320474637>"  # optional
 ```
 
-Env vars are auto-detected by the notification system without needing `.omc-config.json`.
+Env vars are auto-detected by the notification system without needing `.omni-config.json`.
 
 ---
 
 ## Slack Setup
 
-Set up Slack notifications so OMC can message you when sessions end, need input, or complete background tasks.
+Set up Slack notifications so copilot-omni can message you when sessions end, need input, or complete background tasks.
 
 ### How This Skill Works
 
-This is an interactive, natural-language configuration skill. Walk the user through setup by asking questions with AskUserQuestion. Write the result to `${CLAUDE_CONFIG_DIR:-~/.claude}/.omc-config.json`.
+This is an interactive, natural-language configuration skill. Walk the user through setup by asking questions with AskUserQuestion. Write the result to `${CLAUDE_CONFIG_DIR:-~/.claude}/.omni-config.json`.
 
 ### Step 1: Detect Existing Configuration
 
 ```bash
-CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omc-config.json"
+CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omni-config.json"
 
 if [ -f "$CONFIG_FILE" ]; then
   HAS_SLACK=$(jq -r '.notifications.slack.enabled // false' "$CONFIG_FILE" 2>/dev/null)
@@ -557,7 +557,7 @@ To set up Slack notifications, you need a Slack incoming webhook URL.
 CREATE A WEBHOOK:
 1. Go to https://api.slack.com/apps
 2. Click "Create New App" > "From scratch"
-3. Name your app (e.g., "OMC Notifier") and select your workspace
+3. Name your app (e.g., "copilot-omni Notifier") and select your workspace
 4. Go to "Incoming Webhooks" in the left sidebar
 5. Toggle "Activate Incoming Webhooks" to ON
 6. Click "Add New Webhook to Workspace"
@@ -636,7 +636,7 @@ Use AskUserQuestion:
 **Question:** "Custom bot display name? (Shows as the webhook sender name in Slack)"
 
 **Options:**
-1. **OMC (default)** - Display as "OMC"
+1. **copilot-omni (default)** - Display as "copilot-omni"
 2. **Claude Code** - Display as "Claude Code"
 3. **Custom** - Enter a custom name
 
@@ -645,7 +645,7 @@ Use AskUserQuestion:
 Read the existing config, merge the new Slack settings, and write back:
 
 ```bash
-CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omc-config.json"
+CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omni-config.json"
 mkdir -p "$(dirname "$CONFIG_FILE")"
 
 if [ -f "$CONFIG_FILE" ]; then
@@ -705,7 +705,7 @@ fi
 
 curl -s -o /dev/null -w "%{http_code}" \
   -H "Content-Type: application/json" \
-  -d "{\"text\": \"${MENTION_PREFIX}OMC test notification - Slack is configured!\"}" \
+  -d "{\"text\": \"${MENTION_PREFIX}copilot-omni test notification - Slack is configured!\"}" \
   "$WEBHOOK_URL"
 ```
 
@@ -726,17 +726,17 @@ Slack Notifications Configured!
   Mention:  <@U1234567890> (or "none")
   Channel:  #alerts (or "webhook default")
   Events:   session-end, ask-user-question
-  Username: OMC
+  Username: copilot-omni
 
-Config saved to: ~/.claude/.omc-config.json
+Config saved to: ~/.claude/.omni-config.json
 
 You can also set these via environment variables:
   OMC_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
   OMC_SLACK_MENTION=<@U1234567890>
 
-To reconfigure: /oh-my-claudecode:configure-notifications slack
-To configure Discord: /oh-my-claudecode:configure-notifications discord
-To configure Telegram: /oh-my-claudecode:configure-notifications telegram
+To reconfigure: /copilot-omni:configure-notifications slack
+To configure Discord: /copilot-omni:configure-notifications discord
+To configure Telegram: /copilot-omni:configure-notifications telegram
 ```
 
 ### Environment Variable Alternative
@@ -748,7 +748,7 @@ export OMC_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T00/B00/xxx"
 export OMC_SLACK_MENTION="<@U1234567890>"  # optional
 ```
 
-Env vars are auto-detected by the notification system without needing `.omc-config.json`.
+Env vars are auto-detected by the notification system without needing `.omni-config.json`.
 
 ### Slack Mention Formats
 
@@ -828,7 +828,7 @@ RAW FIELDS:
   {{projectPath}}    - Full project directory path
   {{projectName}}    - Project directory basename
   {{reason}}         - Stop/end reason
-  {{activeMode}}     - Active OMC mode name
+  {{activeMode}}     - Active copilot-omni mode name
   {{question}}       - Question text (ask-user-question only)
   {{agentName}}      - Agent name (agent-call only)
   {{agentType}}      - Agent type (agent-call only)
@@ -935,7 +935,7 @@ Offer to send a test notification with the new template.
 
 ## Related
 
-- `/oh-my-claudecode:configure-openclaw` — Configure OpenClaw gateway integration
+- `/copilot-omni:configure-openclaw` — Configure OpenClaw gateway integration
 
 ---
 
@@ -980,7 +980,7 @@ If legacy found and not migrated:
 If migrate:
 - Read `omc_config.openclaw.json`
 - Transform to custom integration format
-- Save to `.omc-config.json`
+- Save to `.omni-config.json`
 - Backup legacy to `omc_config.openclaw.json.bak`
 - Show success message
 
@@ -1049,7 +1049,7 @@ If test:
 curl -X POST \
   -H "Content-Type: application/json" \
   ${AUTH_HEADER:+"-H \"$AUTH_HEADER\""} \
-  -d '{"event":"test","instruction":"OMC test notification","timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' \
+  -d '{"event":"test","instruction":"copilot-omni test notification","timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' \
   "$WEBHOOK_URL"
 ```
 
@@ -1057,7 +1057,7 @@ Show result (HTTP status, any error).
 
 **Step 6: Write Configuration**
 
-Merge into `.omc-config.json`:
+Merge into `.omni-config.json`:
 
 ```json
 {

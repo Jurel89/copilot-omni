@@ -25,25 +25,25 @@ All data persists in `.writer-memory/memory.json` for git-friendly collaboration
 
 | Command | Action |
 |---------|--------|
-| `/oh-my-claudecode:writer-memory init <project-name>` | Initialize new project memory |
-| `/oh-my-claudecode:writer-memory status` | Show memory overview (character count, scene count, etc) |
-| `/oh-my-claudecode:writer-memory char add <name>` | Add new character |
-| `/oh-my-claudecode:writer-memory char <name>` | View character details |
-| `/oh-my-claudecode:writer-memory char update <name> <field> <value>` | Update character field |
-| `/oh-my-claudecode:writer-memory char list` | List all characters |
-| `/oh-my-claudecode:writer-memory rel add <char1> <char2> <type>` | Add relationship |
-| `/oh-my-claudecode:writer-memory rel <char1> <char2>` | View relationship |
-| `/oh-my-claudecode:writer-memory rel update <char1> <char2> <event>` | Add relationship event |
-| `/oh-my-claudecode:writer-memory scene add <title>` | Add new scene |
-| `/oh-my-claudecode:writer-memory scene <id>` | View scene details |
-| `/oh-my-claudecode:writer-memory scene list` | List all scenes |
-| `/oh-my-claudecode:writer-memory theme add <name>` | Add theme |
-| `/oh-my-claudecode:writer-memory world set <field> <value>` | Set world attribute |
-| `/oh-my-claudecode:writer-memory query <question>` | Query memory naturally (Korean supported) |
-| `/oh-my-claudecode:writer-memory validate <character> <dialogue>` | Check if dialogue matches character tone |
-| `/oh-my-claudecode:writer-memory synopsis` | Generate emotion-focused synopsis |
-| `/oh-my-claudecode:writer-memory export` | Export full memory as readable markdown |
-| `/oh-my-claudecode:writer-memory backup` | Create manual backup |
+| `/copilot-omni:writer-memory init <project-name>` | Initialize new project memory |
+| `/copilot-omni:writer-memory status` | Show memory overview (character count, scene count, etc) |
+| `/copilot-omni:writer-memory char add <name>` | Add new character |
+| `/copilot-omni:writer-memory char <name>` | View character details |
+| `/copilot-omni:writer-memory char update <name> <field> <value>` | Update character field |
+| `/copilot-omni:writer-memory char list` | List all characters |
+| `/copilot-omni:writer-memory rel add <char1> <char2> <type>` | Add relationship |
+| `/copilot-omni:writer-memory rel <char1> <char2>` | View relationship |
+| `/copilot-omni:writer-memory rel update <char1> <char2> <event>` | Add relationship event |
+| `/copilot-omni:writer-memory scene add <title>` | Add new scene |
+| `/copilot-omni:writer-memory scene <id>` | View scene details |
+| `/copilot-omni:writer-memory scene list` | List all scenes |
+| `/copilot-omni:writer-memory theme add <name>` | Add theme |
+| `/copilot-omni:writer-memory world set <field> <value>` | Set world attribute |
+| `/copilot-omni:writer-memory query <question>` | Query memory naturally (Korean supported) |
+| `/copilot-omni:writer-memory validate <character> <dialogue>` | Check if dialogue matches character tone |
+| `/copilot-omni:writer-memory synopsis` | Generate emotion-focused synopsis |
+| `/copilot-omni:writer-memory export` | Export full memory as readable markdown |
+| `/copilot-omni:writer-memory backup` | Create manual backup |
 
 ## Memory Types
 
@@ -226,8 +226,8 @@ The system synthesizes answers from all relevant memory types.
 
 ## Integration
 
-### With OMC Notepad System
-Writer Memory integrates with `.omc/notepad.md`:
+### With copilot-omni Notepad System
+Writer Memory integrates with `.omni/notepad.md`:
 - Scene ideas can be captured as notes
 - Character insights from analysis sessions are preserved
 - Cross-reference between notepad and memory
@@ -235,7 +235,7 @@ Writer Memory integrates with `.omc/notepad.md`:
 ### With Architect Agent
 For complex character analysis:
 ```
-Task(subagent_type="oh-my-claudecode:architect",
+Task(subagent_type="copilot-omni:architect",
      model="opus",
      prompt="Analyze 새랑's arc across all scenes...")
 ```

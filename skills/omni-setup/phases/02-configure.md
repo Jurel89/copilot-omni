@@ -13,20 +13,20 @@ Use the Skill tool to invoke: `hud` with args: `setup`
 Do not generate, normalize, or patch `statusLine` paths inline in this phase. This is especially important on Windows, where backslash path handling must stay inside the `hud` skill.
 
 This will:
-1. Install the HUD wrapper script to `~/.claude/hud/omc-hud.mjs`
+1. Install the HUD wrapper script to `~/.claude/hud/omni-hud.mjs`
 2. Configure `statusLine` in `~/.claude/settings.json`
 3. Report status and prompt to restart if needed
 
 After HUD setup completes, save progress:
 ```bash
-CONFIG_TYPE=$(jq -r '.configType // "unknown"' ".omc/state/setup-state.json" 2>/dev/null || echo "unknown")
+CONFIG_TYPE=$(jq -r '.configType // "unknown"' ".omni/state/setup-state.json" 2>/dev/null || echo "unknown")
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-progress.sh" save 3 "$CONFIG_TYPE"
 ```
 
 ## Step 2.2: Clear Stale Plugin Cache
 
 ```bash
-node -e "const p=require('path'),f=require('fs'),h=require('os').homedir(),d=process.env.CLAUDE_CONFIG_DIR||p.join(h,'.claude'),b=p.join(d,'plugins','cache','omc','oh-my-claudecode');try{const v=f.readdirSync(b).filter(x=>/^\d/.test(x)).sort((a,c)=>a.localeCompare(c,void 0,{numeric:true}));if(v.length<=1){console.log('Cache is clean');process.exit()}v.slice(0,-1).forEach(x=>{f.rmSync(p.join(b,x),{recursive:true,force:true})});console.log('Cleared',v.length-1,'stale cache version(s)')}catch{console.log('No cache directory found (normal for new installs)')}"
+node -e "const p=require('path'),f=require('fs'),h=require('os').homedir(),d=process.env.CLAUDE_CONFIG_DIR||p.join(h,'.claude'),b=p.join(d,'plugins','cache','omc','copilot-omni');try{const v=f.readdirSync(b).filter(x=>/^\d/.test(x)).sort((a,c)=>a.localeCompare(c,void 0,{numeric:true}));if(v.length<=1){console.log('Cache is clean');process.exit()}v.slice(0,-1).forEach(x=>{f.rmSync(p.join(b,x),{recursive:true,force:true})});console.log('Cleared',v.length-1,'stale cache version(s)')}catch{console.log('No cache directory found (normal for new installs)')}"
 ```
 
 ## Step 2.3: Check for Updates
@@ -40,12 +40,12 @@ const p=require('path'),f=require('fs'),h=require('os').homedir();
 const d=process.env.CLAUDE_CONFIG_DIR||p.join(h,'.claude');
 let v='';
 // Try cache directory first
-const b=p.join(d,'plugins','cache','omc','oh-my-claudecode');
+const b=p.join(d,'plugins','cache','omc','copilot-omni');
 try{const vs=f.readdirSync(b).filter(x=>/^\d/.test(x)).sort((a,c)=>a.localeCompare(c,void 0,{numeric:true}));if(vs.length)v=vs[vs.length-1]}catch{}
-// Try .omc-version.json second
-if(v==='')try{const j=JSON.parse(f.readFileSync('.omc-version.json','utf-8'));v=j.version||''}catch{}
+// Try .omni-version.json second
+if(v==='')try{const j=JSON.parse(f.readFileSync('.omni-version.json','utf-8'));v=j.version||''}catch{}
 // Try CLAUDE.md header third
-if(v==='')for(const c of['.claude/CLAUDE.md',p.join(d,'CLAUDE.md')]){try{const m=f.readFileSync(c,'utf-8').match(/^# oh-my-claudecode.*?(v?\d+\.\d+\.\d+)/m);if(m){v=m[1].replace(/^v/,'');break}}catch{}}
+if(v==='')for(const c of['.claude/CLAUDE.md',p.join(d,'CLAUDE.md')]){try{const m=f.readFileSync(c,'utf-8').match(/^# copilot-omni.*?(v?\d+\.\d+\.\d+)/m);if(m){v=m[1].replace(/^v/,'');break}}catch{}}
 console.log('Installed:',v||'(not found)');
 "
 
@@ -59,7 +59,7 @@ if [ -n "$INSTALLED_VERSION" ] && [ -n "$LATEST_VERSION" ]; then
     echo "  Installed: v$INSTALLED_VERSION"
     echo "  Latest:    v$LATEST_VERSION"
     echo ""
-    echo "To update, run: claude /install-plugin oh-my-claudecode"
+    echo "To update, run: claude /install-plugin copilot-omni"
   else
     echo "You're on the latest version: v$INSTALLED_VERSION"
   fi
@@ -77,10 +77,10 @@ Use the AskUserQuestion tool to prompt the user:
 **Options:**
 1. **ultrawork (maximum capability)** - Uses all agent tiers including Opus for complex tasks. Best for challenging work where quality matters most. (Recommended)
 
-Store the preference in `~/.claude/.omc-config.json`:
+Store the preference in `~/.claude/.omni-config.json`:
 
 ```bash
-CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omc-config.json"
+CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omni-config.json"
 mkdir -p "$(dirname "$CONFIG_FILE")"
 
 if [ -f "$CONFIG_FILE" ]; then
@@ -96,16 +96,16 @@ echo "Default execution mode set to: USER_CHOICE"
 
 **Note**: This preference ONLY affects generic keywords ("fast", "parallel"). Explicit keywords ("ulw") always override this preference.
 
-## Step 2.5: Install OMC CLI Tool
+## Step 2.5: Install copilot-omni CLI Tool
 
-The OMC CLI (`omc` command) provides standalone helper commands such as `omc hud`, `omc teleport`, and `omc team ...`.
+The copilot-omni CLI (`omc` command) provides standalone helper commands such as `omc hud`, `omc teleport`, and `omc team ...`.
 
 First, check if the CLI is already installed:
 
 ```bash
 if command -v omc &>/dev/null; then
   OMC_CLI_VERSION=$(omc --version 2>/dev/null | head -1 || echo "installed")
-  echo "OMC CLI already installed: $OMC_CLI_VERSION"
+  echo "copilot-omni CLI already installed: $OMC_CLI_VERSION"
   OMC_CLI_INSTALLED="true"
 else
   OMC_CLI_INSTALLED="false"
@@ -116,7 +116,7 @@ If `OMC_CLI_INSTALLED` is `"true"`, skip the rest of this step.
 
 If `OMC_CLI_INSTALLED` is `"false"`, use AskUserQuestion:
 
-**Question:** "Would you like to install the OMC CLI globally for standalone helper commands? (`omc`, `omc hud`, `omc teleport`)"
+**Question:** "Would you like to install the copilot-omni CLI globally for standalone helper commands? (`omc`, `omc hud`, `omc teleport`)"
 
 **Options:**
 1. **Yes (Recommended)** - Install `oh-my-claude-sisyphus` via `npm install -g`
@@ -126,11 +126,11 @@ If user chooses **Yes**:
 
 ```bash
 if ! command -v npm &>/dev/null; then
-  echo "WARNING: npm not found. Cannot install OMC CLI automatically."
+  echo "WARNING: npm not found. Cannot install copilot-omni CLI automatically."
   echo "Install Node.js/npm first, then run: npm install -g oh-my-claude-sisyphus"
 else
   if npm install -g oh-my-claude-sisyphus 2>&1; then
-    echo "OMC CLI installed successfully."
+    echo "copilot-omni CLI installed successfully."
     if command -v omc &>/dev/null; then
       OMC_CLI_VERSION=$(omc --version 2>/dev/null | head -1 || echo "installed")
       echo "Verified: omc $OMC_CLI_VERSION"
@@ -138,7 +138,7 @@ else
       echo "Installed but 'omc' not on PATH. You may need to restart your shell."
     fi
   else
-    echo "WARNING: Failed to install OMC CLI (permission issue or network error)."
+    echo "WARNING: Failed to install copilot-omni CLI (permission issue or network error)."
     echo "You can install manually later: npm install -g oh-my-claude-sisyphus"
     echo "Or with sudo: sudo npm install -g oh-my-claude-sisyphus"
   fi
@@ -189,7 +189,7 @@ If beads or beads-rust is detected, use AskUserQuestion:
 Store the preference:
 
 ```bash
-CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omc-config.json"
+CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omni-config.json"
 mkdir -p "$(dirname "$CONFIG_FILE")"
 
 if [ -f "$CONFIG_FILE" ]; then
@@ -208,6 +208,6 @@ echo "Task tool set to: USER_CHOICE"
 ## Save Progress
 
 ```bash
-CONFIG_TYPE=$(jq -r '.configType // "unknown"' ".omc/state/setup-state.json" 2>/dev/null || echo "unknown")
+CONFIG_TYPE=$(jq -r '.configType // "unknown"' ".omni/state/setup-state.json" 2>/dev/null || echo "unknown")
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-progress.sh" save 4 "$CONFIG_TYPE"
 ```

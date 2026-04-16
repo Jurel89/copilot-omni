@@ -10,7 +10,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Settings path must be provided or discovered from .omc/self-improve/config/
+# Settings path must be provided or discovered from .omni/self-improve/config/
 SETTINGS=""
 
 # Parse arguments
@@ -36,11 +36,11 @@ set -- "${POSITIONAL_ARGS[@]+"${POSITIONAL_ARGS[@]}"}"
 
 # Auto-discover settings if not provided
 if [[ -z "${SETTINGS}" ]]; then
-    # Walk up from worktree or CWD to find .omc/self-improve/config/settings.json
+    # Walk up from worktree or CWD to find .omni/self-improve/config/settings.json
     SEARCH_DIR="${WORKTREE_PATH:-$(pwd)}"
     while [[ "${SEARCH_DIR}" != "/" ]]; do
-        if [[ -f "${SEARCH_DIR}/.omc/self-improve/config/settings.json" ]]; then
-            SETTINGS="${SEARCH_DIR}/.omc/self-improve/config/settings.json"
+        if [[ -f "${SEARCH_DIR}/.omni/self-improve/config/settings.json" ]]; then
+            SETTINGS="${SEARCH_DIR}/.omni/self-improve/config/settings.json"
             break
         fi
         SEARCH_DIR="$(dirname "${SEARCH_DIR}")"

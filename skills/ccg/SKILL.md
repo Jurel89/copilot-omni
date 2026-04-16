@@ -35,7 +35,7 @@ Use this when you want parallel external perspectives without launching tmux tea
    - `omc ask codex "<codex prompt>"`
    - `omc ask gemini "<gemini prompt>"`
 
-3. Artifacts are written under `.omc/artifacts/ask/`
+3. Artifacts are written under `.omni/artifacts/ask/`
 
 4. Claude synthesizes both outputs into one final response
 ```
@@ -67,8 +67,8 @@ omc ask gemini "<gemini prompt>"
 Read latest ask artifacts from:
 
 ```text
-.omc/artifacts/ask/codex-*.md
-.omc/artifacts/ask/gemini-*.md
+.omni/artifacts/ask/codex-*.md
+.omni/artifacts/ask/gemini-*.md
 ```
 
 ### 4. Synthesize
@@ -94,11 +94,11 @@ If both unavailable:
 ## Invocation
 
 ```bash
-/oh-my-claudecode:ccg <task description>
+/copilot-omni:ccg <task description>
 ```
 
 Example:
 
 ```bash
-/oh-my-claudecode:ccg Review this PR - architecture/security via Codex and UX/readability via Gemini
+/copilot-omni:ccg Review this PR - architecture/security via Codex and UX/readability via Gemini
 ```

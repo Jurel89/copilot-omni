@@ -5,7 +5,7 @@
 ## Step 3.1: Verify Plugin Installation
 
 ```bash
-grep -q "oh-my-claudecode" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" && echo "Plugin verified" || echo "Plugin NOT found - run: claude /install-plugin oh-my-claudecode"
+grep -q "copilot-omni" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" && echo "Plugin verified" || echo "Plugin NOT found - run: claude /install-plugin copilot-omni"
 ```
 
 ## Step 3.2: Offer MCP Server Configuration
@@ -16,7 +16,7 @@ Use AskUserQuestion: "Would you like to configure MCP servers for enhanced capab
 
 If yes, invoke the mcp-setup skill:
 ```
-/oh-my-claudecode:mcp-setup
+/copilot-omni:mcp-setup
 ```
 
 If no, skip to next step.
@@ -102,7 +102,7 @@ jq --arg mode "TEAMMATE_MODE" '. + {teammateMode: $mode}' "$SETTINGS_FILE" > "${
 echo "Teammate display mode set to: TEAMMATE_MODE"
 ```
 
-#### 3.3.3: Configure Team Defaults in omc-config
+#### 3.3.3: Configure Team Defaults in omni-config
 
 Use AskUserQuestion with multiple questions:
 
@@ -120,10 +120,10 @@ Use AskUserQuestion with multiple questions:
 2. **debugger** - Specialized for build/type error fixing and debugging
 3. **designer** - Specialized for UI/frontend work
 
-Store the team configuration in `~/.claude/.omc-config.json`:
+Store the team configuration in `~/.claude/.omni-config.json`:
 
 ```bash
-CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omc-config.json"
+CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omni-config.json"
 mkdir -p "$(dirname "$CONFIG_FILE")"
 
 if [ -f "$CONFIG_FILE" ]; then
@@ -182,11 +182,11 @@ Skip this step. Agent teams will remain disabled. User can enable later by addin
 }
 ```
 
-Or by running `/oh-my-claudecode:omc-setup --force` and choosing to enable teams.
+Or by running `/copilot-omni:omni-setup --force` and choosing to enable teams.
 
 ## Save Progress
 
 ```bash
-CONFIG_TYPE=$(jq -r '.configType // "unknown"' ".omc/state/setup-state.json" 2>/dev/null || echo "unknown")
+CONFIG_TYPE=$(jq -r '.configType // "unknown"' ".omni/state/setup-state.json" 2>/dev/null || echo "unknown")
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-progress.sh" save 6 "$CONFIG_TYPE"
 ```

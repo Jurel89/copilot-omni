@@ -1,10 +1,10 @@
 ---
-name: omc-setup
-description: Install or refresh oh-my-claudecode for plugin, npm, and local-dev setups from the canonical setup flow
+name: omni-setup
+description: Install or refresh copilot-omni for plugin, npm, and local-dev setups from the canonical setup flow
 level: 2
 ---
 
-# OMC Setup
+# copilot-omni Setup
 
 This is the **only command you need to learn**. After running this, everything else is automatic.
 
@@ -14,9 +14,9 @@ Note: All `~/.claude/...` paths in this guide respect `CLAUDE_CONFIG_DIR` when t
 
 ## Best-Fit Use
 
-Choose this setup flow when the user wants to **install, refresh, or repair OMC itself**.
+Choose this setup flow when the user wants to **install, refresh, or repair copilot-omni itself**.
 
-- Marketplace/plugin install users should land here after `/plugin install oh-my-claudecode`
+- Marketplace/plugin install users should land here after `/plugin install copilot-omni`
 - npm users should land here after `npm i -g oh-my-claude-sisyphus@latest`
 - local-dev and worktree users should land here after updating the checked-out repo and rerunning setup
 
@@ -34,14 +34,14 @@ Check for flags in the user's invocation:
 When user runs with `--help`, display this and stop:
 
 ```
-OMC Setup - Configure oh-my-claudecode
+copilot-omni Setup - Configure copilot-omni
 
 USAGE:
-  /oh-my-claudecode:omc-setup           Run initial setup wizard (or update if already configured)
-  /oh-my-claudecode:omc-setup --local   Configure local project (.claude/CLAUDE.md)
-  /oh-my-claudecode:omc-setup --global  Configure global settings (~/.claude/CLAUDE.md)
-  /oh-my-claudecode:omc-setup --force   Force full setup wizard even if already configured
-  /oh-my-claudecode:omc-setup --help    Show this help
+  /copilot-omni:omni-setup           Run initial setup wizard (or update if already configured)
+  /copilot-omni:omni-setup --local   Configure local project (.claude/CLAUDE.md)
+  /copilot-omni:omni-setup --global  Configure global settings (~/.claude/CLAUDE.md)
+  /copilot-omni:omni-setup --force   Force full setup wizard even if already configured
+  /copilot-omni:omni-setup --help    Show this help
 
 MODES:
   Initial Setup (no flags)
@@ -57,16 +57,16 @@ MODES:
     - Downloads fresh CLAUDE.md to ./.claude/
     - Backs up existing CLAUDE.md to .claude/CLAUDE.md.backup.YYYY-MM-DD
     - Project-specific settings
-    - Use this to update project config after OMC upgrades
+    - Use this to update project config after copilot-omni upgrades
 
   Global Configuration (--global)
     - Downloads fresh CLAUDE.md to ~/.claude/
     - Backs up existing CLAUDE.md to ~/.claude/CLAUDE.md.backup.YYYY-MM-DD
-    - Default: explicitly overwrites ~/.claude/CLAUDE.md so plain `claude` also uses OMC
-    - Optional preserve mode keeps the user's base `CLAUDE.md` and installs OMC into `CLAUDE-omc.md` for `omc` launches
+    - Default: explicitly overwrites ~/.claude/CLAUDE.md so plain `claude` also uses copilot-omni
+    - Optional preserve mode keeps the user's base `CLAUDE.md` and installs copilot-omni into `CLAUDE-omc.md` for `omc` launches
     - Applies to all Claude Code sessions
     - Cleans up legacy hooks
-    - Use this to update global config after OMC upgrades
+    - Use this to update global config after copilot-omni upgrades
 
   Force Full Setup (--force)
     - Bypasses the "already configured" check
@@ -74,12 +74,12 @@ MODES:
     - Use when you want to reconfigure preferences
 
 EXAMPLES:
-  /oh-my-claudecode:omc-setup           # First time setup (or update CLAUDE.md if configured)
-  /oh-my-claudecode:omc-setup --local   # Update this project
-  /oh-my-claudecode:omc-setup --global  # Update all projects
-  /oh-my-claudecode:omc-setup --force   # Re-run full setup wizard
+  /copilot-omni:omni-setup           # First time setup (or update CLAUDE.md if configured)
+  /copilot-omni:omni-setup --local   # Update this project
+  /copilot-omni:omni-setup --global  # Update all projects
+  /copilot-omni:omni-setup --force   # Re-run full setup wizard
 
-For more info: https://github.com/Yeachan-Heo/oh-my-claudecode
+For more info: https://github.com/Yeachan-Heo/copilot-omni
 ```
 
 ## Pre-Setup Check: Already Configured?
@@ -88,14 +88,14 @@ For more info: https://github.com/Yeachan-Heo/oh-my-claudecode
 
 ```bash
 # Check if setup was already completed
-CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omc-config.json"
+CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omni-config.json"
 
 if [ -f "$CONFIG_FILE" ]; then
   SETUP_COMPLETED=$(jq -r '.setupCompleted // empty' "$CONFIG_FILE" 2>/dev/null)
   SETUP_VERSION=$(jq -r '.setupVersion // empty' "$CONFIG_FILE" 2>/dev/null)
 
   if [ -n "$SETUP_COMPLETED" ] && [ "$SETUP_COMPLETED" != "null" ]; then
-    echo "OMC setup was already completed on: $SETUP_COMPLETED"
+    echo "copilot-omni setup was already completed on: $SETUP_COMPLETED"
     [ -n "$SETUP_VERSION" ] && echo "Setup version: $SETUP_VERSION"
     ALREADY_CONFIGURED="true"
   fi
@@ -108,7 +108,7 @@ If `ALREADY_CONFIGURED` is true AND the user did NOT pass `--force`, `--local`, 
 
 Use AskUserQuestion to prompt:
 
-**Question:** "OMC is already configured. What would you like to do?"
+**Question:** "copilot-omni is already configured. What would you like to do?"
 
 **Options:**
 1. **Update CLAUDE.md only** - Download latest CLAUDE.md without re-running full setup
@@ -156,19 +156,19 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-progress.sh" clear
 ## Phase Execution
 
 ### For `--local` or `--global` flags:
-Read the file at `${CLAUDE_PLUGIN_ROOT}/skills/omc-setup/phases/01-install-claude-md.md` and follow its instructions.
+Read the file at `${CLAUDE_PLUGIN_ROOT}/skills/omni-setup/phases/01-install-claude-md.md` and follow its instructions.
 (The phase file handles early exit for flag mode.)
 
 ### For full setup (default or --force):
 Execute phases sequentially. For each phase, read the corresponding file and follow its instructions:
 
-1. **Phase 1 - Install CLAUDE.md**: Read `${CLAUDE_PLUGIN_ROOT}/skills/omc-setup/phases/01-install-claude-md.md` and follow its instructions.
+1. **Phase 1 - Install CLAUDE.md**: Read `${CLAUDE_PLUGIN_ROOT}/skills/omni-setup/phases/01-install-claude-md.md` and follow its instructions.
 
-2. **Phase 2 - Environment Configuration**: Read `${CLAUDE_PLUGIN_ROOT}/skills/omc-setup/phases/02-configure.md` and follow its instructions. Phase 2 must delegate HUD/statusLine setup to the `hud` skill; do not generate or patch `statusLine` paths inline here.
+2. **Phase 2 - Environment Configuration**: Read `${CLAUDE_PLUGIN_ROOT}/skills/omni-setup/phases/02-configure.md` and follow its instructions. Phase 2 must delegate HUD/statusLine setup to the `hud` skill; do not generate or patch `statusLine` paths inline here.
 
-3. **Phase 3 - Integration Setup**: Read `${CLAUDE_PLUGIN_ROOT}/skills/omc-setup/phases/03-integrations.md` and follow its instructions.
+3. **Phase 3 - Integration Setup**: Read `${CLAUDE_PLUGIN_ROOT}/skills/omni-setup/phases/03-integrations.md` and follow its instructions.
 
-4. **Phase 4 - Completion**: Read `${CLAUDE_PLUGIN_ROOT}/skills/omc-setup/phases/04-welcome.md` and follow its instructions.
+4. **Phase 4 - Completion**: Read `${CLAUDE_PLUGIN_ROOT}/skills/omni-setup/phases/04-welcome.md` and follow its instructions.
 
 ## Graceful Interrupt Handling
 
@@ -176,13 +176,13 @@ Execute phases sequentially. For each phase, read the corresponding file and fol
 
 ## Keeping Up to Date
 
-After installing oh-my-claudecode updates (via npm or plugin update):
+After installing copilot-omni updates (via npm or plugin update):
 
-**Automatic**: Just run `/oh-my-claudecode:omc-setup` - it will detect you've already configured and offer a quick "Update CLAUDE.md only" option that skips the full wizard.
+**Automatic**: Just run `/copilot-omni:omni-setup` - it will detect you've already configured and offer a quick "Update CLAUDE.md only" option that skips the full wizard.
 
 **Manual options**:
-- `/oh-my-claudecode:omc-setup --local` to update project config only
-- `/oh-my-claudecode:omc-setup --global` to update global config only
-- `/oh-my-claudecode:omc-setup --force` to re-run the full wizard (reconfigure preferences)
+- `/copilot-omni:omni-setup --local` to update project config only
+- `/copilot-omni:omni-setup --global` to update global config only
+- `/copilot-omni:omni-setup --force` to re-run the full wizard (reconfigure preferences)
 
 This ensures you have the newest features and agent configurations without the token cost of repeating the full setup.

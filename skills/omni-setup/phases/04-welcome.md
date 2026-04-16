@@ -15,7 +15,7 @@ If found, this is an upgrade from 2.x. Set `IS_UPGRADE=true`.
 ### For New Users (IS_UPGRADE is not true):
 
 ```
-OMC Setup Complete!
+copilot-omni Setup Complete!
 
 You don't need to learn any commands. I now have intelligent behaviors that activate automatically.
 
@@ -40,21 +40,21 @@ Just include these words naturally in your request:
 
 TEAMS:
 Spawn coordinated agents with shared task lists and real-time messaging:
-- /oh-my-claudecode:team 3:executor "fix all TypeScript errors"
-- /oh-my-claudecode:team 5:debugger "fix build errors in src/"
+- /copilot-omni:team 3:executor "fix all TypeScript errors"
+- /copilot-omni:team 5:debugger "fix build errors in src/"
 Teams use Claude Code native tools (TeamCreate/SendMessage/TaskCreate).
 
 MCP SERVERS:
-Run /oh-my-claudecode:mcp-setup to add tools like web search, GitHub, etc.
+Run /copilot-omni:mcp-setup to add tools like web search, GitHub, etc.
 
 HUD STATUSLINE:
-The status bar now shows OMC state. Restart Claude Code to see it.
+The status bar now shows copilot-omni state. Restart Claude Code to see it.
 
-OMC CLI HELPERS (if installed):
+copilot-omni CLI HELPERS (if installed):
 - omc hud         - Render the current HUD statusline
 - omc teleport    - Create an isolated git worktree
 - omc team status - Inspect a running team job
-- Session summaries are written to `.omc/sessions/*.json`
+- Session summaries are written to `.omni/sessions/*.json`
 
 That's it! Just use Claude Code normally.
 ```
@@ -62,16 +62,16 @@ That's it! Just use Claude Code normally.
 ### For Users Upgrading from 2.x (IS_UPGRADE is true):
 
 ```
-OMC Setup Complete! (Upgraded from 2.x)
+copilot-omni Setup Complete! (Upgraded from 2.x)
 
 GOOD NEWS: Your existing commands still work!
-- /ralph, /ultrawork, /omc-plan, etc. all still function
+- /ralph, /ultrawork, /omni-plan, etc. all still function
 
 WHAT'S NEW in 3.0:
 You no longer NEED those commands. Everything is automatic now:
 - Just say "don't stop until done" instead of /ralph
 - Just say "fast" or "parallel" instead of /ultrawork
-- Just say "plan this" instead of /omc-plan
+- Just say "plan this" instead of /omni-plan
 - Just say "stop" instead of /cancel
 
 MAGIC KEYWORDS (power-user shortcuts):
@@ -80,29 +80,29 @@ MAGIC KEYWORDS (power-user shortcuts):
 | ralph | /ralph | "ralph: fix the bug" |
 | ralplan | /ralplan | "ralplan this feature" |
 | ulw | /ultrawork | "ulw refactor API" |
-| omc-plan | /omc-plan | "plan the endpoints" |
+| omni-plan | /omni-plan | "plan the endpoints" |
 | team | (new!) | "/team 3:executor fix errors" |
 
 TEAMS (NEW!):
 Spawn coordinated agents with shared task lists and real-time messaging:
-- /oh-my-claudecode:team 3:executor "fix all TypeScript errors"
+- /copilot-omni:team 3:executor "fix all TypeScript errors"
 - Uses Claude Code native tools (TeamCreate/SendMessage/TaskCreate)
 
 HUD STATUSLINE:
-The status bar now shows OMC state. Restart Claude Code to see it.
+The status bar now shows copilot-omni state. Restart Claude Code to see it.
 
-OMC CLI HELPERS (if installed):
+copilot-omni CLI HELPERS (if installed):
 - omc hud         - Render the current HUD statusline
 - omc teleport    - Create an isolated git worktree
 - omc team status - Inspect a running team job
-- Session summaries are written to `.omc/sessions/*.json`
+- Session summaries are written to `.omni/sessions/*.json`
 
 Your workflow won't break - it just got easier!
 ```
 
 ## Optional Rule Templates
 
-OMC includes rule templates you can copy to your project's `.claude/rules/` directory for automatic context injection:
+copilot-omni includes rule templates you can copy to your project's `.claude/rules/` directory for automatic context injection:
 
 | Template | Purpose |
 |----------|---------|
@@ -134,7 +134,7 @@ gh auth status &>/dev/null
 **Before prompting, check if the repository is already starred:**
 
 ```bash
-gh api user/starred/Yeachan-Heo/oh-my-claudecode &>/dev/null
+gh api user/starred/Yeachan-Heo/copilot-omni &>/dev/null
 ```
 
 **If already starred (exit code 0):**
@@ -145,7 +145,7 @@ gh api user/starred/Yeachan-Heo/oh-my-claudecode &>/dev/null
 
 Use AskUserQuestion:
 
-**Question:** "If you're enjoying oh-my-claudecode, would you like to support the project by starring it on GitHub?"
+**Question:** "If you're enjoying copilot-omni, would you like to support the project by starring it on GitHub?"
 
 **Options:**
 1. **Yes, star it!** - Star the repository
@@ -155,7 +155,7 @@ Use AskUserQuestion:
 If user chooses "Yes, star it!":
 
 ```bash
-gh api -X PUT /user/starred/Yeachan-Heo/oh-my-claudecode 2>/dev/null && echo "Thanks for starring!" || true
+gh api -X PUT /user/starred/Yeachan-Heo/copilot-omni 2>/dev/null && echo "Thanks for starring!" || true
 ```
 
 **Note:** Fail silently if the API call doesn't work - never block setup completion.
@@ -164,22 +164,22 @@ gh api -X PUT /user/starred/Yeachan-Heo/oh-my-claudecode 2>/dev/null && echo "Th
 
 ```bash
 echo ""
-echo "If you enjoy oh-my-claudecode, consider starring the repo:"
-echo "  https://github.com/Yeachan-Heo/oh-my-claudecode"
+echo "If you enjoy copilot-omni, consider starring the repo:"
+echo "  https://github.com/Yeachan-Heo/copilot-omni"
 echo ""
 ```
 
 ## Mark Completion
 
-Get the current OMC version and mark setup complete:
+Get the current copilot-omni version and mark setup complete:
 
 ```bash
-# Get current OMC version from CLAUDE.md
+# Get current copilot-omni version from CLAUDE.md
 OMC_VERSION=""
 if [ -f ".claude/CLAUDE.md" ]; then
-  OMC_VERSION=$(grep -m1 'OMC:VERSION:' .claude/CLAUDE.md 2>/dev/null | sed -E 's/.*OMC:VERSION:([^ ]+).*/\1/' || true)
+  OMC_VERSION=$(grep -m1 'copilot-omni:VERSION:' .claude/CLAUDE.md 2>/dev/null | sed -E 's/.*copilot-omni:VERSION:([^ ]+).*/\1/' || true)
 elif [ -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/CLAUDE.md" ]; then
-  OMC_VERSION=$(grep -m1 'OMC:VERSION:' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/CLAUDE.md" 2>/dev/null | sed -E 's/.*OMC:VERSION:([^ ]+).*/\1/' || true)
+  OMC_VERSION=$(grep -m1 'copilot-omni:VERSION:' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/CLAUDE.md" 2>/dev/null | sed -E 's/.*copilot-omni:VERSION:([^ ]+).*/\1/' || true)
 fi
 if [ -z "$OMC_VERSION" ]; then
   OMC_VERSION=$(omc --version 2>/dev/null | head -1 || true)

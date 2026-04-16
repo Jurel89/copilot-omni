@@ -109,8 +109,8 @@ This classification ensures expertise can be updated independently without desta
 
 ### Step 4: Save Location
 
-- **User-level**: `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/omc-learned/<skill-name>.md` - Rare. Only for truly portable insights.
-- **Project-level**: `.omc/skills/<skill-name>.md` - Default. Version-controlled with repo.
+- **User-level**: `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/omni-learned/<skill-name>.md` - Rare. Only for truly portable insights.
+- **Project-level**: `.omni/skills/<skill-name>.md` - Default. Version-controlled with repo.
 
 ### Required File Format
 
@@ -162,5 +162,5 @@ If code helps, show it - but as illustration of the principle, not copy-paste ma
 
 ## Related Commands
 
-- /oh-my-claudecode:note - Save quick notes that survive compaction (less formal than skills)
-- /oh-my-claudecode:ralph - Start a development loop with learning capture
+- /copilot-omni:note - Save quick notes that survive compaction (less formal than skills)
+- /copilot-omni:ralph - Start a development loop with learning capture

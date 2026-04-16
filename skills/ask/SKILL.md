@@ -5,20 +5,20 @@ description: Process-first advisor routing for Claude, Codex, or Gemini via `omc
 
 # Ask
 
-Use OMC's canonical advisor skill to route a prompt through the local Claude, Codex, or Gemini CLI and persist the result as an ask artifact.
+Use copilot-omni's canonical advisor skill to route a prompt through the local Claude, Codex, or Gemini CLI and persist the result as an ask artifact.
 
 ## Usage
 
 ```bash
-/oh-my-claudecode:ask <claude|codex|gemini> <question or task>
+/copilot-omni:ask <claude|codex|gemini> <question or task>
 ```
 
 Examples:
 
 ```bash
-/oh-my-claudecode:ask codex "review this patch from a security perspective"
-/oh-my-claudecode:ask gemini "suggest UX improvements for this flow"
-/oh-my-claudecode:ask claude "draft an implementation plan for issue #123"
+/copilot-omni:ask codex "review this patch from a security perspective"
+/copilot-omni:ask gemini "suggest UX improvements for this flow"
+/copilot-omni:ask claude "draft an implementation plan for issue #123"
 ```
 
 ## Routing
@@ -47,7 +47,7 @@ gemini --version
 `omc ask` writes artifacts to:
 
 ```text
-.omc/artifacts/ask/<provider>-<slug>-<timestamp>.md
+.omni/artifacts/ask/<provider>-<slug>-<timestamp>.md
 ```
 
 Task: {{ARGUMENTS}}

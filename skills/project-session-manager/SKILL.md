@@ -19,7 +19,7 @@ level: 2
 
 Automate isolated development environments using git worktrees and tmux sessions with Claude Code. Enables parallel work across multiple tasks, projects, and repositories.
 
-Canonical slash command: `/oh-my-claudecode:project-session-manager` (alias: `/oh-my-claudecode:psm`).
+Canonical slash command: `/copilot-omni:project-session-manager` (alias: `/copilot-omni:psm`).
 
 ## Commands
 
@@ -50,8 +50,8 @@ Supported formats:
 {
   "aliases": {
     "omc": {
-      "repo": "Yeachan-Heo/oh-my-claudecode",
-      "local": "~/Workspace/oh-my-claudecode",
+      "repo": "Yeachan-Heo/copilot-omni",
+      "local": "~/Workspace/copilot-omni",
       "default_base": "main"
     }
   },
@@ -509,14 +509,14 @@ omc teleport remove --force feat/my-repo-my-feature
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--worktree` | Create worktree (default, kept for compatibility) | `true` |
-| `--path <path>` | Custom worktree root directory | `~/Workspace/omc-worktrees/` |
+| `--path <path>` | Custom worktree root directory | `~/Workspace/omni-worktrees/` |
 | `--base <branch>` | Base branch to create from | `main` |
 | `--json` | Output as JSON | `false` |
 
 ### Worktree Layout
 
 ```
-~/Workspace/omc-worktrees/
+~/Workspace/omni-worktrees/
 ├── issue/
 │   └── my-repo-123/        # Issue worktrees
 ├── pr/
@@ -564,8 +564,8 @@ if [[ ! -f ~/.psm/projects.json ]]; then
 {
   "aliases": {
     "omc": {
-      "repo": "Yeachan-Heo/oh-my-claudecode",
-      "local": "~/Workspace/oh-my-claudecode",
+      "repo": "Yeachan-Heo/copilot-omni",
+      "local": "~/Workspace/copilot-omni",
       "default_base": "main"
     }
   },

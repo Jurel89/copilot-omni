@@ -1,22 +1,22 @@
 ---
-name: omc-teams
+name: omni-teams
 description: CLI-team runtime for claude, codex, or gemini workers in tmux panes when you need process-based parallel execution
 aliases: []
 level: 4
 ---
 
-# OMC Teams Skill
+# copilot-omni Teams Skill
 
 Spawn N CLI worker processes in tmux panes to execute tasks in parallel. Supports `claude`, `codex`, and `gemini` agent types.
 
-`/omc-teams` is a legacy compatibility skill for the CLI-first runtime: use `omc team ...` commands (not deprecated MCP runtime tools).
+`/omni-teams` is a legacy compatibility skill for the CLI-first runtime: use `omc team ...` commands (not deprecated MCP runtime tools).
 
 ## Usage
 
 ```bash
-/oh-my-claudecode:omc-teams N:claude "task description"
-/oh-my-claudecode:omc-teams N:codex "task description"
-/oh-my-claudecode:omc-teams N:gemini "task description"
+/copilot-omni:omni-teams N:claude "task description"
+/copilot-omni:omni-teams N:codex "task description"
+/copilot-omni:omni-teams N:gemini "task description"
 ```
 
 ### Parameters
@@ -28,9 +28,9 @@ Spawn N CLI worker processes in tmux panes to execute tasks in parallel. Support
 ### Examples
 
 ```bash
-/omc-teams 2:claude "implement auth module with tests"
-/omc-teams 2:codex "review the auth module for security issues"
-/omc-teams 3:gemini "redesign UI components for accessibility"
+/omni-teams 2:claude "implement auth module with tests"
+/omni-teams 2:codex "review the auth module for security issues"
+/omni-teams 3:gemini "redesign UI components for accessibility"
 ```
 
 ## Requirements
@@ -71,9 +71,9 @@ Extract:
 
 Validate before decomposing or running anything:
 
-- Reject unsupported agent types up front. `/omc-teams` only supports **`claude`**, **`codex`**, and **`gemini`**.
-- If the user asks for an unsupported type such as `expert`, explain that `/omc-teams` launches external CLI workers only.
-- For native Claude Code team agents/roles, direct them to **`/oh-my-claudecode:team`** instead.
+- Reject unsupported agent types up front. `/omni-teams` only supports **`claude`**, **`codex`**, and **`gemini`**.
+- If the user asks for an unsupported type such as `expert`, explain that `/omni-teams` launches external CLI workers only.
+- For native Claude Code team agents/roles, direct them to **`/copilot-omni:team`** instead.
 
 ### Phase 2: Decompose task
 
@@ -146,8 +146,8 @@ If encountered, switch to `omc team ...` CLI commands.
 | Error                        | Cause                               | Fix                                                                                 |
 | ---------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------- |
 | `not inside tmux`            | Requested in-place pane topology from a non-tmux surface | Start tmux and rerun, or let `omc team` use its detached-session fallback           |
-| `cmux surface detected`      | Running inside cmux without `$TMUX` | Use the normal `omc team ...` flow; OMC will launch a detached tmux session         |
-| `Unsupported agent type`     | Requested agent is not claude/codex/gemini | Use `claude`, `codex`, or `gemini`; for native Claude Code agents use `/oh-my-claudecode:team` |
+| `cmux surface detected`      | Running inside cmux without `$TMUX` | Use the normal `omc team ...` flow; copilot-omni will launch a detached tmux session         |
+| `Unsupported agent type`     | Requested agent is not claude/codex/gemini | Use `claude`, `codex`, or `gemini`; for native Claude Code agents use `/copilot-omni:team` |
 | `codex: command not found`   | Codex CLI not installed             | `npm install -g @openai/codex`                                                      |
 | `gemini: command not found`  | Gemini CLI not installed            | `npm install -g @google/gemini-cli`                                                 |
 | `Team <name> is not running` | stale or missing runtime state      | `omc team status <team-name>` then `omc team shutdown <team-name> --force` if stale |
@@ -155,7 +155,7 @@ If encountered, switch to `omc team ...` CLI commands.
 
 ## Relationship to `/team`
 
-| Aspect       | `/team`                                   | `/omc-teams`                                         |
+| Aspect       | `/team`                                   | `/omni-teams`                                         |
 | ------------ | ----------------------------------------- | ---------------------------------------------------- |
 | Worker type  | Claude Code native team agents            | claude / codex / gemini CLI processes in tmux        |
 | Invocation   | `TeamCreate` / `Task` / `SendMessage`     | `omc team [N:agent]` + `status` + `shutdown` + `api` |
