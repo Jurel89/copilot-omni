@@ -274,10 +274,10 @@ Team "{team_name}" cancelled:
 **Implementation note:** The cancel skill is executed by the LLM, not as a bash script. When you detect an active team:
 1. Read `${CLAUDE_CONFIG_DIR:-~/.claude}/teams/*/config.json` to find active teams
 2. If multiple teams exist, cancel oldest first (by `createdAt`)
-3. For each non-lead member, call `SendMessage(type: "shutdown_request", recipient: member-name, content: "Cancelling")`
+3. For each non-lead member, call `SendMessage(type: "shutdown_request", recipient: member-name, content: "Cancelling")` <!-- cc-primitive-allow: TODO-WS5b team runtime rewrite -->
 4. Wait briefly for shutdown responses (15s per member timeout)
 5. Re-read config.json to check for remaining members (reconciliation pass)
-6. Call `TeamDelete()` to clean up
+6. Call `TeamDelete()` to clean up <!-- cc-primitive-allow: TODO-WS5b team runtime rewrite -->
 7. Clear team state: `state_clear(mode="team", session_id)`
 8. Report structured summary to user
 

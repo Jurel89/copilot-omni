@@ -238,9 +238,161 @@ def check_rename_stub() -> CheckResult:
     return True, ["rename stub: harness alive; WS1 will implement the real check"]
 
 
+# ---------------------------------------------------------------------------
+# WS2 checks
+# ---------------------------------------------------------------------------
+
+# Banned Claude-Code-specific primitive patterns in source files
+_CC_PRIMITIVE_PATTERNS: tuple[str, ...] = (
+    r'Task\s*\(\s*subagent_type\s*=',
+    r'AskUserQuestion\s*\(',
+    r'Skill\s*\(\s*["\'](?!.*SKILL\.md)',  # Skill("name") calls, not file refs
+    r'\bstate_list_active\b',
+    r'\bSendMessage\(',      # requires immediate paren — avoids "SendMessage (no team)" prose
+    r'\bTeamCreate\(',
+    r'\bTeamDelete\(',
+)
+
+# Paths allowlisted for the primitives check
+_CC_PRIMITIVE_ALLOWLIST: tuple[str, ...] = (
+    "scripts/verify_plugin_contract.py",  # this file defines the patterns
+    "scripts/subagent.py",               # documents the replacement
+    "AGENTS.md",                         # prose documenting the translation layer
+    "docs/ARCHITECTURE.md",              # prose documenting the translation layer
+    ".git/",
+    ".omc/",
+    ".omni/",
+)
+
+# Marker that explicitly opts a line out of the primitives check
+_CC_ALLOW_MARKER_RE = re.compile(
+    r"(?:<!--\s*|#\s*)cc-primitive-allow\s*:.*?(?:-->|$)",
+    re.IGNORECASE,
+)
+
+
+def _is_cc_primitive_allowlisted(rel: str) -> bool:
+    for prefix in _CC_PRIMITIVE_ALLOWLIST:
+        if rel.startswith(prefix):
+            return True
+    return False
+
+
+def check_no_claude_primitives() -> CheckResult:
+    """Verify no Claude-Code-only primitives remain outside allowlisted files.
+
+    Scans .md and .py files for Task(subagent_type=...), AskUserQuestion(),
+    Skill("..."), state_list_active, SendMessage(), TeamCreate(), TeamDelete().
+    Lines inside markdown code fences are skipped (they may document the old API).
+    Lines with a cc-primitive-allow marker nearby are reported as exemptions.
+    """
+    compiled = [re.compile(p) for p in _CC_PRIMITIVE_PATTERNS]
+    md_py_exts = frozenset({".md", ".py"})
+    violations: list[str] = []
+    exemptions: list[str] = []
+
+    for path in sorted(ROOT.rglob("*")):
+        if not path.is_file():
+            continue
+        if path.suffix not in md_py_exts:
+            continue
+        rel = str(path.relative_to(ROOT)).replace("\\", "/")
+        if _is_cc_primitive_allowlisted(rel):
+            continue
+
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+
+        lines_raw = raw.splitlines()
+        lines = _strip_code_fences(lines_raw)
+
+        for line_idx, line in enumerate(lines):
+            for pattern in compiled:
+                if pattern.search(line):
+                    if _CC_ALLOW_MARKER_RE.search(lines_raw[line_idx]):
+                        exemptions.append(
+                            f"  [exempt] {rel}:{line_idx + 1}: {lines_raw[line_idx].strip()[:120]}"
+                        )
+                    else:
+                        violations.append(
+                            f"  {rel}:{line_idx + 1}: {lines_raw[line_idx].strip()[:120]}"
+                        )
+                    break
+
+    messages: list[str] = []
+    ok = True
+
+    if exemptions:
+        messages.append(f"cc-primitive exemptions ({len(exemptions)}):")
+        messages.extend(exemptions)
+
+    if violations:
+        ok = False
+        messages.append(f"FAIL: {len(violations)} banned Claude-Code primitive(s) found:")
+        messages.extend(violations)
+    else:
+        if ok:
+            messages.append("no-claude-primitives check passed")
+
+    return ok, messages
+
+
+# ---------------------------------------------------------------------------
+
+_REVIEWER_AGENTS: tuple[str, ...] = (
+    "agents/critic.md",
+    "agents/code-reviewer.md",
+    "agents/security-reviewer.md",
+)
+
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+
+def check_writable_frontmatter() -> CheckResult:
+    """Verify that reviewer agent files have `writable: false` in their frontmatter."""
+    messages: list[str] = []
+    ok = True
+
+    for rel in _REVIEWER_AGENTS:
+        path = ROOT / rel
+        if not path.exists():
+            ok = False
+            messages.append(f"FAIL: {rel} not found")
+            continue
+
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            ok = False
+            messages.append(f"FAIL: could not read {rel}: {exc}")
+            continue
+
+        m = _FRONTMATTER_RE.match(content)
+        if not m:
+            ok = False
+            messages.append(f"FAIL: {rel} has no YAML frontmatter block")
+            continue
+
+        frontmatter = m.group(1)
+        if not re.search(r"^\s*writable\s*:\s*false\s*$", frontmatter, re.MULTILINE):
+            ok = False
+            messages.append(f"FAIL: {rel} missing 'writable: false' in frontmatter")
+        else:
+            messages.append(f"  ok: {rel} has writable: false")
+
+    if ok:
+        messages.insert(0, "writable-frontmatter check passed")
+
+    return ok, messages
+
+
 CHECKS: dict = {
     "rename": check_rename,
     "rename-stub": check_rename_stub,
+    "no-claude-primitives": check_no_claude_primitives,
+    "writable-frontmatter": check_writable_frontmatter,
 }
 
 
