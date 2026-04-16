@@ -231,6 +231,93 @@ class TestWave3Team:
         # Cleanup
         omni_team.cleanup_team(run_id, force=True)
 
+    def test_dispatch_then_cancel_terminates_all_workers(self, tmp_path, monkeypatch):
+        """C13: dispatch_workers with FAKE workers, then cancel, assert state='cancelled'.
+
+        Previous version of this test called cancel_team() without first calling
+        dispatch_workers(), so worker dirs didn't exist and cancel had no state to
+        transition. This test proves live worker cancellation after dispatch.
+        """
+        monkeypatch.setenv("OMNI_TEST_MODE", "1")
+        monkeypatch.setenv("OMNI_SUBAGENT_FAKE", "1")
+        # Slow enough that workers are still "running" when we cancel
+        monkeypatch.setenv("OMNI_SUBAGENT_FAKE_SLEEP_SECS", "30")
+
+        omni_team = _import_script("omni_team")
+
+        # Redirect runs dir to tmp_path for hermeticity
+        runs_dir = tmp_path / "runs"
+        monkeypatch.setattr(omni_team, "_OMNI_RUNS", runs_dir)
+
+        plan = {
+            "name": "dispatch-cancel-test",
+            "workers": [
+                {"slug": f"dc{i}", "skill": "ralph", "prompt": "slow task", "category": "quick"}
+                for i in range(3)
+            ],
+        }
+        created = omni_team.create_team(
+            "dispatch-cancel-test", plan,
+            session_id=_fresh_id("dc"),
+            use_tmux=False,
+        )
+        run_id = created["run_id"]
+
+        # Patch _load_worktree_mod so no git ops
+        monkeypatch.setattr(omni_team, "_load_worktree_mod", lambda: None)
+
+        # Patch _SubprocessWorkerHost.launch to simulate long-running workers
+        # Write status="running" and return a fake PID
+        import os as _os
+
+        def fake_launch(self_h, worker):
+            slug = worker["slug"]
+            worker_dir = omni_team._worker_dir(run_id, slug)
+            worker_dir.mkdir(parents=True, exist_ok=True)
+            omni_team._write_json_atomic(worker_dir / "status.json", {
+                "state": "running",
+                "slug": slug,
+                "run_id": run_id,
+                "pid": _os.getpid(),  # use current pid as fake worker pid
+                "started_at": omni_team._now_iso(),
+                "ended_at": None,
+            })
+            return _os.getpid()  # non-falsy, non-None
+
+        monkeypatch.setattr(omni_team._SubprocessWorkerHost, "launch", fake_launch)
+
+        # Dispatch workers
+        jobs = omni_team.dispatch_workers(run_id, plan)
+        assert len(jobs) == 3, f"Expected 3 jobs, got {len(jobs)}"
+
+        # Verify all workers started as "running"
+        run_dir = runs_dir / run_id
+        for slug in ["dc0", "dc1", "dc2"]:
+            status_path = run_dir / "workers" / slug / "status.json"
+            assert status_path.exists(), f"status.json missing for {slug} after dispatch"
+            status = json.loads(status_path.read_text())
+            assert status["state"] == "running", (
+                f"worker {slug} must be 'running' after dispatch, got {status['state']!r}"
+            )
+
+        # Now cancel the team
+        omni_team.cancel_team(run_id, reason="c13-integration-test")
+
+        # Assert every worker is now in state="cancelled"
+        for slug in ["dc0", "dc1", "dc2"]:
+            status_path = run_dir / "workers" / slug / "status.json"
+            status = json.loads(status_path.read_text())
+            assert status["state"] == "cancelled", (
+                f"C13: worker {slug} state={status['state']!r} after cancel_team() — "
+                f"expected 'cancelled' (live cancellation not working)"
+            )
+
+        # Assert root cancel.signal written
+        assert (run_dir / "cancel.signal").exists(), "root cancel.signal must exist after cancel"
+
+        # Cleanup
+        omni_team.cleanup_team(run_id, force=True)
+
 
 # ---------------------------------------------------------------------------
 # Cross-cutting — router behavior (WS3)
