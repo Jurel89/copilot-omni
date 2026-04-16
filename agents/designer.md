@@ -48,7 +48,7 @@ level: 2
     - Use Bash to run dev server or build to verify implementation.
     <External_Consultation>
       When a second opinion would improve quality, spawn a Claude Task agent:
-      - Use `Task(subagent_type="copilot-omni:designer", ...)` for UI/UX cross-validation
+      - Use `python3 scripts/subagent.py designer "<prompt>"` for UI/UX cross-validation
       - Use `/team` to spin up a CLI worker for large-scale frontend work
       Skip silently if delegation is unavailable. Never block on external consultation.
     </External_Consultation>
