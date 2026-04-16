@@ -966,6 +966,8 @@ def _get_stdlib_names() -> frozenset[str]:
         "xmlrpc", "zipapp", "zipfile", "zipimport", "zlib", "zoneinfo",
         "_collections_abc", "_weakrefset", "antigravity", "cmath", "ntpath",
         "posixpath", "genericpath",
+        # Platform-specific stdlib (Windows)
+        "msvcrt", "_winapi",
     })
     return _STDLIB_FALLBACK
 
