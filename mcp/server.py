@@ -212,7 +212,9 @@ def _pool_acquire() -> sqlite3.Connection:
         # Spawn new connection (within cap)
         _POOL_ACTIVE += 1
 
-    # Create outside lock to avoid holding it during I/O
+    # Create outside lock to avoid holding it during I/O.
+    # B3 fix: if _make_connection() fails, decrement _POOL_ACTIVE and notify
+    # waiters so the pool is not permanently deadlocked.
     last_err: Optional[Exception] = None
     for attempt in range(3):
         try:
@@ -220,6 +222,10 @@ def _pool_acquire() -> sqlite3.Connection:
         except sqlite3.OperationalError as exc:
             last_err = exc
             time.sleep(0.1 * (2 ** attempt))
+    # All attempts failed — restore the slot we reserved
+    with _POOL_COND:
+        _POOL_ACTIVE -= 1
+        _POOL_COND.notify()
     assert last_err is not None
     raise last_err
 
