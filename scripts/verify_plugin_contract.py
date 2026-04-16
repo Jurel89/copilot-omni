@@ -80,6 +80,9 @@ ALLOWLIST_PATHS: tuple[str, ...] = (
     # WS7 tests reference the sentinel filename to test the deprecation-warn path
     "tests/test_hooks_kill_switch.py",
     "tests/test_hooks_audit_logging.py",
+    # WS10 gap + integration tests assert legacy-name bans; must cite the tokens verbatim
+    "tests/test_hooks_lib_gaps.py",
+    "tests/test_integration_phase_b.py",
     # WS7 doc references the legacy sentinel filename
     "docs/HOOK_CONTRACT.md",
 )
