@@ -610,3 +610,65 @@ def test_ultraqa_cancel_cascade(monkeypatch, tmp_path):
     assert (run_dir / "cancel.signal").exists(), (
         "cancel.signal should not be deleted by ultraqa — cleanup is caller's responsibility"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test T8: cap-sanity-guard — N=20 tasks, cap=4 → 20 > 4*4=16 → must fail
+# ---------------------------------------------------------------------------
+
+
+def test_ultrawork_cap_sanity_guard_rejects_excess_tasks(monkeypatch, tmp_path):
+    """T8: ultrawork must exit non-zero when task count exceeds cap*4.
+
+    We temporarily pin cap=4 in .omni/config.json (saved and restored) and write
+    20 tasks into the run_dir spec.json.  20 > 4*4=16 triggers the sanity guard.
+    Expects 'sanity cap' in output and exit_code != 0.
+    """
+    monkeypatch.setenv("OMNI_SUBAGENT_FAKE_SLEEP_SECS", "0.02")
+
+    # Pin cap=4 via .omni/config.json (the only source _get_cap() reads).
+    config_path = _REPO_ROOT / ".omni" / "config.json"
+    original_config = config_path.read_text(encoding="utf-8") if config_path.exists() else None
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        '{"runtime": {"max_parallel_subagents": 4}}', encoding="utf-8"
+    )
+
+    try:
+        session_id = _fresh_session()
+        run_dir = _run_dir("ultrawork", session_id)
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        # 20 tasks, cap=4 → 20 > 4*4=16 must trigger the guard
+        tasks = [
+            {"id": f"task-{i}", "agent": "executor", "category": "quick",
+             "prompt": f"excess task {i}"}
+            for i in range(1, 21)
+        ]
+        (run_dir / "spec.json").write_text(json.dumps({
+            "run_id": run_dir.name,
+            "task_count": len(tasks),
+            "cap": 4,
+            "tasks": tasks,
+        }, indent=2))
+
+        result = run_skill(
+            "ultrawork",
+            "excess tasks test",  # {{PROMPT}} ignored — spec.json present
+            session_id=session_id,
+            fake_sleep_secs=0.02,
+        )
+    finally:
+        if original_config is not None:
+            config_path.write_text(original_config, encoding="utf-8")
+        else:
+            config_path.unlink(missing_ok=True)
+
+    # The sanity guard must have fired
+    combined = result.stdout + result.stderr
+    assert "sanity cap" in combined.lower(), (
+        f"Expected 'sanity cap' in output but got:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+    )
+    assert result.exit_code != 0, (
+        f"Expected non-zero exit when sanity cap exceeded, got {result.exit_code}"
+    )
