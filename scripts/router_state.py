@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""WS3 stub pipeline-state reader.
+"""Pipeline-state reader — reads live state via MCP for all known modes.
 
 Public API
 ----------
     read_pipeline_state(session_id=None, mode="router") -> dict | None
 
-For mode="router": attempts to read the most recent router decision from MCP
-state (via state_read mode=router). Returns the stored body dict on success,
-or None when MCP is unavailable.
+Attempts to read the given mode's state from MCP (via state_read JSON-RPC).
+Returns the stored body dict on success.
 
-For any OTHER pipeline mode (autopilot, ralph, ultrawork, …): returns the
-explicit stub dict per F4 / ADR plan — WS5 has not shipped yet.
+Falls back to scanning `.omni/runs/<run-prefix>-*/status.json` for the most
+recent terminal state when MCP is unavailable.
+
+Returns None if no state is found (callers must handle None — never returns
+the old WS5 stub).
 
 CLI
 ---
@@ -24,19 +26,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Modes that WS5b will eventually populate.  Until then, return the stub.
-_PIPELINE_MODES_WS5: frozenset[str] = frozenset({
-    "autopilot",
-    "ralph",
-    "ultrawork",
-    "team",
-})
-
-_WS5_STUB: dict[str, str] = {
-    "status": "unknown",
-    "reason": "WS5 not yet shipped",
-}
-
 
 def read_pipeline_state(
     session_id: str | None = None,
@@ -44,30 +33,71 @@ def read_pipeline_state(
 ) -> dict | None:
     """Read pipeline state for the given mode.
 
-    - mode="router": reads the most recent WS3 router decision from MCP.
-      Returns the body dict, or None if MCP is unavailable / no entry exists.
-    - Any other pipeline mode: returns _WS5_STUB (explicit stub per F4).
+    Tries MCP first; falls back to filesystem scan; returns None if nothing found.
+    Never returns the old WS5 stub.
     """
-    if mode in _PIPELINE_MODES_WS5:
-        return dict(_WS5_STUB)
-
-    if mode == "router":
-        return _read_router_state(session_id=session_id)
-
-    # Unknown mode — also stub
-    return dict(_WS5_STUB)
-
-
-def _read_router_state(session_id: str | None = None) -> dict | None:
-    """Attempt to read mode=router from MCP state. Returns None on failure."""
+    # Try MCP read
     try:
-        return _read_via_mcp(mode="router", session_id=session_id)
-    except Exception as exc:  # noqa: BLE001
+        result = _read_via_mcp(mode=mode, session_id=session_id)
+        if result is not None:
+            return result
+    except Exception as exc:
         print(
-            f"[router_state] warn: could not read MCP state: {exc}",
+            f"[router_state] warn: MCP read failed for mode={mode!r}: {exc}",
             file=sys.stderr,
         )
+
+    # Fallback: scan filesystem run dirs for most recent terminal status
+    try:
+        return _read_filesystem_fallback(mode=mode, session_id=session_id)
+    except Exception as exc:
+        print(
+            f"[router_state] warn: filesystem fallback failed for mode={mode!r}: {exc}",
+            file=sys.stderr,
+        )
+    return None
+
+
+def _read_filesystem_fallback(
+    mode: str,
+    session_id: str | None = None,
+) -> dict | None:
+    """Scan .omni/runs/<mode>-*/status.json for the most recent terminal state.
+
+    Returns the status dict from the most recently modified terminal-state file,
+    or None if no matching run dirs exist.
+    """
+    # Resolve .omni/runs relative to the repo root (two levels up from scripts/)
+    here = Path(__file__).resolve().parent.parent
+    runs_dir = here / ".omni" / "runs"
+    if not runs_dir.exists():
         return None
+
+    terminal_states = {"done", "failed", "cancelled", "completed"}
+    best_mtime = -1.0
+    best_status: dict | None = None
+
+    # Match run dirs prefixed with the mode name
+    for run_dir in runs_dir.iterdir():
+        if not run_dir.is_dir():
+            continue
+        if not run_dir.name.startswith(mode):
+            continue
+        # Scan all job subdirectories for status.json
+        for status_file in run_dir.rglob("status.json"):
+            try:
+                mtime = status_file.stat().st_mtime
+                if mtime <= best_mtime:
+                    continue
+                data = json.loads(status_file.read_text(encoding="utf-8"))
+                state = data.get("state", "")
+                if state in terminal_states:
+                    best_mtime = mtime
+                    best_status = data
+            except Exception:
+                continue
+
+    return best_status
 
 
 def _read_via_mcp(mode: str, session_id: str | None) -> dict | None:
