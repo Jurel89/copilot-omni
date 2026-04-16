@@ -1,6 +1,19 @@
 #!/usr/bin/env python3
 """Post-tool-use hook — best-effort audit log. Never blocks."""
-from __future__ import annotations
+
+# ---------------------------------------------------------------------------
+# Kill-switch: OMNI_SKIP_HOOKS=1 or DISABLE_OMNI=1 disables this hook.
+# Backward-compat aliases: OMC_SKIP_HOOKS and DISABLE_OMC are honoured
+# during the deprecation window and will be removed in v3.0.0.
+# ---------------------------------------------------------------------------
+import os as _os
+if (_os.environ.get("OMNI_SKIP_HOOKS") or _os.environ.get("DISABLE_OMNI")
+        or _os.environ.get("OMC_SKIP_HOOKS") or _os.environ.get("DISABLE_OMC")):
+    import sys as _sys
+    _sys.stdout.write("{}")
+    _sys.stdout.flush()
+    _sys.exit(0)
+del _os
 
 import json
 import os

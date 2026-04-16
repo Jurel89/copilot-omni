@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.1.0] — 2026-04-16 (WS1 rename sweep)
+
+<!-- omni-rename-allow: changelog-entry -->
+### Changed — rename/rebrand (non-breaking for users; breaking for direct `omc-*` skill invocations)
+
+- **Brand rename sweep (WS1).** All internal references to the legacy `oh-my-claudecode` upstream and `omc-*`/`.omc/` path scheme have been replaced with `copilot-omni`/`omni-*`/`.omni/` respectively.
+<!-- omni-rename-allow: changelog-entry -->
+- Skill directories renamed: `omc-doctor` → `omni-doctor`, `omc-reference` → `omni-reference`, `omc-setup` → `omni-setup`, `omc-teams` → `omni-teams`, `sciomc` → `sciomni`.
+- All slash-command references updated: `/copilot-omni:omni-*` replaces `/oh-my-claudecode:omc-*`.
+- Runtime state path `.omc/` → `.omni/` (tracked plans/research stay in `.omni/`).
+
+### Added
+
+- **Kill-switch env vars.** All four lifecycle hooks (`session_start`, `pre_tool_use`, `post_tool_use`, `user_prompt_submit`) now honour:
+  - `OMNI_SKIP_HOOKS=1` — primary kill-switch (new).
+  - `DISABLE_OMNI=1` — alternate form (new).
+  - `OMC_SKIP_HOOKS=1` — backward-compat alias (deprecated; removed in v3.0.0).
+  - `DISABLE_OMC=1` — backward-compat alias (deprecated; removed in v3.0.0).
+- **Rename verifier.** `python3 scripts/verify_plugin_contract.py --check-rename` walks the whole tree, strips code fences, respects the 5 allowlisted paths, and supports `omni-rename-allow` inline markers (cap ≤10).
+
 ## [1.0.0] — 2026-04-16
 
 ### Changed — breaking
