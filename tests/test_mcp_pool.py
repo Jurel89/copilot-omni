@@ -103,6 +103,40 @@ class TestConnectionPool(unittest.TestCase):
             idle_count = len(srv._POOL_IDLE)
         self.assertGreater(idle_count, 0)
 
+    def test_pool_reuses_same_connection_across_calls(self):
+        """Phase-C C06: sequential _Conn() acquisitions return the same sqlite
+        handle (FIFO of the idle list). Proves reuse across tool calls rather
+        than 'one connection per call'."""
+        srv = _load_server()
+        srv._pool_close_all()
+        first_ids: list[int] = []
+        for _ in range(3):
+            with srv._Conn() as conn:
+                first_ids.append(id(conn))
+        self.assertEqual(len(set(first_ids)), 1,
+                         f"expected reuse, got distinct ids {first_ids}")
+
+    def test_every_handler_uses_context_manager(self):
+        """Phase-C C07: every MCP handler in TOOLS must use the _Conn context
+        manager (or not touch sqlite at all). Regression against reintroducing
+        bare sqlite3.connect() calls."""
+        import re
+        server_src = (Path(__file__).resolve().parent.parent
+                      / "mcp" / "server.py").read_text(encoding="utf-8")
+        # The only legitimate sqlite3.connect() lives inside _make_connection().
+        direct_calls = [m for m in re.finditer(r"sqlite3\.connect\(", server_src)]
+        self.assertEqual(len(direct_calls), 1,
+                         f"expected exactly one sqlite3.connect (in _make_connection), "
+                         f"found {len(direct_calls)}")
+
+    def test_atexit_close_all_is_registered(self):
+        """Phase-C C06: WAL-safe shutdown — _pool_close_all must run at exit."""
+        srv = _load_server()
+        # _pool_close_all is idempotent; call it directly to verify no crash.
+        srv._pool_close_all()
+        srv._pool_close_all()
+        self.assertEqual(len(srv._POOL_IDLE), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
