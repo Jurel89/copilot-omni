@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import os
 import re
 import sys
 from pathlib import Path
@@ -128,9 +129,56 @@ SCAN_EXTENSIONS: frozenset[str] = frozenset({
 # Max allowed inline exemptions across the whole tree (hard cap for --all)
 MAX_EXEMPTIONS = 10
 
-# Hard cap for the aggregate exemption budget check (sum of all three markers)
-# WS3: raised 15 → 25 to accommodate new historical citations introduced by the
-# router migration (hook rewrite, ADR citations, command files referencing old patterns).
+# Phase-C C03: falling exemption-cap schedule.
+# Historical context (WS3 raised the cap 15 → 25 for router migration).
+# Phase-C tightens the cap on a calendar schedule so the codebase is forced
+# to clear down historical citations. At any given moment the cap is the
+# largest value whose effective date is on or before "today":
+#     before 2026-04-17: 25
+#     on/after 2026-04-17: 22
+#     on/after 2026-08-01: 18
+#     on/after 2026-11-01: 12
+# Override with OMNI_EXEMPTION_CAP_DATE=YYYY-MM-DD to pin the date (for
+# tests/CI replay) or OMNI_EXEMPTION_CAP_OVERRIDE=<int> to short-circuit
+# the schedule entirely.
+_EXEMPTION_CAP_SCHEDULE: tuple[tuple[str, int], ...] = (
+    ("1970-01-01", 25),
+    ("2026-04-17", 22),
+    ("2026-08-01", 18),
+    ("2026-11-01", 12),
+)
+
+
+def _current_exemption_cap(today_iso: str | None = None) -> int:
+    """Return the aggregate exemption-budget cap for *today_iso* (YYYY-MM-DD).
+
+    Honours:
+    - OMNI_EXEMPTION_CAP_OVERRIDE env var (explicit integer) — wins over schedule
+    - OMNI_EXEMPTION_CAP_DATE env var (explicit date)       — wins over argument
+    - today_iso parameter                                    — test hook
+    - datetime.date.today()                                  — default
+    """
+    raw_override = os.environ.get("OMNI_EXEMPTION_CAP_OVERRIDE")
+    if raw_override:
+        try:
+            return int(raw_override)
+        except ValueError:
+            pass
+    env_date = os.environ.get("OMNI_EXEMPTION_CAP_DATE")
+    resolved = env_date or today_iso
+    if resolved is None:
+        import datetime as _dt
+        resolved = _dt.date.today().isoformat()
+    cap = _EXEMPTION_CAP_SCHEDULE[0][1]
+    for effective, value in _EXEMPTION_CAP_SCHEDULE:
+        if resolved >= effective:
+            cap = value
+    return cap
+
+
+# Backwards-compatible name — some older scripts/tests import MAX_EXEMPTIONS_TOTAL.
+# We preserve it as the "soft" original cap; the real budget is the one returned
+# by check_exemption_budget(), which calls _current_exemption_cap().
 MAX_EXEMPTIONS_TOTAL = 25
 
 # Marker pattern for inline allowlist — supports both HTML comments (<!-- -->) and
@@ -961,16 +1009,17 @@ def check_exemption_budget(root: Path = ROOT) -> CheckResult:
             counts[marker] += len(pattern.findall(raw))
 
     total = sum(counts.values())
+    cap = _current_exemption_cap()
     messages: list[str] = []
     for marker, count in counts.items():
         messages.append(f"  {marker}: {count}")
-    messages.append(f"  total: {total}/{MAX_EXEMPTIONS_TOTAL}")
+    messages.append(f"  total: {total}/{cap}")
 
-    ok = total <= MAX_EXEMPTIONS_TOTAL
+    ok = total <= cap
     if ok:
-        messages.insert(0, "exemption-budget check passed")
+        messages.insert(0, f"exemption-budget check passed (cap={cap})")
     else:
-        messages.insert(0, f"FAIL: exemption budget exceeded ({total} > {MAX_EXEMPTIONS_TOTAL})")
+        messages.insert(0, f"FAIL: exemption budget exceeded ({total} > {cap})")
     return ok, messages
 
 
