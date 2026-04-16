@@ -31,6 +31,7 @@ import importlib.util
 import json
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -361,21 +362,24 @@ class _TmuxWorkerHost:
         if worker.get("session_id"):
             session_arg = f"--session-id {worker['session_id']}"
 
+        # shlex.quote() every user-controlled variable to prevent shell injection.
+        # json.dumps() does NOT shell-escape; a prompt like "$(touch /tmp/pwned)"
+        # would execute without quoting.
         cmd = (
-            f"PARENT_RUN_ID={self.run_id} "
-            f"PARENT_RUN_DIR={str(_run_dir(self.run_id))} "
-            f"{sys.executable} {str(subagent_path)} "
-            f"{skill} {json.dumps(prompt)} "
+            f"PARENT_RUN_ID={shlex.quote(self.run_id)} "
+            f"PARENT_RUN_DIR={shlex.quote(str(_run_dir(self.run_id)))} "
+            f"{shlex.quote(sys.executable)} {shlex.quote(str(subagent_path))} "
+            f"{shlex.quote(skill)} {shlex.quote(prompt)} "
             f"--background "
-            f"--run-id {inner_run_id} "
-            f"--job-id {job_id} "
-            f"--parent-run-id {self.run_id} "
+            f"--run-id {shlex.quote(inner_run_id)} "
+            f"--job-id {shlex.quote(job_id)} "
+            f"--parent-run-id {shlex.quote(self.run_id)} "
             f"{session_arg} "
-            f"> {str(stdout_log)} 2> {str(stderr_log)}"
+            f"> {shlex.quote(str(stdout_log))} 2> {shlex.quote(str(stderr_log))}"
         )
 
         self.session.new_window(slug, worktree_path, cmd)
-        return 0  # no single PID for tmux-based processes
+        return -1  # no single PID for tmux-based processes; non-falsy sentinel
 
     def is_worker_alive(self, slug: str) -> bool:
         """Check by examining status.json (tmux processes don't give us a PID)."""
@@ -582,17 +586,20 @@ def dispatch_workers(run_id: str, plan: dict) -> list[dict]:
         # Launch worker
         pid = host.launch(worker)
 
+        # pid=-1 means tmux-mode (no single PID, but launch succeeded).
+        # pid=None means launch failed.
+        launch_ok = pid is not None
         worker_status = {
-            "state": "running" if pid else "failed",
+            "state": "running" if launch_ok else "failed",
             "slug": slug,
             "run_id": run_id,
-            "pid": pid,
+            "pid": pid if (pid is not None and pid > 0) else None,
             "started_at": _now_iso(),
             "ended_at": None,
         }
         _write_json_atomic(worker_status_path, worker_status)
 
-        worker["status"] = "running" if pid else "failed"
+        worker["status"] = "running" if launch_ok else "failed"
 
         # Write MCP state for this worker
         _mcp_write_best_effort(f"team.{slug}", {

@@ -731,3 +731,117 @@ def test_collect_results_fails_when_worker_fails(tmp_path, monkeypatch):
 
     result = omni_team.collect_results(run_id, timeout=5)
     assert result["state"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# C3: Shell injection prevention in _TmuxWorkerHost.launch
+# ---------------------------------------------------------------------------
+
+
+def test_tmux_launch_shell_injection_not_executed(tmp_path, monkeypatch):
+    """Adversarial prompt $(touch /tmp/pwned-wave-3x) must NOT be executed.
+
+    We mock _TmuxSession.new_window to capture the cmd string and assert:
+    1. The prompt is shlex-quoted (shell-safe single-quoted form).
+    2. /tmp/pwned-wave-3x does NOT exist after the test.
+    """
+    import shlex as _shlex
+    import tempfile
+    import os
+
+    sentinel = tmp_path / "pwned-wave-3x"
+    monkeypatch.setattr(omni_team, "_OMNI_RUNS", tmp_path / "runs")
+
+    captured_cmds: list[str] = []
+
+    class FakeTmuxSession:
+        name = "fake-session"
+
+        def new_window(self, slug, worktree_path, cmd):
+            captured_cmds.append(cmd)
+
+    host = omni_team._TmuxWorkerHost(run_id="test-inject-run", session=FakeTmuxSession())
+    # Override _run_dir and _worker_dir to use tmp_path
+    monkeypatch.setattr(omni_team, "_OMNI_RUNS", tmp_path / "runs")
+
+    worker = {
+        "slug": "inject-worker",
+        "skill": "ralph",
+        "prompt": f"$(touch {str(sentinel)})",
+        "worktree_path": str(tmp_path),
+    }
+
+    # Create the worker dir so launch doesn't fail on mkdir
+    (tmp_path / "runs" / "test-inject-run" / "workers" / "inject-worker").mkdir(
+        parents=True, exist_ok=True
+    )
+
+    rc = host.launch(worker)
+
+    assert rc == -1, "tmux host must return -1 (non-falsy tmux sentinel)"
+    assert len(captured_cmds) == 1
+
+    cmd = captured_cmds[0]
+    # The dangerous payload must appear shell-quoted (inside single quotes)
+    # shlex.quote wraps in '' for strings containing special chars
+    assert "$(touch" not in cmd or (
+        # It IS in the cmd but wrapped in single quotes — verify properly quoted
+        _shlex.quote(f"$(touch {str(sentinel)})") in cmd
+    ), f"prompt not shell-quoted in cmd: {cmd!r}"
+
+    # The sentinel file must NOT exist — the command was captured, not executed
+    assert not sentinel.exists(), (
+        f"/tmp/pwned-wave-3x was created — shell injection not prevented"
+    )
+
+
+# ---------------------------------------------------------------------------
+# C4: _TmuxWorkerHost returns -1 (non-falsy) → workers marked "running"
+# ---------------------------------------------------------------------------
+
+
+def test_tmux_workers_marked_running_not_failed(tmp_path, monkeypatch):
+    """Dispatch 3 workers via mock tmux host; assert all marked 'running' not 'failed'.
+
+    Regression for: _TmuxWorkerHost.launch() returning 0 (falsy), which caused
+    the dispatch loop's `pid is not None` check to mark all tmux workers as failed.
+    Now launch() returns -1 (non-falsy sentinel) and callers check `pid is not None`.
+    """
+    monkeypatch.setattr(omni_team, "_OMNI_RUNS", tmp_path / "runs")
+    monkeypatch.setenv("OMNI_TEST_MODE", "1")
+
+    plan = {
+        "name": "tmux-pid-test",
+        "workers": [
+            {"slug": f"tw{i}", "skill": "ralph", "prompt": "do work", "category": "quick"}
+            for i in range(3)
+        ],
+    }
+    # Create with use_tmux=False (subprocess), then we patch the launch method
+    create_result = omni_team.create_team("tmux-pid-test", plan, use_tmux=False)
+    run_id = create_result["run_id"]
+
+    monkeypatch.setattr(omni_team, "_load_worktree_mod", lambda: None)
+
+    # Patch _SubprocessWorkerHost.launch to return -1 (simulating the tmux sentinel)
+    # This directly tests that the dispatch loop treats -1 as success, not failure.
+    def fake_launch(self_h, worker):
+        slug = worker["slug"]
+        worker_dir = omni_team._worker_dir(run_id, slug)
+        worker_dir.mkdir(parents=True, exist_ok=True)
+        return -1  # tmux-mode sentinel: non-zero, non-None
+
+    monkeypatch.setattr(omni_team._SubprocessWorkerHost, "launch", fake_launch)
+
+    jobs = omni_team.dispatch_workers(run_id, plan)
+
+    assert len(jobs) == 3
+    run_dir = tmp_path / "runs" / run_id
+    for w in ["tw0", "tw1", "tw2"]:
+        status_path = run_dir / "workers" / w / "status.json"
+        assert status_path.exists(), f"status.json missing for {w}"
+        status = json.loads(status_path.read_text())
+        assert status["state"] == "running", (
+            f"worker {w} state={status['state']!r} — expected 'running' (C4 regression: "
+            f"returning -1 must NOT be treated as launch failure)"
+        )
