@@ -207,42 +207,29 @@ Teams are detected by checking for config files in `${CLAUDE_CONFIG_DIR:-~/.clau
 TEAM_CONFIGS=$(find "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/teams -name config.json -maxdepth 2 2>/dev/null)
 ```
 
-<!-- TODO WS5b: rewrite team cancellation protocol to use scripts/omni_team.py shutdown <team-name> instead of direct TeamCreate/TeamDelete/SendMessage calls -->
+**Cancellation protocol (WS6 — omni_team.py):**
 
-**Two-pass cancellation protocol:**
-
-**Pass 1: Graceful Shutdown**
-```
-For each team found in ${CLAUDE_CONFIG_DIR:-~/.claude}/teams/:
-  1. Read config.json to get team_name and members list
-  2. For each non-lead member:
-     a. Send shutdown_request via SendMessage
-     b. Wait up to 15 seconds for shutdown_response
-     c. If response received: member terminates and is auto-removed
-     d. If timeout: mark member as unresponsive, continue to next
-  3. Log: "Graceful pass: X/Y members responded"
+**Pass 1: Signal workers via cancel cascade**
+```bash
+# Write cancel.signal at team root + every worker run-dir
+python3 scripts/omni_team.py cancel <run_id> --reason "user-cancel"
+# -> workers poll PARENT_RUN_DIR/cancel.signal and stop
+# -> worker status.json transitions to state="cancelled"
+# -> team status.json transitions to state="cancelled"
 ```
 
-**Pass 2: Reconciliation**
-```
-After graceful pass:
-  1. Re-read config.json to check remaining members
-  2. If only lead remains (or config is empty): proceed to TeamDelete
-  3. If unresponsive members remain:
-     a. Wait 5 more seconds (they may still be processing)
-     b. Re-read config.json again
-     c. If still stuck: attempt TeamDelete anyway
-     d. If TeamDelete fails: report manual cleanup path
+**Pass 2: Cleanup**
+```bash
+python3 scripts/omni_team.py cleanup <run_id>
+# -> removes worktrees, prunes git state, clears transient artifacts
 ```
 
-**TeamDelete + Cleanup:**
+**State Cleanup:**
 ```
-  1. Call TeamDelete() — removes ~/.claude/teams/{name}/ and ~/.claude/tasks/{name}/
-  2. Clear team state: state_clear(mode="team")
-  3. Check for linked ralph: state_read(mode="ralph") — if linked_team is true:
-     a. Clear ralph state: state_clear(mode="ralph")
-     b. Clear linked ultrawork if present: state_clear(mode="ultrawork")
-  4. Run orphan scan (see below)
+  1. state_clear(mode="team", session_id)
+  2. For each worker slug: state_clear(mode="team.<slug>", session_id)
+  3. If linked ralph: state_clear(mode="ralph", session_id)
+  4. If linked ultrawork: state_clear(mode="ultrawork", session_id)
   5. Emit structured cancel report
 ```
 
@@ -271,15 +258,16 @@ Team "{team_name}" cancelled:
     Path: ~/.claude/teams/{name}/ and ~/.claude/tasks/{name}/
 ```
 
-**Implementation note:** The cancel skill is executed by the LLM, not as a bash script. When you detect an active team:
-1. Read `${CLAUDE_CONFIG_DIR:-~/.claude}/teams/*/config.json` to find active teams
-2. If multiple teams exist, cancel oldest first (by `createdAt`)
-3. For each non-lead member, call `SendMessage(type: "shutdown_request", recipient: member-name, content: "Cancelling")` <!-- cc-primitive-allow: TODO-WS5b team runtime rewrite -->
-4. Wait briefly for shutdown responses (15s per member timeout)
-5. Re-read config.json to check for remaining members (reconciliation pass)
-6. Call `TeamDelete()` to clean up <!-- cc-primitive-allow: TODO-WS5b team runtime rewrite -->
-7. Clear team state: `state_clear(mode="team", session_id)`
-8. Report structured summary to user
+**Implementation note:** The cancel skill is executed by the LLM, not as a bash script. When you detect an active team (WS6 runtime):
+1. Read team state via `state_read(mode="team", session_id)` to get the `run_id`
+2. Cancel via orchestrator: `python3 scripts/omni_team.py cancel <run_id> --reason "user-cancel"`
+   (This writes cancel.signal at team root + each worker dir; workers poll and stop)
+3. Wait up to 15s for worker status.json files to transition to `state="cancelled"`
+4. Cleanup: `python3 scripts/omni_team.py cleanup <run_id>`
+   (Removes worktrees, prunes git state)
+5. Clear team state: `state_clear(mode="team", session_id)`
+6. For each worker slug found in manifest: `state_clear(mode="team.<slug>", session_id)`
+7. Report structured summary to user
 
 #### If Autopilot Active
 
