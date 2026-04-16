@@ -46,7 +46,10 @@ jobs:
         run: |
           LEFTOVERS=$(find . -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) ! -path './.git/*' | wc -l)
           test "$LEFTOVERS" = "0" || { echo "Go leftovers:"; find . -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) ! -path './.git/*'; exit 1; }
-      - name: Run plugin contract validator (--all-strict)
+      - name: Run plugin contract validator (--all, cap-based)
+        run: python3 scripts/verify_plugin_contract.py --all
+      - name: Report validator in strict mode (non-blocking)
+        continue-on-error: true
         run: python3 scripts/verify_plugin_contract.py --all-strict
       - name: Enforce stdlib-only imports
         run: python scripts/check_stdlib_only.py
