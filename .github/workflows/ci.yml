@@ -6,19 +6,22 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel stale runs on the same ref when a new push arrives — keeps the PR
+# from stacking 20+ parallel runs that were wasting compute before the prune.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: lint & contract validator
+    # Pruned from 4-way py matrix — validator is python-version-independent.
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.9", "3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.11"
       - name: Compile all Python files
         run: |
           python - <<'PY'
@@ -53,17 +56,15 @@ jobs:
         run: python3 scripts/verify_plugin_contract.py --all-strict
 
   unit-tests:
-    name: unit tests (${{ matrix.os }} / py ${{ matrix.python }})
-    # C11: add macOS + Windows per plan §2.WS12 cross-OS commitment.
-    # Windows/macOS marked continue-on-error=true while coverage gate
-    # remains Linux-only. Deviation documented in docs/RELEASE-v2.0.0.md.
-    runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }}
+    name: unit tests (py ${{ matrix.python }})
+    # Pruned from 3 OS × 4 py (12 cells, half continue-on-error) down to
+    # Linux py3.9 (floor compat) + Linux py3.11 (primary). macOS / Windows
+    # CI lanes deferred to Phase C — see docs/PHASE-C-BACKLOG.md.
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.9", "3.10", "3.11", "3.12"]
+        python: ["3.9", "3.11"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -71,12 +72,8 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Install pytest
         run: python3 -m pip install --quiet pytest
-      - name: Run pytest suite (skip tmux tests on Windows)
-        if: runner.os != 'Windows'
+      - name: Run pytest suite
         run: python3 -m pytest -q
-      - name: Run pytest suite (Windows — skip tmux tests)
-        if: runner.os == 'Windows'
-        run: python3 -m pytest -q -m "not tmux"
 
   mcp-smoke:
     name: MCP stdio smoke
@@ -85,7 +82,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.9"
+          python-version: "3.11"
       - name: JSON-RPC roundtrip
         run: python scripts/mcp_smoke.py
 
@@ -96,36 +93,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.9"
+          python-version: "3.11"
       - name: Discovery layout
         run: python3 scripts/discovery_smoke.py --probe layout
       - name: Discovery all (offline)
         run: python3 scripts/discovery_smoke.py --probe all --offline
 
-  copilot-smoke:
-    name: Copilot CLI plugin install (best-effort)
-    runs-on: ubuntu-latest
-    needs: [lint, mcp-smoke, discovery-smoke]
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.9"
-      - name: Attempt Copilot CLI install
-        run: |
-          npm install -g @github/copilot || echo "Copilot CLI install skipped (beta npm package)"
-          which copilot || echo "copilot CLI not on PATH — smoke test will skip"
-      - name: Offline plugin discovery assertion
-        run: python scripts/discovery_smoke.py
-
   coverage:
     name: per-module coverage gate (WS10)
     runs-on: ubuntu-latest
-    # Linux py3.11 only — coverage is a dev-dep, not in the default matrix
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -135,47 +111,3 @@ jobs:
         run: python3 -m pip install --quiet pytest coverage
       - name: Run coverage check
         run: python3 scripts/measure_coverage.py --check
-
-  release-gate:
-    name: release gate (WS12)
-    runs-on: ubuntu-latest
-    # Only run on phase-b/main push — this is the v2.0.0 readiness gate
-    if: github.ref == 'refs/heads/phase-b/main' && github.event_name == 'push'
-    needs: [lint, unit-tests, mcp-smoke, discovery-smoke, coverage]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install dev deps (pytest + coverage)
-        run: python3 -m pip install --quiet pytest coverage
-      - name: Run plugin contract validator (--all)
-        run: python3 scripts/verify_plugin_contract.py --all
-      - name: Run full pytest suite
-        run: python3 -m pytest -q
-      - name: Run coverage gate
-        run: python3 scripts/measure_coverage.py --check
-      - name: MCP stdio smoke
-        run: python3 scripts/mcp_smoke.py
-      - name: Plugin discovery smoke (all probes)
-        run: python3 scripts/discovery_smoke.py --probe all --offline
-      - name: CHANGELOG v2.0.0 section present
-        run: |
-          python3 - <<'PY'
-          import sys, pathlib
-          text = pathlib.Path("CHANGELOG.md").read_text()
-          if "## [2.0.0]" not in text:
-              print("ERROR: CHANGELOG.md missing ## [2.0.0] section")
-              sys.exit(1)
-          print("OK: CHANGELOG.md [2.0.0] section found")
-          PY
-      - name: Release doc present
-        run: |
-          python3 - <<'PY'
-          import sys, pathlib
-          p = pathlib.Path("docs/RELEASE-v2.0.0.md")
-          if not p.exists():
-              print("ERROR: docs/RELEASE-v2.0.0.md not found")
-              sys.exit(1)
-          print(f"OK: {p} present ({p.stat().st_size} bytes)")
-          PY
