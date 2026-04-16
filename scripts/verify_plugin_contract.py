@@ -796,19 +796,32 @@ def _extract_mcp_tool_names(server_py: Path) -> set[str]:
     except Exception:
         return set()
 
-    # Primary: AST parse — find TOOLS dict assignment, collect string keys
+    # Primary: AST parse — find TOOLS dict assignment, collect string keys.
+    # Handles both `TOOLS = {...}` (ast.Assign) and `TOOLS: Dict[...] = {...}`
+    # (ast.AnnAssign); mcp/server.py uses the annotated form.
     try:
         tree = ast.parse(source, filename=str(server_py))
         for node in ast.walk(tree):
+            matched_name = None
+            value = None
             if (
                 isinstance(node, ast.Assign)
                 and len(node.targets) == 1
                 and isinstance(node.targets[0], ast.Name)
                 and node.targets[0].id == "TOOLS"
-                and isinstance(node.value, ast.Dict)
             ):
+                matched_name = "TOOLS"
+                value = node.value
+            elif (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == "TOOLS"
+            ):
+                matched_name = "TOOLS"
+                value = node.value
+            if matched_name and isinstance(value, ast.Dict):
                 names: set[str] = set()
-                for key in node.value.keys:
+                for key in value.keys:
                     if isinstance(key, ast.Constant) and isinstance(key.value, str):
                         names.add(key.value)
                 return names

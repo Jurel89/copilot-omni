@@ -78,18 +78,28 @@ def _hook_disabled(hook_name: str) -> bool:
     legacy env var (OMC_SKIP_HOOKS or DISABLE_OMC) triggers the kill-switch.
     """
     env = os.environ
-    if env.get("DISABLE_OMNI") or env.get("OMNI_SKIP_HOOKS"):
+
+    def _truthy(name: str) -> bool:
+        """Kill-switch env vars are documented as ``=1``. Only treat
+        recognizable truthy values (1, true, yes, on) as enabled so that
+        ``DISABLE_OMNI=0`` or ``OMNI_SKIP_HOOKS=false`` do NOT silently
+        disable hook enforcement."""
+        val = env.get(name)
+        if val is None:
+            return False
+        return val.strip().lower() in ("1", "true", "yes", "on")
+
+    if _truthy("DISABLE_OMNI") or _truthy("OMNI_SKIP_HOOKS"):
         return True
 
     # Legacy aliases — check and warn
-    legacy_active = env.get("DISABLE_OMC") or env.get("OMC_SKIP_HOOKS")
-    if legacy_active:
+    if _truthy("DISABLE_OMC") or _truthy("OMC_SKIP_HOOKS"):
         _deprecation_warn()
         return True
 
     # Per-hook kill-switch: OMNI_SKIP_<HOOK_UPPER>
     per_hook_var = "OMNI_SKIP_" + hook_name.upper().replace(" ", "_").replace("-", "_")
-    if env.get(per_hook_var):
+    if _truthy(per_hook_var):
         return True
 
     return False
