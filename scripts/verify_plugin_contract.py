@@ -63,6 +63,8 @@ ALLOWLIST_PATHS: tuple[str, ...] = (
     ".omni/plans/wave-1-WS9-report.md",
     # WS3 report documents the router migration; legitimately cites historical names
     ".omni/plans/wave-2-WS3-report.md",
+    # WS5a report documents the subagent primitives; legitimately cites exemption markers
+    ".omni/plans/wave-2-WS5a-report.md",
 )
 
 # Banned token patterns
@@ -1098,6 +1100,11 @@ _STATE_SCAN_DIRS_PY = ("scripts", "hooks", "mcp")
 _STATE_CANONICAL_ALLOWLIST_PY = (
     "mcp/server.py",
     "scripts/verify_plugin_contract.py",
+    # WS5a: subagent.py _mcp_write_best_effort() is an intentional best-effort
+    # MCP proxy — it writes to the state table only when the MCP server is
+    # unavailable (offline / no DB yet). This is the documented exception per
+    # ADR-0007 §best-effort-writes.
+    "scripts/subagent.py",
 )
 
 # Test files are excluded — they may seed the DB directly for test setup
@@ -1284,6 +1291,92 @@ def check_no_raw_model_names(root: Path = ROOT) -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
+# WS5a: Run-directory invariants check
+# ---------------------------------------------------------------------------
+
+_RUN_STALE_SECS = 1800  # 30 minutes
+
+
+def check_run_directory_invariants(root: Path = ROOT) -> CheckResult:
+    """For every .omni/runs/<run-id>/<job-id>/ that exists:
+    - assert status.json is present AND parseable (fail if missing or corrupt)
+    - warn (not fail) if a job is 'running' for > 30 min (likely stuck)
+
+    Returns ok=True with warnings if only stuck jobs detected.
+    Returns ok=False if any status.json is missing or unparseable.
+    """
+    import time as _time
+
+    runs_dir = root / ".omni" / "runs"
+    if not runs_dir.exists():
+        return True, ["run-directory-invariants: no .omni/runs/ directory — skip"]
+
+    messages: list[str] = []
+    ok = True
+    n_checked = 0
+    n_missing = 0
+    n_corrupt = 0
+    n_stuck = 0
+    now = _time.time()
+
+    for run_dir in sorted(runs_dir.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        for job_dir in sorted(run_dir.iterdir()):
+            if not job_dir.is_dir():
+                continue
+            n_checked += 1
+            status_path = job_dir / "status.json"
+
+            if not status_path.exists():
+                ok = False
+                n_missing += 1
+                rel = str(status_path.relative_to(root)).replace("\\", "/")
+                messages.append(f"  FAIL: missing status.json: {rel}")
+                continue
+
+            try:
+                import json as _json
+                data = _json.loads(status_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                ok = False
+                n_corrupt += 1
+                rel = str(status_path.relative_to(root)).replace("\\", "/")
+                messages.append(f"  FAIL: unparseable status.json: {rel}: {exc}")
+                continue
+
+            # Warn on stuck running jobs
+            state = data.get("state", "")
+            started_at = data.get("started_at")
+            if state == "running" and started_at:
+                try:
+                    from datetime import datetime, timezone
+                    fmt = "%Y-%m-%dT%H:%M:%SZ"
+                    t0 = datetime.strptime(started_at, fmt).replace(
+                        tzinfo=timezone.utc)
+                    age_s = now - t0.timestamp()
+                    if age_s > _RUN_STALE_SECS:
+                        n_stuck += 1
+                        rel = str(status_path.relative_to(root)).replace("\\", "/")
+                        messages.append(
+                            f"  WARN: job stuck in 'running' for {age_s/60:.0f} min: {rel}"
+                        )
+                except Exception:
+                    pass
+
+    summary = (
+        f"run-directory-invariants: checked={n_checked},"
+        f" missing={n_missing}, corrupt={n_corrupt}, stuck_warn={n_stuck}"
+    )
+    if ok:
+        messages.insert(0, summary + " OK")
+    else:
+        messages.insert(0, f"FAIL: {summary}")
+
+    return ok, messages
+
+
+# ---------------------------------------------------------------------------
 # Check registry
 # ---------------------------------------------------------------------------
 
@@ -1300,6 +1393,7 @@ CHECKS: dict = {
     "stdlib-only-imports": check_stdlib_only_imports,
     "state-store-canonical": check_state_store_canonical,
     "no-raw-model-names": check_no_raw_model_names,
+    "run-directory-invariants": check_run_directory_invariants,
 }
 
 
