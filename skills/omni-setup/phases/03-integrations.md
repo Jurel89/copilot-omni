@@ -12,7 +12,7 @@ grep -q "copilot-omni" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" && ec
 
 MCP servers extend Claude Code with additional tools (web search, GitHub, etc.).
 
-Use AskUserQuestion: "Would you like to configure MCP servers for enhanced capabilities? (Context7, Exa search, GitHub, etc.)"
+Emit as plain chat and wait for the user's reply: "Would you like to configure MCP servers for enhanced capabilities? (Context7, Exa search, GitHub, etc.)"
 
 If yes, invoke the mcp-setup skill:
 ```
@@ -27,7 +27,7 @@ Agent teams are an experimental Claude Code feature that lets you spawn N coordi
 
 Reference: https://code.claude.com/docs/en/agent-teams
 
-Use AskUserQuestion:
+Emit as plain chat and wait for the user's reply:
 
 **Question:** "Would you like to enable agent teams? Teams let you spawn coordinated agents (e.g., `/team 3:executor 'fix all errors'`). This is an experimental Claude Code feature."
 
@@ -82,7 +82,7 @@ fi
 
 #### 3.3.2: Configure Teammate Display Mode
 
-Use AskUserQuestion:
+Emit as plain chat and wait for the user's reply:
 
 **Question:** "How should teammates be displayed?"
 
@@ -104,7 +104,7 @@ echo "Teammate display mode set to: TEAMMATE_MODE"
 
 #### 3.3.3: Configure Team Defaults in omni-config
 
-Use AskUserQuestion with multiple questions:
+Emit the following questions as plain chat, one at a time, waiting for the user's reply after each:
 
 **Question 1:** "How many agents should teams spawn by default?"
 

@@ -70,7 +70,7 @@ fi
 
 ## Step 2.4: Set Default Execution Mode
 
-Use the AskUserQuestion tool to prompt the user:
+Emit as plain chat and wait for the user's reply:
 
 **Question:** "Which parallel execution mode should be your default when you say 'fast' or 'parallel'?"
 
@@ -114,7 +114,7 @@ fi
 
 If `OMC_CLI_INSTALLED` is `"true"`, skip the rest of this step.
 
-If `OMC_CLI_INSTALLED` is `"false"`, use AskUserQuestion:
+If `OMC_CLI_INSTALLED` is `"false"`, emit as plain chat and wait for the user's reply:
 
 **Question:** "Would you like to install the copilot-omni CLI globally for standalone helper commands? (`omc`, `omc hud`, `omc teleport`)"
 
@@ -175,7 +175,7 @@ fi
 
 If **neither** beads nor beads-rust is detected, skip this step (default to built-in).
 
-If beads or beads-rust is detected, use AskUserQuestion:
+If beads or beads-rust is detected, emit as plain chat and wait for the user's reply:
 
 **Question:** "Which task management tool should I use for tracking work?"
 

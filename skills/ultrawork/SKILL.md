@@ -52,49 +52,51 @@ Sequential task execution wastes time when tasks are independent. Ultrawork enab
 </Steps>
 
 <Tool_Usage>
-- Use `Task(subagent_type="copilot-omni:executor", model="haiku", ...)` for simple changes
-- Use `Task(subagent_type="copilot-omni:executor", model="sonnet", ...)` for standard work
-- Use `Task(subagent_type="copilot-omni:executor", model="opus", ...)` for complex work
-- Use `run_in_background: true` for package installs, builds, and test suites
+- Use `python3 scripts/subagent.py executor "<prompt>"` for simple changes (Haiku tier)
+- Use `python3 scripts/subagent.py executor "<prompt>"` for standard work (Sonnet tier)
+- Use `python3 scripts/subagent.py executor "<prompt>"` for complex work (Opus tier — pass `--model opus` flag)
+- Run long operations in the background via `&` when spawning multiple agents in parallel shell invocations
 - Use foreground execution for quick status checks and file operations
 </Tool_Usage>
 
 <Examples>
 <Good>
 Three independent tasks fired simultaneously:
-```
-Task(subagent_type="copilot-omni:executor", model="haiku", prompt="Add missing type export for Config interface")
-Task(subagent_type="copilot-omni:executor", model="sonnet", prompt="Implement the /api/users endpoint with validation")
-Task(subagent_type="copilot-omni:executor", model="sonnet", prompt="Add integration tests for the auth middleware")
+```bash
+python3 scripts/subagent.py executor "Add missing type export for Config interface" &
+python3 scripts/subagent.py executor "Implement the /api/users endpoint with validation" &
+python3 scripts/subagent.py executor "Add integration tests for the auth middleware" &
+wait
 ```
 Why good: Independent tasks at appropriate tiers, all fired at once.
 </Good>
 
 <Good>
 Correct use of background execution:
-```
-Task(subagent_type="copilot-omni:executor", model="sonnet", prompt="npm install && npm run build", run_in_background=true)
-Task(subagent_type="copilot-omni:executor", model="haiku", prompt="Update the README with new API endpoints")
+```bash
+python3 scripts/subagent.py executor "npm install && npm run build" &
+python3 scripts/subagent.py executor "Update the README with new API endpoints"
+wait
 ```
 Why good: Long build runs in background while short task runs in foreground.
 </Good>
 
 <Bad>
 Sequential execution of independent work:
+```bash
+python3 scripts/subagent.py executor "Add type export"
+python3 scripts/subagent.py executor "Implement endpoint"
+python3 scripts/subagent.py executor "Add tests"
 ```
-result1 = Task(executor, "Add type export")  # wait...
-result2 = Task(executor, "Implement endpoint")     # wait...
-result3 = Task(executor, "Add tests")              # wait...
-```
-Why bad: These tasks are independent. Running them sequentially wastes time.
+Why bad: These tasks are independent. Running them sequentially wastes time — use `&` to parallelize.
 </Bad>
 
 <Bad>
 Wrong tier selection:
+```bash
+python3 scripts/subagent.py executor --model opus "Add a missing semicolon"
 ```
-Task(subagent_type="copilot-omni:executor", model="opus", prompt="Add a missing semicolon")
-```
-Why bad: Opus is expensive overkill for a trivial fix. Use executor with Haiku instead.
+Why bad: Opus is expensive overkill for a trivial fix. Use executor at default (Sonnet) or Haiku instead.
 </Bad>
 </Examples>
 

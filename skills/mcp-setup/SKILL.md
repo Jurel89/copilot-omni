@@ -14,7 +14,7 @@ MCP servers provide additional tools that Claude Code agents can use. This skill
 
 ## Step 1: Show Available MCP Servers
 
-Present the user with available MCP server options using AskUserQuestion:
+Present the user with available MCP server options as plain chat and wait for their reply:
 
 **Question:** "Which MCP server would you like to configure?"
 

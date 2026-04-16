@@ -8,6 +8,8 @@ level: 4
 
 # Team Skill
 
+<!-- TODO WS5b: rewrite team orchestration to use scripts/omni_team.py instead of Claude-Code-native TeamCreate/TeamDelete/SendMessage/TaskCreate/TaskUpdate calls. Until WS5b ships, team execution on Copilot CLI uses sequential subagent invocations via scripts/subagent.py. -->
+
 Spawn N coordinated agents working on a shared task list using Claude Code's native team tools. Replaces the legacy `/swarm` skill (SQLite-based) with built-in team management, inter-agent messaging, and task dependencies -- no external dependencies required.
 
 The `swarm` compatibility alias was removed in #1131.
@@ -649,7 +651,7 @@ The lead runs #1 (Codex security analysis), then #2 and #3 in parallel (Codex re
 
 For large ambiguous tasks, run analysis before team creation:
 
-1. Spawn `Task(subagent_type="copilot-omni:planner", ...)` with task description + codebase context
+1. Spawn `python3 scripts/subagent.py planner "<task description + codebase context>"`
 2. Use the analysis to produce better task decomposition
 3. Create team and tasks with enriched context
 
@@ -743,7 +745,7 @@ This approach complements the existing `SendMessage`-based communication by prov
 1. Internal task for that teammate will show unexpected status
 2. Teammate disappears from `config.json` members
 3. Lead reassigns orphaned tasks to remaining workers
-4. If needed, spawn a replacement teammate with `Task(team_name, name)`
+4. If needed, spawn a replacement teammate via `python3 scripts/subagent.py executor "<reassigned task prompt>"`
 
 ## Team + Ralph Composition
 

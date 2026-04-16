@@ -158,6 +158,6 @@ If encountered, switch to `omc team ...` CLI commands.
 | Aspect       | `/team`                                   | `/omni-teams`                                         |
 | ------------ | ----------------------------------------- | ---------------------------------------------------- |
 | Worker type  | Claude Code native team agents            | claude / codex / gemini CLI processes in tmux        |
-| Invocation   | `TeamCreate` / `Task` / `SendMessage`     | `omc team [N:agent]` + `status` + `shutdown` + `api` |
+| Invocation   | `python3 scripts/subagent.py <agent> "..."` (WS5b: `scripts/omni_team.py`) | `omc team [N:agent]` + `status` + `shutdown` + `api` |
 | Coordination | Native team messaging and staged pipeline | tmux worker runtime + CLI API state files            |
 | Use when     | You want Claude-native team orchestration | You want external CLI worker execution               |

@@ -40,11 +40,11 @@ If no structured goal provided, interpret the argument as a custom goal.
    - `--typecheck`: Run the project's type check command
    - `--custom`: Run appropriate command and check for pattern
    - `--interactive`: Use qa-tester for interactive CLI/service testing:
-     ```
-     Task(subagent_type="copilot-omni:qa-tester", model="sonnet", prompt="TEST:
+     ```bash
+     python3 scripts/subagent.py qa-tester "TEST:
      Goal: [describe what to verify]
      Service: [how to start]
-     Test cases: [specific scenarios to verify]")
+     Test cases: [specific scenarios to verify]"
      ```
 
 2. **CHECK RESULT**: Did the goal pass?
@@ -52,19 +52,19 @@ If no structured goal provided, interpret the argument as a custom goal.
    - **NO** → Continue to step 3
 
 3. **ARCHITECT DIAGNOSIS**: Spawn architect to analyze failure
-   ```
-   Task(subagent_type="copilot-omni:architect", model="opus", prompt="DIAGNOSE FAILURE:
+   ```bash
+   python3 scripts/subagent.py architect "DIAGNOSE FAILURE:
    Goal: [goal type]
    Output: [test/build output]
-   Provide root cause and specific fix recommendations.")
+   Provide root cause and specific fix recommendations."
    ```
 
 4. **FIX ISSUES**: Apply architect's recommendations
-   ```
-   Task(subagent_type="copilot-omni:executor", model="sonnet", prompt="FIX:
+   ```bash
+   python3 scripts/subagent.py executor "FIX:
    Issue: [architect diagnosis]
    Files: [affected files]
-   Apply the fix precisely as recommended.")
+   Apply the fix precisely as recommended."
    ```
 
 5. **REPEAT**: Go back to step 1

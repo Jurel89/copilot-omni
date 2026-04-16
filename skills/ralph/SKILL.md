@@ -105,8 +105,8 @@ By default, ralph operates in PRD mode. A scaffold `prd.json` is auto-generated 
    - **On APPROVAL: immediately proceed to Step 7.5 in the same turn. Do NOT pause to report the verdict to the user — reporting happens only at Step 8 (`/copilot-omni:cancel`) or on rejection (Step 9). Treating an approved verdict as a reporting checkpoint is a polite-stop anti-pattern.**
 
 7.5 **Mandatory Deslop Pass** (runs unconditionally after Step 7 approval, unless `{{PROMPT}}` contains `--no-deslop`):
-   - **Invoke the `ai-slop-cleaner` skill via the Skill tool: `Skill("ai-slop-cleaner")`.** Run in standard mode (not `--review`) on the files changed during the current Ralph session only.
-   - **ai-slop-cleaner is a SKILL, not an agent.** Do NOT call it via `Task(subagent_type="copilot-omni:ai-slop-cleaner")` — that subagent type does not exist and the call will fail with "Agent type not found". If you see that error, retry with the Skill tool — do NOT substitute a similarly-named agent like `code-simplifier` as a "closest match".
+   - **Invoke the `ai-slop-cleaner` skill via `/copilot-omni:ai-slop-cleaner` OR read `skills/ai-slop-cleaner/SKILL.md` and follow it.** Run in standard mode (not `--review`) on the files changed during the current Ralph session only.
+   - **ai-slop-cleaner is a SKILL, not an agent.** Do NOT call it via `python3 scripts/subagent.py ai-slop-cleaner` — that agent type does not exist. Invoke it as a skill, not a subagent.
    - Keep the scope bounded to the Ralph changed-file set; do not broaden the cleanup pass to unrelated files.
    - If the reviewer approved the implementation but the deslop pass introduces follow-up edits, keep those edits inside the same changed-file scope before proceeding.
 
@@ -122,13 +122,13 @@ By default, ralph operates in PRD mode. A scaffold `prd.json` is auto-generated 
 </Steps>
 
 <Tool_Usage>
-- Use `Task(subagent_type="copilot-omni:architect", ...)` for architect verification cross-checks when changes are security-sensitive, architectural, or involve complex multi-system integration
-- Use `Task(subagent_type="copilot-omni:critic", ...)` when `--critic=critic`
+- Use `python3 scripts/subagent.py architect "<prompt>"` for architect verification cross-checks when changes are security-sensitive, architectural, or involve complex multi-system integration
+- Use `python3 scripts/subagent.py critic "<prompt>"` when `--critic=critic`
 - Use `omc ask codex --agent-prompt critic "..."` when `--critic=codex`. Construct the prompt to include: (a) prd.json acceptance criteria, (b) files changed + related files, (c) explicit optimality question: "Is there a meaningfully simpler, faster, or more maintainable approach that achieves the same acceptance criteria?"
 - Skip architect consultation for simple feature additions, well-tested changes, or time-critical verification
 - Proceed with architect agent verification alone -- never block on unavailable tools
 - Use `state_write` / `state_read` for ralph mode state persistence between iterations
-- **Skill vs agent invocation**: `ai-slop-cleaner` is a skill, invoke via `Skill("ai-slop-cleaner")`. `architect`, `critic`, `executor` etc. are agents, invoke via `Task(subagent_type="copilot-omni:<name>")`. If you ever get "Agent type ... not found" for an `copilot-omni:<name>` identifier, the item is a skill — retry with the Skill tool. Do NOT substitute a similarly-named agent as a "closest match".
+- **Skill vs agent invocation**: `ai-slop-cleaner` is a skill, invoke via `/copilot-omni:ai-slop-cleaner` OR read `skills/ai-slop-cleaner/SKILL.md` and follow it. `architect`, `critic`, `executor` etc. are agents, invoke via `python3 scripts/subagent.py <name> "<prompt>"`. If you ever get an agent-not-found error, check whether the item is a skill in `skills/` — invoke it as a skill, not a subagent.
 </Tool_Usage>
 
 <Examples>
@@ -150,10 +150,11 @@ Why good: Generic criteria replaced with specific, testable criteria.
 
 <Good>
 Correct parallel delegation:
-```
-Task(subagent_type="copilot-omni:executor", model="haiku", prompt="Add type export for UserConfig")
-Task(subagent_type="copilot-omni:executor", model="sonnet", prompt="Implement the caching layer for API responses")
-Task(subagent_type="copilot-omni:executor", model="opus", prompt="Refactor auth module to support OAuth2 flow")
+```bash
+python3 scripts/subagent.py executor "Add type export for UserConfig" &
+python3 scripts/subagent.py executor "Implement the caching layer for API responses" &
+python3 scripts/subagent.py executor "Refactor auth module to support OAuth2 flow" &
+wait
 ```
 Why good: Three independent tasks fired simultaneously at appropriate tiers.
 </Good>
@@ -179,12 +180,12 @@ Why bad: Uses "should" and "look good" -- no fresh evidence, no story-by-story v
 
 <Bad>
 Sequential execution of independent tasks:
+```bash
+python3 scripts/subagent.py executor "Add type export"
+python3 scripts/subagent.py executor "Implement caching"
+python3 scripts/subagent.py executor "Refactor auth"
 ```
-Task(executor, "Add type export") → wait →
-Task(executor, "Implement caching") → wait →
-Task(executor, "Refactor auth")
-```
-Why bad: These are independent tasks that should run in parallel, not sequentially.
+Why bad: These are independent tasks that should run in parallel using `&`, not sequentially.
 </Bad>
 
 <Bad>

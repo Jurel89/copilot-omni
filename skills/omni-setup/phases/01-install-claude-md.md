@@ -5,7 +5,7 @@
 If `--local` flag was passed, set `CONFIG_TARGET=local`.
 If `--global` flag was passed, set `CONFIG_TARGET=global`.
 
-Otherwise (initial setup wizard), use AskUserQuestion to prompt:
+Otherwise (initial setup wizard), emit as plain chat and wait for the user's reply:
 
 **Question:** "Where should I configure copilot-omni?"
 

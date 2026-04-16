@@ -47,10 +47,11 @@ Prefix: `copilot-omni:`. See `agents/*.md` for full prompts.
 - `/ccg`
 
 ### copilot-omni state
-- `state_read`, `state_write`, `state_clear`, `state_list_active`, `state_get_status`
+- `state_read`, `state_write`, `state_clear`, `state_list`, `state_get_status`
 
-### Team runtime
-- `TeamCreate`, `TeamDelete`, `SendMessage`, `TaskCreate`, `TaskList`, `TaskGet`, `TaskUpdate`
+### Team runtime (Copilot CLI — via scripts/subagent.py or omni_team.py)
+- `python3 scripts/subagent.py <agent> "<prompt>"` — spawn a single agent
+- `python3 scripts/omni_team.py` — team lifecycle (WS6 will implement; until then, use sequential subagent invocations)
 
 ### Notepad
 - `notepad_read`, `notepad_write_priority`, `notepad_write_working`, `notepad_write_manual`
@@ -71,20 +72,17 @@ Invoke built-in workflows via `/copilot-omni:<name>`.
 - `autopilot` — full autonomous execution from idea to working code
 - `ralph` — persistence loop until completion with verification
 - `ultrawork` — high-throughput parallel execution
-- `visual-verdict` — structured visual QA verdicts
 - `team` — coordinated team orchestration
-- `ccg` — Codex + Gemini + Claude synthesis lane
 - `ultraqa` — QA cycle: test, verify, fix, repeat
 - `omni-plan` — planning workflow and `/plan`-safe alias
 - `ralplan` — consensus planning workflow
-- `sciomni` — science/research workflow
 - `external-context` — external docs/research workflow
 - `deepinit` — hierarchical AGENTS.md generation
 - `deep-interview` — Socratic ambiguity-gated requirements workflow
 - `ai-slop-cleaner` — regression-safe cleanup workflow
 
 ### Utility skills
-- `ask`, `cancel`, `note`, `learner`, `omni-setup`, `mcp-setup`, `hud`, `omni-doctor`, `trace`, `release`, `project-session-manager`, `skill`, `writer-memory`, `configure-notifications`
+- `ask`, `cancel`, `note`, `omni-setup`, `mcp-setup`, `hud`, `omni-doctor`, `trace`, `release`, `skill`
 
 ### Keyword triggers kept compact in CLAUDE.md
 - `"autopilot"→autopilot`

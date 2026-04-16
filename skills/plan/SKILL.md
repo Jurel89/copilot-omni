@@ -54,7 +54,7 @@ Jumping into code without understanding requirements leads to rework, scope cree
 ### Interview Mode (broad/vague requests)
 
 1. **Classify the request**: Broad (vague verbs, no specific files, touches 3+ areas) triggers interview mode
-2. **Ask one focused question** using `AskUserQuestion` for preferences, scope, and constraints
+2. **Ask one focused question** as plain chat for preferences, scope, and constraints; the next user turn carries the answer
 3. **Gather codebase facts first**: Before asking "what patterns does your code use?", spawn an `explore` agent to find out, then ask informed follow-up questions
 4. **Build on answers**: Each question builds on the previous answer
 5. **Consult Analyst** (Opus) for hidden requirements, edge cases, and risks
@@ -68,7 +68,7 @@ Jumping into code without understanding requirements leads to rework, scope cree
 
 ### Consensus Mode (`--consensus` / "ralplan")
 
-**RALPLAN-DR modes**: **Short** (default, bounded structure) and **Deliberate** (for `--deliberate` or explicit high-risk requests). Both modes keep the same Planner -> Architect -> Critic sequence and the same `AskUserQuestion` gates.
+**RALPLAN-DR modes**: **Short** (default, bounded structure) and **Deliberate** (for `--deliberate` or explicit high-risk requests). Both modes keep the same Planner -> Architect -> Critic sequence and the same plain-chat interactive gates.
 
 **Provider overrides (supported when the provider CLI is installed):**
 - `--architect codex` — replace the Claude Architect pass with `omc ask codex --agent-prompt architect "..."` for implementation-heavy architecture review
@@ -89,42 +89,38 @@ Without cleanup, the stop hook blocks all subsequent stops with `[RALPLAN - CONS
    - **Viable Options** (>=2) with bounded pros/cons for each option
    - If only one viable option remains, an explicit **invalidation rationale** for the alternatives that were rejected
    - In **deliberate mode**: a **pre-mortem** (3 failure scenarios) and an **expanded test plan** covering **unit / integration / e2e / observability**
-2. **User feedback** *(--interactive only)*: If running with `--interactive`, **MUST** use `AskUserQuestion` to present the draft plan **plus the RALPLAN-DR Principles / Decision Drivers / Options summary for early direction alignment** with these options:
-   - **Proceed to review** — send to Architect and Critic for evaluation
-   - **Request changes** — return to step 1 with user feedback incorporated
-   - **Skip review** — go directly to final approval (step 7)
-   If NOT running with `--interactive`, automatically proceed to review (step 3).
-3. **Architect** reviews for architectural soundness using `Task(subagent_type="copilot-omni:architect", ...)`. Architect review **MUST** include: strongest steelman counterargument (antithesis) against the favored option, at least one meaningful tradeoff tension, and (when possible) a synthesis path. In deliberate mode, Architect should explicitly flag principle violations. **Wait for this step to complete before proceeding to step 4.** Do NOT run steps 3 and 4 in parallel.
-4. **Critic** evaluates against quality criteria using `Task(subagent_type="copilot-omni:critic", ...)`. Critic **MUST** verify principle-option consistency, fair alternative exploration, risk mitigation clarity, testable acceptance criteria, and concrete verification steps. Critic **MUST** explicitly reject shallow alternatives, driver contradictions, vague risks, or weak verification. In deliberate mode, Critic **MUST** reject missing/weak pre-mortem or missing/weak expanded test plan. Run only after step 3 is complete.
+2. **User feedback** *(--interactive only)*: If running with `--interactive`, emit the draft plan plus the RALPLAN-DR Principles / Decision Drivers / Options summary as plain chat; the next user turn carries the answer (Proceed to review / Request changes / Skip review). If NOT running with `--interactive`, automatically proceed to review (step 3).
+3. **Architect** reviews for architectural soundness using `python3 scripts/subagent.py architect "<plan summary>"`. Architect review **MUST** include: strongest steelman counterargument (antithesis) against the favored option, at least one meaningful tradeoff tension, and (when possible) a synthesis path. In deliberate mode, Architect should explicitly flag principle violations. **Wait for this step to complete before proceeding to step 4.** Do NOT run steps 3 and 4 in parallel.
+4. **Critic** evaluates against quality criteria using `python3 scripts/subagent.py critic "<plan summary>"`. Critic **MUST** verify principle-option consistency, fair alternative exploration, risk mitigation clarity, testable acceptance criteria, and concrete verification steps. Critic **MUST** explicitly reject shallow alternatives, driver contradictions, vague risks, or weak verification. In deliberate mode, Critic **MUST** reject missing/weak pre-mortem or missing/weak expanded test plan. Run only after step 3 is complete.
 5. **Re-review loop** (max 5 iterations): If Critic rejects, execute this closed loop:
    a. Collect all rejection feedback from Architect + Critic
    b. Pass feedback to Planner to produce a revised plan
    c. **Return to Step 3** — Architect reviews the revised plan
    d. **Return to Step 4** — Critic evaluates the revised plan
    e. Repeat until Critic approves OR max 5 iterations reached
-   f. If max iterations reached without approval, present the best version to user via `AskUserQuestion` with note that expert consensus was not reached
+   f. If max iterations reached without approval, present the best version to the user as plain chat with a note that expert consensus was not reached
 6. **Apply improvements**: When reviewers approve with improvement suggestions, merge all accepted improvements into the plan file before proceeding. Final consensus output **MUST** include an **ADR** section with: **Decision**, **Drivers**, **Alternatives considered**, **Why chosen**, **Consequences**, **Follow-ups**. Specifically:
    a. Collect all improvement suggestions from Architect and Critic responses
    b. Deduplicate and categorize the suggestions
    c. Update the plan file in `.omni/plans/` with the accepted improvements (add missing details, refine steps, strengthen acceptance criteria, ADR updates, etc.)
    d. Note which improvements were applied in a brief changelog section at the end of the plan
-7. On Critic approval (with improvements applied): *(--interactive only)* If running with `--interactive`, use `AskUserQuestion` to present the plan with these options:
+7. On Critic approval (with improvements applied): *(--interactive only)* If running with `--interactive`, emit the plan as plain chat with these options; the next user turn carries the answer:
    - **Approve and implement via team** (Recommended) — proceed to implementation via coordinated parallel team agents (`/team`). Team is the canonical orchestration surface since v4.1.7.
    - **Approve and execute via ralph** — proceed to implementation via ralph+ultrawork (sequential execution with verification)
    - **Clear context and implement** — compact the context window first (recommended when context is large after planning), then start fresh implementation via ralph with the saved plan file
    - **Request changes** — return to step 1 with user feedback
    - **Reject** — discard the plan entirely
    If NOT running with `--interactive`, output the final approved plan, call `state_clear(mode="ralplan", session_id=<current_session_id>)`, and stop. Do NOT auto-execute.
-8. *(--interactive only)* User chooses via the structured `AskUserQuestion` UI (never ask for approval in plain text). If user selects **Reject**, call `state_clear(mode="ralplan", session_id=<current_session_id>)` and stop.
+8. *(--interactive only)* User chooses via plain chat reply (never require a special UI widget). If user selects **Reject**, call `state_clear(mode="ralplan", session_id=<current_session_id>)` and stop.
 9. On user approval (--interactive only): Call `state_write(mode="ralplan", active=false, session_id=<current_session_id>)` **before** invoking the execution skill (ralph/team), so the stop hook does not interfere with the execution mode's own enforcement. Do NOT use `state_clear` here — it writes a cancel signal that disables enforcement for the newly launched mode.
-   - **Approve and implement via team**: **MUST** invoke `Skill("copilot-omni:team")` with the approved plan path from `.omni/plans/` as context. Do NOT implement directly. The team skill coordinates parallel agents across the staged pipeline for faster execution on large tasks. This is the recommended default execution path.
-   - **Approve and execute via ralph**: **MUST** invoke `Skill("copilot-omni:ralph")` with the approved plan path from `.omni/plans/` as context. Do NOT implement directly. Do NOT edit source code files in the planning agent. The ralph skill handles execution via ultrawork parallel agents.
-   - **Clear context and implement**: First invoke `Skill("compact")` to compress the context window (reduces token usage accumulated during planning), then invoke `Skill("copilot-omni:ralph")` with the approved plan path from `.omni/plans/`. This path is recommended when the context window is 50%+ full after the planning session.
+   - **Approve and implement via team**: **MUST** invoke the team skill via `/copilot-omni:team` OR read `skills/team/SKILL.md` and follow it with the approved plan path from `.omni/plans/` as context. Do NOT implement directly.
+   - **Approve and execute via ralph**: **MUST** invoke the ralph skill via `/copilot-omni:ralph` OR read `skills/ralph/SKILL.md` and follow it with the approved plan path from `.omni/plans/` as context. Do NOT implement directly. Do NOT edit source code files in the planning agent.
+   - **Clear context and implement**: First run `python3 scripts/state_write.py ralplan active=false` to deactivate ralplan state, then invoke the ralph skill via `/copilot-omni:ralph` OR read `skills/ralph/SKILL.md` with the approved plan path. This path is recommended when the context window is 50%+ full after the planning session.
 
 ### Review Mode (`--review`)
 
 1. Read plan file from `.omni/plans/`
-2. Evaluate via Critic using `Task(subagent_type="copilot-omni:critic", ...)`
+2. Evaluate via Critic using `python3 scripts/subagent.py critic "<plan content>"`
 3. Return verdict: APPROVED, REVISE (with specific feedback), or REJECT (replanning required)
 
 ### Plan Output Format
@@ -143,17 +139,17 @@ Plans are saved to `.omni/plans/`. Drafts go to `.omni/drafts/`.
 </Steps>
 
 <Tool_Usage>
-- Use `AskUserQuestion` for preference questions (scope, priority, timeline, risk tolerance) -- provides clickable UI
-- Use plain text for questions needing specific values (port numbers, names, follow-up clarifications)
-- Use `explore` agent (Haiku, 30s timeout) to gather codebase facts before asking the user
-- Use `Task(subagent_type="copilot-omni:planner", ...)` for planning validation on large-scope plans
-- Use `Task(subagent_type="copilot-omni:analyst", ...)` for requirements analysis
-- Use `Task(subagent_type="copilot-omni:critic", ...)` for plan review in consensus and review modes
-- **CRITICAL — Consensus mode agent calls MUST be sequential, never parallel.** Always await the Architect Task result before issuing the Critic Task.
+- Emit preference questions (scope, priority, timeline, risk tolerance) as plain chat; the next user turn carries the answer
+- Use plain text for all questions — specific values, follow-up clarifications, and approval prompts
+- Use `python3 scripts/subagent.py explore "<prompt>"` (Haiku tier) to gather codebase facts before asking the user
+- Use `python3 scripts/subagent.py planner "<prompt>"` for planning validation on large-scope plans
+- Use `python3 scripts/subagent.py analyst "<prompt>"` for requirements analysis
+- Use `python3 scripts/subagent.py critic "<prompt>"` for plan review in consensus and review modes
+- **CRITICAL — Consensus mode agent calls MUST be sequential, never parallel.** Always await the Architect subagent result before issuing the Critic subagent.
 - In consensus mode, default to RALPLAN-DR short mode; enable deliberate mode on `--deliberate` or explicit high-risk signals (auth/security, migrations, destructive changes, production incidents, compliance/PII, public API breakage)
-- In consensus mode with `--interactive`: use `AskUserQuestion` for the user feedback step (step 2) and the final approval step (step 7) -- never ask for approval in plain text. Without `--interactive`, skip both prompts and output the final plan.
-- In consensus mode with `--interactive`, on user approval **MUST** invoke `Skill("copilot-omni:ralph")` for execution (step 9) -- never implement directly in the planning agent
-- When user selects "Clear context and implement" in step 7 (--interactive only): call `state_write(mode="ralplan", active=false, session_id=<current_session_id>)` first, then invoke `Skill("compact")` to compress the accumulated planning context, then immediately invoke `Skill("copilot-omni:ralph")` with the plan path -- the compact step is critical to free up context before the implementation loop begins
+- In consensus mode with `--interactive`: emit user feedback prompt (step 2) and final approval prompt (step 7) as plain chat; the next user turn carries the answer. Without `--interactive`, skip both prompts and output the final plan.
+- In consensus mode with `--interactive`, on user approval **MUST** invoke the ralph skill via `/copilot-omni:ralph` OR read `skills/ralph/SKILL.md` and follow it — never implement directly in the planning agent
+- When user selects "Clear context and implement" in step 7 (--interactive only): call `state_write(mode="ralplan", active=false, session_id=<current_session_id>)` first, then invoke the ralph skill via `/copilot-omni:ralph` with the plan path — the state deactivation step is critical so the stop hook does not interfere with execution
 - **CRITICAL — Consensus mode state lifecycle**: Always deactivate ralplan state before stopping or handing off to execution. Use `state_write(active=false)` for handoff paths (approval → ralph/team) and `state_clear` for true terminal exits (rejection, error). Never use `state_clear` before launching an execution mode — its cancel signal disables stop-hook enforcement for 30 seconds.
 </Tool_Usage>
 
@@ -211,7 +207,7 @@ Why bad: Decision fatigue. Present one option with trade-offs, get reaction, the
 - Stop interviewing when requirements are clear enough to plan -- do not over-interview
 - In consensus mode, stop after 5 Planner/Architect/Critic iterations and present the best version. Do NOT clear ralplan state here — the user may still select "Request changes" in the subsequent step. State is cleared only on the user's final choice (approval/rejection) or when outputting the plan in non-interactive mode.
 - Consensus mode without `--interactive` outputs the final plan and stops; with `--interactive`, requires explicit user approval before any implementation begins. **Always** call `state_clear(mode="ralplan", session_id=<current_session_id>)` before stopping.
-- If the user says "just do it" or "skip planning", call `state_write(mode="ralplan", active=false, session_id=<current_session_id>)` then **MUST** invoke `Skill("copilot-omni:ralph")` to transition to execution mode. Do NOT implement directly in the planning agent.
+- If the user says "just do it" or "skip planning", call `state_write(mode="ralplan", active=false, session_id=<current_session_id>)` then **MUST** invoke the ralph skill via `/copilot-omni:ralph` OR read `skills/ralph/SKILL.md` and follow it to transition to execution mode. Do NOT implement directly in the planning agent.
 - Escalate to the user when there are irreconcilable trade-offs that require a business decision
 </Escalation_And_Stop_Conditions>
 
@@ -257,7 +253,7 @@ Before asking any interview question, classify it:
 | Type | Examples | Action |
 |------|----------|--------|
 | Codebase Fact | "What patterns exist?", "Where is X?" | Explore first, do not ask user |
-| User Preference | "Priority?", "Timeline?" | Ask user via AskUserQuestion |
+| User Preference | "Priority?", "Timeline?" | Ask user via plain chat |
 | Scope Decision | "Include feature Y?" | Ask user |
 | Requirement | "Performance constraints?" | Ask user |
 

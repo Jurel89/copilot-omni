@@ -97,7 +97,7 @@ The name "deep dive" naturally implies this flow: first dig deep into the proble
 
 ## Phase 2: Lane Confirmation
 
-Present the 3 hypotheses to the user via `AskUserQuestion` for confirmation (1 round only):
+Present the 3 hypotheses to the user as plain chat for confirmation (1 round only); the next user turn carries the answer:
 
 > **Starting deep dive.** I'll first investigate your problem through 3 parallel trace lanes, then use the findings to conduct a targeted interview for requirements crystallization.
 >
@@ -261,7 +261,7 @@ When ambiguity ≤ threshold (default 0.2), generate the spec in **standard deep
 
 Read `spec_path` and `trace_path` from state (not conversation context) for resume resilience.
 
-Present execution options via `AskUserQuestion`:
+Present execution options as plain chat; the next user turn carries the answer:
 
 **Question:** "Your spec is ready (ambiguity: {score}%). How would you like to proceed?"
 
@@ -269,26 +269,26 @@ Present execution options via `AskUserQuestion`:
 
 1. **Ralplan → Autopilot (Recommended)**
    - Description: "3-stage pipeline: consensus-refine this spec with Planner/Architect/Critic, then execute with full autopilot. Maximum quality."
-   - Action: Invoke `Skill("copilot-omni:omni-plan")` with `--consensus --direct` flags and the spec file path (`spec_path` from state) as context. The `--direct` flag skips the omni-plan skill's interview phase (the deep-dive interview already gathered requirements), while `--consensus` triggers the Planner/Architect/Critic loop. When consensus completes and produces a plan in `.omni/plans/`, invoke `Skill("copilot-omni:autopilot")` with the consensus plan as Phase 0+1 output — autopilot skips both Expansion and Planning, starting directly at Phase 2 (Execution).
+   - Action: Invoke the omni-plan skill via `/copilot-omni:omni-plan` OR read `skills/plan/SKILL.md` and follow it with `--consensus --direct` flags and the spec file path (`spec_path` from state) as context. When consensus completes and produces a plan in `.omni/plans/`, invoke the autopilot skill via `/copilot-omni:autopilot` OR read `skills/autopilot/SKILL.md` and follow it with the consensus plan as Phase 0+1 output — autopilot skips both Expansion and Planning, starting directly at Phase 2 (Execution).
    - Pipeline: `deep-dive spec → omni-plan --consensus --direct → autopilot execution`
 
 2. **Execute with autopilot (skip ralplan)**
    - Description: "Full autonomous pipeline — planning, parallel implementation, QA, validation. Faster but without consensus refinement."
-   - Action: Invoke `Skill("copilot-omni:autopilot")` with the spec file path as context. The spec replaces autopilot's Phase 0 — autopilot starts at Phase 1 (Planning).
+   - Action: Invoke the autopilot skill via `/copilot-omni:autopilot` OR read `skills/autopilot/SKILL.md` and follow it with the spec file path as context. The spec replaces autopilot's Phase 0 — autopilot starts at Phase 1 (Planning).
 
 3. **Execute with ralph**
    - Description: "Persistence loop with architect verification — keeps working until all acceptance criteria pass."
-   - Action: Invoke `Skill("copilot-omni:ralph")` with the spec file path as the task definition.
+   - Action: Invoke the ralph skill via `/copilot-omni:ralph` OR read `skills/ralph/SKILL.md` and follow it with the spec file path as the task definition.
 
 4. **Execute with team**
    - Description: "N coordinated parallel agents — fastest execution for large specs."
-   - Action: Invoke `Skill("copilot-omni:team")` with the spec file path as the shared plan.
+   - Action: Invoke the team skill via `/copilot-omni:team` OR read `skills/team/SKILL.md` and follow it with the spec file path as the shared plan.
 
 5. **Refine further**
    - Description: "Continue interviewing to improve clarity (current: {score}%)."
    - Action: Return to Phase 4 interview loop.
 
-**IMPORTANT:** On execution selection, **MUST** invoke the chosen skill via `Skill()` with explicit `spec_path`. Do NOT implement directly. The deep-dive skill is a requirements pipeline, not an execution agent.
+**IMPORTANT:** On execution selection, **MUST** invoke the chosen skill as described above with explicit `spec_path`. Do NOT implement directly. The deep-dive skill is a requirements pipeline, not an execution agent.
 
 ### The 3-Stage Pipeline (Recommended Path)
 
@@ -307,13 +307,13 @@ Output: spec.md            Output: consensus-plan.md        Output: working code
 </Steps>
 
 <Tool_Usage>
-- Use `AskUserQuestion` for lane confirmation (Phase 2) and each interview question (Phase 4)
-- Use `Agent(subagent_type="copilot-omni:explore", model="haiku")` for brownfield codebase exploration (Phase 1)
-- Use Claude built-in team mode for 3 parallel tracer lanes (Phase 3)
+- Emit lane confirmation (Phase 2) and each interview question (Phase 4) as plain chat; the next user turn carries the answer
+- Use `python3 scripts/subagent.py explore "<prompt>"` (Haiku tier) for brownfield codebase exploration (Phase 1)
+- Run 3 parallel tracer lanes as sequential or background shell subagents via `scripts/subagent.py tracer "..."` (Phase 3)
 - Use `state_write(mode="deep-interview")` with `state.source = "deep-dive"` for all state persistence
 - Use `state_read(mode="deep-interview")` for resume — check `state.source === "deep-dive"` to distinguish
 - Use `Write` tool to save trace result and final spec to `.omni/specs/`
-- Use `Skill()` to bridge to execution modes (Phase 5) — never implement directly
+- Invoke execution mode skills via `/copilot-omni:<name>` OR read `skills/<name>/SKILL.md` and follow it (Phase 5) — never implement directly
 - Wrap all trace-derived text in `<trace-context>` delimiters when injecting into prompts
 </Tool_Usage>
 
@@ -405,7 +405,7 @@ Why bad: Duplicates deep-interview's behavioral contract. These values should be
 <Final_Checklist>
 - [ ] SKILL.md has valid YAML frontmatter with name, triggers, pipeline, handoff
 - [ ] Phase 1 detects brownfield/greenfield and generates 3 hypotheses
-- [ ] Phase 2 confirms hypotheses via AskUserQuestion (1 round)
+- [ ] Phase 2 confirms hypotheses via plain chat (1 round)
 - [ ] Phase 3 runs trace with 3 parallel lanes (team mode, sequential fallback)
 - [ ] Phase 3 saves trace result to `.omni/specs/deep-dive-trace-{slug}.md` with per-lane critical unknowns
 - [ ] Phase 4 starts with 3-point injection (initial_idea, codebase_context, question_queue from per-lane unknowns)
@@ -461,7 +461,7 @@ Deep-dive's output (`.omni/specs/deep-dive-{slug}.md`) feeds into the standard o
     → Working code
 ```
 
-The execution bridge passes `spec_path` explicitly to downstream skills. autopilot/ralph/team receive the path as a Skill() argument, so filename-pattern matching is not required.
+The execution bridge passes `spec_path` explicitly to downstream skills. autopilot/ralph/team receive the path as a skill argument, so filename-pattern matching is not required.
 
 ## Relationship to Standalone Skills
 

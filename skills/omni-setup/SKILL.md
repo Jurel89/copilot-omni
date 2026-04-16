@@ -106,7 +106,7 @@ fi
 
 If `ALREADY_CONFIGURED` is true AND the user did NOT pass `--force`, `--local`, or `--global` flags:
 
-Use AskUserQuestion to prompt:
+Emit as plain chat and wait for the user's reply:
 
 **Question:** "copilot-omni is already configured. What would you like to do?"
 
@@ -140,7 +140,7 @@ Before starting any phase, check for existing state:
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-progress.sh" resume
 ```
 
-If state exists (output is not "fresh"), use AskUserQuestion to prompt:
+If state exists (output is not "fresh"), emit as plain chat and wait for the user's reply:
 
 **Question:** "Found a previous setup session. Would you like to resume or start fresh?"
 

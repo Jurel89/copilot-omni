@@ -44,12 +44,14 @@ Given a query, decompose into 2-5 independent search facets:
 
 ### Step 2: Parallel Agent Invocation
 
-Fire independent facets in parallel via Task tool:
+Fire independent facets in parallel via subagent shell invocations:
 
-```
-Task(subagent_type="copilot-omni:document-specialist", model="sonnet", prompt="Search for: <facet 1 description>. Use WebSearch and WebFetch to find official documentation and examples. Cite all sources with URLs.")
+```bash
+python3 scripts/subagent.py document-specialist "Search for: <facet 1 description>. Use WebSearch and WebFetch to find official documentation and examples. Cite all sources with URLs." &
 
-Task(subagent_type="copilot-omni:document-specialist", model="sonnet", prompt="Search for: <facet 2 description>. Use WebSearch and WebFetch to find official documentation and examples. Cite all sources with URLs.")
+python3 scripts/subagent.py document-specialist "Search for: <facet 2 description>. Use WebSearch and WebFetch to find official documentation and examples. Cite all sources with URLs." &
+
+wait
 ```
 
 Maximum 5 parallel document-specialist agents.

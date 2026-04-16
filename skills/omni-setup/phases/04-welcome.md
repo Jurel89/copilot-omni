@@ -42,7 +42,7 @@ TEAMS:
 Spawn coordinated agents with shared task lists and real-time messaging:
 - /copilot-omni:team 3:executor "fix all TypeScript errors"
 - /copilot-omni:team 5:debugger "fix build errors in src/"
-Teams use Claude Code native tools (TeamCreate/SendMessage/TaskCreate).
+Teams use `python3 scripts/subagent.py` for agent invocation (WS5b will add full team orchestration).
 
 MCP SERVERS:
 Run /copilot-omni:mcp-setup to add tools like web search, GitHub, etc.
@@ -86,7 +86,7 @@ MAGIC KEYWORDS (power-user shortcuts):
 TEAMS (NEW!):
 Spawn coordinated agents with shared task lists and real-time messaging:
 - /copilot-omni:team 3:executor "fix all TypeScript errors"
-- Uses Claude Code native tools (TeamCreate/SendMessage/TaskCreate)
+- Uses `python3 scripts/subagent.py` for agent invocation (WS5b will add full team orchestration)
 
 HUD STATUSLINE:
 The status bar now shows copilot-omni state. Restart Claude Code to see it.
@@ -143,7 +143,7 @@ gh api user/starred/Yeachan-Heo/copilot-omni &>/dev/null
 
 **If NOT starred (exit code non-zero):**
 
-Use AskUserQuestion:
+Emit as plain chat and wait for the user's reply:
 
 **Question:** "If you're enjoying copilot-omni, would you like to support the project by starring it on GitHub?"
 

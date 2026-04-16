@@ -129,7 +129,7 @@ Build the question generation prompt with:
 
 ### Step 2b: Ask the Question
 
-Use `AskUserQuestion` with the generated question. Present it clearly with the current ambiguity context:
+Emit the generated question as plain chat with the current ambiguity context; the next user turn carries the answer:
 
 ```
 Round {n} | Targeting: {weakest_dimension} | Why now: {one_sentence_targeting_rationale} | Ambiguity: {score}%
@@ -345,7 +345,7 @@ Spec structure:
 
 **Autoresearch override:** if `--autoresearch` is active, skip the standard execution options below. The only valid bridge is the direct `omc autoresearch --mission ... --eval ...` handoff described above.
 
-After the spec is written, present execution options via `AskUserQuestion`:
+After the spec is written, present execution options as plain chat; the next user turn carries the answer:
 
 **Question:** "Your spec is ready (ambiguity: {score}%). How would you like to proceed?"
 
@@ -353,26 +353,26 @@ After the spec is written, present execution options via `AskUserQuestion`:
 
 1. **Ralplan → Autopilot (Recommended)**
    - Description: "3-stage pipeline: consensus-refine this spec with Planner/Architect/Critic, then execute with full autopilot. Maximum quality."
-   - Action: Invoke `Skill("copilot-omni:omni-plan")` with `--consensus --direct` flags and the spec file path as context. The `--direct` flag skips the omni-plan skill's interview phase (the deep interview already gathered requirements), while `--consensus` triggers the Planner/Architect/Critic loop. When consensus completes and produces a plan in `.omni/plans/`, invoke `Skill("copilot-omni:autopilot")` with the consensus plan as Phase 0+1 output — autopilot skips both Expansion and Planning, starting directly at Phase 2 (Execution).
+   - Action: Invoke the omni-plan skill via `/copilot-omni:omni-plan` OR read `skills/plan/SKILL.md` and follow it with `--consensus --direct` flags and the spec file path as context. When consensus completes and produces a plan in `.omni/plans/`, invoke the autopilot skill via `/copilot-omni:autopilot` OR read `skills/autopilot/SKILL.md` and follow it with the consensus plan as Phase 0+1 output — autopilot skips both Expansion and Planning, starting directly at Phase 2 (Execution).
    - Pipeline: `deep-interview spec → omni-plan --consensus --direct → autopilot execution`
 
 2. **Execute with autopilot (skip ralplan)**
    - Description: "Full autonomous pipeline — planning, parallel implementation, QA, validation. Faster but without consensus refinement."
-   - Action: Invoke `Skill("copilot-omni:autopilot")` with the spec file path as context. The spec replaces autopilot's Phase 0 — autopilot starts at Phase 1 (Planning).
+   - Action: Invoke the autopilot skill via `/copilot-omni:autopilot` OR read `skills/autopilot/SKILL.md` and follow it with the spec file path as context. The spec replaces autopilot's Phase 0 — autopilot starts at Phase 1 (Planning).
 
 3. **Execute with ralph**
    - Description: "Persistence loop with architect verification — keeps working until all acceptance criteria pass"
-   - Action: Invoke `Skill("copilot-omni:ralph")` with the spec file path as the task definition.
+   - Action: Invoke the ralph skill via `/copilot-omni:ralph` OR read `skills/ralph/SKILL.md` and follow it with the spec file path as the task definition.
 
 4. **Execute with team**
    - Description: "N coordinated parallel agents — fastest execution for large specs"
-   - Action: Invoke `Skill("copilot-omni:team")` with the spec file path as the shared plan.
+   - Action: Invoke the team skill via `/copilot-omni:team` OR read `skills/team/SKILL.md` and follow it with the spec file path as the shared plan.
 
 5. **Refine further**
    - Description: "Continue interviewing to improve clarity (current: {score}%)"
    - Action: Return to Phase 2 interview loop.
 
-**IMPORTANT:** On execution selection, **MUST** invoke the chosen skill via `Skill()`. Do NOT implement directly. The deep-interview agent is a requirements agent, not an execution agent.
+**IMPORTANT:** On execution selection, **MUST** invoke the chosen skill as described above. Do NOT implement directly. The deep-interview agent is a requirements agent, not an execution agent.
 
 ### The 3-Stage Pipeline (Recommended Path)
 
@@ -401,12 +401,12 @@ Skipping any stage is possible but reduces quality assurance:
 </Steps>
 
 <Tool_Usage>
-- Use `AskUserQuestion` for each interview question — provides clickable UI with contextual options
-- Use `Task(subagent_type="copilot-omni:explore", model="haiku")` for brownfield codebase exploration (run BEFORE asking user about codebase)
+- Emit each interview question as plain chat; the next user turn carries the answer
+- Use `python3 scripts/subagent.py explore "<prompt>"` (Haiku tier) for brownfield codebase exploration (run BEFORE asking user about codebase)
 - Use opus model (temperature 0.1) for ambiguity scoring — consistency is critical
 - Use `state_write` / `state_read` for interview state persistence
 - Use `Write` tool to save the final spec to `.omni/specs/`
-- Use `Skill()` to bridge to execution modes — never implement directly
+- Invoke execution mode skills via `/copilot-omni:<name>` OR read `skills/<name>/SKILL.md` and follow it — never implement directly
 - Challenge agent modes are prompt injections, not separate agent spawns
 </Tool_Usage>
 
@@ -528,8 +528,8 @@ Why bad: 45% ambiguity means nearly half the requirements are unclear. The mathe
 - [ ] Challenge agents activated at correct thresholds (round 4, 6, 8)
 - [ ] Spec file written to `.omni/specs/deep-interview-{slug}.md`
 - [ ] Spec includes: goal, constraints, acceptance criteria, clarity breakdown, transcript
-- [ ] Execution bridge presented via AskUserQuestion
-- [ ] Selected execution mode invoked via Skill() (never direct implementation)
+- [ ] Execution bridge presented as plain chat question
+- [ ] Selected execution mode invoked via `/copilot-omni:<name>` skill invocation (never direct implementation)
 - [ ] If 3-stage pipeline selected: omni-plan --consensus --direct invoked, then autopilot with consensus plan
 - [ ] State cleaned up after execution handoff
 - [ ] Brownfield confirmation questions cite repo evidence (file/path/pattern) before asking the user to decide

@@ -38,12 +38,14 @@ Or say: "cancelomc", "stopomc"
 
 ## Critical: Deferred Tool Handling
 
-The state management tools (`state_clear`, `state_read`, `state_write`, `state_list_active`,
+The state management tools (`state_clear`, `state_read`, `state_write`, `state_list`,
 `state_get_status`) may be registered as **deferred tools** by Claude Code. Before calling
 any state tool, you MUST first load all of them via `ToolSearch`:
 
-```
-ToolSearch(query="select:mcp__plugin_copilot-omni_t__state_clear,mcp__plugin_copilot-omni_t__state_read,mcp__plugin_copilot-omni_t__state_write,mcp__plugin_copilot-omni_t__state_list_active,mcp__plugin_copilot-omni_t__state_get_status")
+```bash
+# Load state MCP tools before calling any state_* function
+# (Copilot CLI: use scripts/subagent.py state_clear / state_read / state_write as fallback)
+python3 scripts/subagent.py state_read "check active mode" 2>/dev/null || true
 ```
 
 If `state_clear` is unavailable or fails, use this **bash fallback** as an **emergency
@@ -102,7 +104,7 @@ fi
 ## Auto-Detection
 
 `/copilot-omni:cancel` follows the session-aware state contract:
-- By default the command inspects the current session via `state_list_active` and `state_get_status`, navigating `.omni/state/sessions/{sessionId}/…` to discover which mode is active.
+- By default the command inspects the current session via `state_list` and `state_get_status`, navigating `.omni/state/sessions/{sessionId}/…` to discover which mode is active.
 - When a session id is provided or already known, that session-scoped path is authoritative. Legacy files in `.omni/state/*.json` are consulted only as a compatibility fallback if the session id is missing or empty.
 - Swarm is a shared SQLite/marker mode (`.omni/state/swarm.db` / `.omni/state/swarm-active.marker`) and is not session-scoped.
 - The default cleanup flow calls `state_clear` with the session id to remove only the matching session files; modes stay bound to their originating session.
@@ -133,7 +135,7 @@ Use `--force` or `--all` when you need to erase every session plus legacy artifa
 ```
 
 Steps under the hood:
-1. `state_list_active` enumerates `.omni/state/sessions/{sessionId}/…` to find every known session.
+1. `state_list` enumerates `.omni/state/sessions/{sessionId}/…` to find every known session.
 2. `state_clear` runs once per session to drop that session’s files.
 3. A global `state_clear` without `session_id` removes legacy files under `.omni/state/*.json`, `.omni/state/swarm*.db`, and compatibility artifacts (see list).
 4. Team artifacts (`~/.claude/teams/*/`, `~/.claude/tasks/*/`, `.omni/state/team-state.json`) are best-effort cleared as part of the legacy fallback.
@@ -185,7 +187,7 @@ fi
 ### 2. Detect Active Modes
 
 The skill now relies on the session-aware state contract rather than hard-coded file paths:
-1. Call `state_list_active` to enumerate `.omni/state/sessions/{sessionId}/…` and discover every active session.
+1. Call `state_list` to enumerate `.omni/state/sessions/{sessionId}/…` and discover every active session.
 2. For each session id, call `state_get_status` to learn which mode is running (`autopilot`, `ralph`, `ultrawork`, etc.) and whether dependent modes exist.
 3. If a `session_id` was supplied to `/copilot-omni:cancel`, skip legacy fallback entirely and operate solely within that session path; otherwise, consult legacy files in `.omni/state/*.json` only if the state tools report no active session. Swarm remains a shared SQLite/marker mode outside session scoping.
 4. Any cancellation logic in this doc mirrors the dependency order discovered via state tools (autopilot → ralph → …).
@@ -204,6 +206,8 @@ Teams are detected by checking for config files in `${CLAUDE_CONFIG_DIR:-~/.clau
 # Check for active teams
 TEAM_CONFIGS=$(find "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/teams -name config.json -maxdepth 2 2>/dev/null)
 ```
+
+<!-- TODO WS5b: rewrite team cancellation protocol to use scripts/omni_team.py shutdown <team-name> instead of direct TeamCreate/TeamDelete/SendMessage calls -->
 
 **Two-pass cancellation protocol:**
 
@@ -315,7 +319,7 @@ Report: "No active copilot-omni modes detected. Use --force to clear all state f
 
 The cancel skill runs as follows:
 1. Parse the `--force` / `--all` flags, tracking whether cleanup should span every session or stay scoped to the current session id.
-2. Use `state_list_active` to enumerate known session ids and `state_get_status` to learn the active mode (`autopilot`, `ralph`, `ultrawork`, etc.) for each session.
+2. Use `state_list` to enumerate known session ids and `state_get_status` to learn the active mode (`autopilot`, `ralph`, `ultrawork`, etc.) for each session.
 3. When operating in default mode, call `state_clear` with that session_id to remove only the session’s files, then run mode-specific cleanup (autopilot → ralph → …) based on the state tool signals.
 4. In force mode, iterate every active session, call `state_clear` per session, then run a global `state_clear` without `session_id` to drop legacy files (`.omni/state/*.json`, compatibility artifacts) and report success. Swarm remains a shared SQLite/marker mode outside session scoping.
 5. Team artifacts (`~/.claude/teams/*/`, `~/.claude/tasks/*/`, `.omni/state/team-state.json`) remain best-effort cleanup items invoked during the legacy/global pass.

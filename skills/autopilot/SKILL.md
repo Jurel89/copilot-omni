@@ -73,10 +73,10 @@ Most non-trivial software tasks require coordinated phases: understanding requir
 </Steps>
 
 <Tool_Usage>
-- Use `Task(subagent_type="copilot-omni:architect", ...)` for Phase 4 architecture validation
-- Use `Task(subagent_type="copilot-omni:security-reviewer", ...)` for Phase 4 security review
-- Use `Task(subagent_type="copilot-omni:code-reviewer", ...)` for Phase 4 quality review
-- Agents form their own analysis first, then spawn Claude Task agents for cross-validation
+- Use `python3 scripts/subagent.py architect "<prompt>"` for Phase 4 architecture validation
+- Use `python3 scripts/subagent.py security-reviewer "<prompt>"` for Phase 4 security review
+- Use `python3 scripts/subagent.py code-reviewer "<prompt>"` for Phase 4 quality review
+- Agents form their own analysis first, then spawn subagents via `scripts/subagent.py` for cross-validation
 - Never block on external tools; proceed with available agents if delegation fails
 </Tool_Usage>
 
