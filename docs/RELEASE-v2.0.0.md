@@ -71,6 +71,11 @@ See [docs/MIGRATION.md](MIGRATION.md) for the step-by-step guide including:
 - **Windows support is experimental.** Team orchestration on Windows requires
   `OMNI_EXPERIMENTAL_TEAM=1`. Full Windows hardening is Phase-C.
   See [docs/PHASE-C-BACKLOG.md](PHASE-C-BACKLOG.md).
+- **macOS/Windows CI matrix deviation (C11).** `unit-tests` runs on
+  ubuntu+macOS+Windows × py3.9–3.12 as of Wave 3.x. macOS/Windows matrix
+  entries are `continue-on-error: true` while the coverage gate and
+  release-gate remain Linux-only. tmux tests are skipped on Windows via
+  `-m "not tmux"`. Full blocking cross-OS CI is Phase-C debt.
 - **Real-Copilot nightly CI** is not yet wired (requires a Copilot subscription in CI).
   The `copilot-smoke` job is best-effort / continue-on-error.
 - **deep-interview redesign** deferred to Phase C. v2.0.0 ships turn-based persistence
@@ -88,7 +93,9 @@ created. Use `python3 scripts/release_preflight.py` to verify locally.
 | Check | Matrix | Required |
 |-------|--------|----------|
 | `lint` (contract validator + JSON manifests + no-Go files) | ubuntu × py 3.9 / 3.10 / 3.11 / 3.12 | Yes |
-| `unit-tests` | ubuntu × py 3.9 / 3.10 / 3.11 / 3.12 | Yes |
+| `unit-tests` (Linux) | ubuntu × py 3.9 / 3.10 / 3.11 / 3.12 | Yes |
+| `unit-tests` (macOS) | macos × py 3.9 / 3.10 / 3.11 / 3.12 | Best-effort (continue-on-error) |
+| `unit-tests` (Windows, no tmux) | windows × py 3.9 / 3.10 / 3.11 / 3.12 | Best-effort (continue-on-error) |
 | `mcp-smoke` | ubuntu × py 3.9 | Yes |
 | `discovery-smoke` | ubuntu × py 3.9 | Yes |
 | `coverage` (per-module gate) | ubuntu × py 3.11 | Yes |

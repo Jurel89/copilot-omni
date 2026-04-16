@@ -78,10 +78,21 @@ python3 scripts/measure_coverage.py --check  # exits 1 if any module under targe
 `.github/workflows/ci.yml` runs:
 
 - `lint & contract validator` across Python 3.9/3.10/3.11/3.12 — fast (~15 s per cell).
-- `unit tests (ubuntu / py <version>)` — the full pytest suite; ~7–8 minutes on GitHub hosted runners.
+- `unit tests` — ubuntu/macOS/Windows × py3.9–3.12. Linux cells are blocking; macOS/Windows
+  are `continue-on-error: true` (C11/Wave-3.x). Windows skips tmux tests (`-m "not tmux"`).
 - `mcp-smoke`, `discovery-smoke` — quick JSON-RPC and layout checks.
 - `coverage` — the per-module gate (Linux py3.11 only); fails the pipeline if any module drops below its target.
 - `copilot-smoke` — best-effort `npm install -g @github/copilot` + offline discovery (continue-on-error).
+
+### Cross-OS matrix status (Wave 3.x / C11)
+
+| Platform | Status | Notes |
+|----------|--------|-------|
+| Linux (ubuntu-latest) | Blocking | Full test suite |
+| macOS (macos-latest) | Best-effort | continue-on-error=true; Phase-C for blocking |
+| Windows (windows-latest) | Best-effort | continue-on-error=true; tmux tests skipped; Phase-C for blocking |
+
+Full blocking cross-OS CI is tracked in `docs/PHASE-C-BACKLOG.md`.
 
 ## Flake policy
 
