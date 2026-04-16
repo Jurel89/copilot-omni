@@ -153,22 +153,25 @@ def check_ci_runs(*, skip_age_check: bool = False) -> tuple[str, bool]:
     except json.JSONDecodeError as exc:
         return _check(label, False, f"Could not parse gh output: {exc}")
 
-    # Filter to completed CI runs only — exclude "neutral" (skipped jobs)
-    green_runs = [
-        r for r in all_runs
-        if r.get("status") == "completed"
-        and r.get("conclusion") == "success"
-    ]
-
-    if len(green_runs) < 3:
+    # CORRECT semantics (per plan §2.WS12 + codex re-review): the LAST 3
+    # completed CI runs must ALL be green. Filtering failures out first would
+    # silently skip a failing recent run — defeats the gate.
+    completed = [r for r in all_runs if r.get("status") == "completed"]
+    if len(completed) < 3:
         detail = (
-            f"Need 3 green CI runs, found {len(green_runs)}. "
-            f"All runs: {[(r.get('name'), r.get('conclusion')) for r in all_runs[:5]]}"
+            f"Need 3 completed CI runs, found {len(completed)}. "
+            f"Recent runs: {[(r.get('name'), r.get('conclusion')) for r in all_runs[:5]]}"
         )
         return _check(label, False, detail)
 
-    # Take the 3 most recent green runs
-    runs = green_runs[:3]
+    runs = completed[:3]  # most recent 3, regardless of conclusion
+    not_green = [r for r in runs if r.get("conclusion") != "success"]
+    if not_green:
+        detail = (
+            f"Last 3 CI runs are NOT all green. "
+            f"Offenders: {[(r.get('name'), r.get('conclusion'), r.get('createdAt')) for r in not_green]}"
+        )
+        return _check(label, False, detail)
 
     # Age check: earliest of the 3 must be ≥24h old
     if not skip_age_check:
