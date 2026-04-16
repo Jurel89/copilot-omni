@@ -359,12 +359,15 @@ except Exception as e:
 PYEOF
 
   # ---- 3b: Check for clarifying question ----
-  if python3 - <<PYEOF
-import re, sys
+  # Phase-C C10: replaced the "if python3 - <<PYEOF ... PYEOF then" shell-if
+  # heredoc pattern (Critic P10) with a sentinel-file invocation. The
+  # heredoc is still used to write the sentinel, but the shell branch tests
+  # a plain command's exit code — no nested redirection into `if`.
+  CLARIFY_SENTINEL="${RUN_DIR}/_clarify_check.py"
+  cat > "${CLARIFY_SENTINEL}" <<'PYEOF'
+import os, re, sys, json
 from pathlib import Path
 
-raw = Path(os.environ.get("PLAN_FILE", "") + ".raw") if __import__("os").environ.get("PLAN_FILE") else None
-import os
 raw = Path(os.environ["PLAN_FILE"] + ".raw")
 text = raw.read_text(errors="replace") if raw.exists() else ""
 m = re.search(r"<clarifying-question>(.*?)</clarifying-question>", text, re.DOTALL)
@@ -375,23 +378,24 @@ if m:
 
     status_path = run_dir / "status.json"
     try:
-        status = __import__("json").loads(status_path.read_text())
+        status = json.loads(status_path.read_text())
     except Exception:
         status = {}
     status["state"] = "awaiting-input"
     tmp = status_path.with_suffix(".tmp")
-    tmp.write_text(__import__("json").dumps(status, indent=2))
+    tmp.write_text(json.dumps(status, indent=2))
     os.replace(str(tmp), str(status_path))
-    print(f"ralplan: planner asked a clarifying question — state=awaiting-input")
+    print("ralplan: planner asked a clarifying question — state=awaiting-input")
     print(f"Question: {question}")
     sys.exit(0)  # 0 = question found
-else:
-    sys.exit(1)  # 1 = no question, continue
+sys.exit(1)      # 1 = no question, continue
 PYEOF
-  then
+  if python3 "${CLARIFY_SENTINEL}"; then
+    rm -f "${CLARIFY_SENTINEL}"
     # Clarifying question found — exit cleanly for turn-based resume
     exit 0
   fi
+  rm -f "${CLARIFY_SENTINEL}"
 
   # Promote raw output to plan file
   if [ -f "${PLAN_FILE}.raw" ]; then
