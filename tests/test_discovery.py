@@ -87,7 +87,7 @@ class TestDiscovery(unittest.TestCase):
             "argparse", "logging", "hashlib", "re", "datetime", "uuid",
             "threading", "queue", "tempfile", "shutil", "urllib", "unittest",
             "io", "typing", "dataclasses", "enum", "time", "platform", "py_compile",
-            "shlex", "ast",
+            "shlex", "ast", "atexit", "importlib", "traceback",
             "__future__",
         }
         for p in (ROOT / "mcp").rglob("*.py"):
