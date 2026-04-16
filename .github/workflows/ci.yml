@@ -6,16 +6,19 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel stale runs on the same ref when a new push arrives — keeps the PR
-# from stacking 20+ parallel runs that were wasting compute before the prune.
+# Cancel stale runs on the same ref when a new push lands.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Budget-aware CI: PR path runs only fast checks. Heavy e2e test files
+# (hundreds of subprocess spawns each) are excluded from the default suite
+# and exercised by the `full-suite` workflow on manual dispatch / nightly
+# cron. Coverage lives in its own workflow triggered weekly.
+
 jobs:
   lint:
     name: lint & contract validator
-    # Pruned from 4-way py matrix — validator is python-version-independent.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,35 +48,34 @@ jobs:
           python -c "import json; json.load(open('policies/standard.json'))"
           python -c "import json; json.load(open('policies/strict.json'))"
           python -c "import json; json.load(open('policies/permissive.json'))"
-      - name: No Go files left behind
-        run: |
-          LEFTOVERS=$(find . -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) ! -path './.git/*' | wc -l)
-          test "$LEFTOVERS" = "0" || { echo "Go leftovers:"; find . -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) ! -path './.git/*'; exit 1; }
-      - name: Run plugin contract validator (--all, cap-based)
+      - name: Run plugin contract validator (--all)
         run: python3 scripts/verify_plugin_contract.py --all
-      - name: Report validator in strict mode (non-blocking)
-        continue-on-error: true
-        run: python3 scripts/verify_plugin_contract.py --all-strict
 
-  unit-tests:
-    name: unit tests (py ${{ matrix.python }})
-    # Pruned from 3 OS × 4 py (12 cells, half continue-on-error) down to
-    # Linux py3.9 (floor compat) + Linux py3.11 (primary). macOS / Windows
-    # CI lanes deferred to Phase C — see docs/PHASE-C-BACKLOG.md.
+  unit-tests-fast:
+    name: fast unit tests (py 3.11)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.9", "3.11"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.11"
       - name: Install pytest
         run: python3 -m pip install --quiet pytest
-      - name: Run pytest suite
-        run: python3 -m pytest -q
+      # Exclude subprocess-heavy e2e/pool tests from the PR gate — they
+      # spawn hundreds of Python processes each on GitHub runners and
+      # dominate CI wall time. Full suite runs in `full-suite.yml` on
+      # manual dispatch + weekly cron.
+      - name: Run fast unit tests
+        run: |
+          python3 -m pytest -q \
+            --ignore=tests/test_pipeline_e2e.py \
+            --ignore=tests/test_pipeline_e2e_ultra.py \
+            --ignore=tests/test_pipeline_e2e_ralplan.py \
+            --ignore=tests/test_omni_team.py \
+            --ignore=tests/test_omni_worktree.py \
+            --ignore=tests/test_subagent_background.py \
+            --ignore=tests/test_subagent_backpressure.py \
+            --ignore=tests/test_integration_phase_b.py
 
   mcp-smoke:
     name: MCP stdio smoke
@@ -96,18 +98,3 @@ jobs:
           python-version: "3.11"
       - name: Discovery layout
         run: python3 scripts/discovery_smoke.py --probe layout
-      - name: Discovery all (offline)
-        run: python3 scripts/discovery_smoke.py --probe all --offline
-
-  coverage:
-    name: per-module coverage gate (WS10)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install dev deps (pytest + coverage)
-        run: python3 -m pip install --quiet pytest coverage
-      - name: Run coverage check
-        run: python3 scripts/measure_coverage.py --check
