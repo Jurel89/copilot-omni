@@ -276,18 +276,20 @@ class TestExemptionBudget:
         assert ok, "\n".join(msgs)
 
     def test_fail_over_budget(self, tmp_path):
-        self._populate(tmp_path, rename=6, cc=6, ref=6)  # total=18 > 15
+        # WS3: cap raised to 25; need total > 25 to fail
+        self._populate(tmp_path, rename=9, cc=9, ref=9)  # total=27 > 25
         ok, msgs = check_exemption_budget(root=tmp_path)
         assert not ok
         assert any("exceeded" in m or "FAIL" in m for m in msgs)
 
     def test_exactly_at_budget(self, tmp_path):
-        self._populate(tmp_path, rename=5, cc=5, ref=5)  # total=15 == cap
+        self._populate(tmp_path, rename=8, cc=8, ref=9)  # total=25 == cap
         ok, msgs = check_exemption_budget(root=tmp_path)
         assert ok, "\n".join(msgs)
 
     def test_one_over_budget(self, tmp_path):
-        self._populate(tmp_path, rename=5, cc=5, ref=6)  # total=16 > 15
+        # WS3: cap raised to 25; total=26 > 25
+        self._populate(tmp_path, rename=9, cc=9, ref=8)  # total=26 > 25
         ok, msgs = check_exemption_budget(root=tmp_path)
         assert not ok
 
