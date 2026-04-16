@@ -1056,6 +1056,106 @@ def check_stdlib_only_imports(root: Path = ROOT) -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
+# WS8b: State-store canonical check
+# ---------------------------------------------------------------------------
+
+# MCP-owned tables: any Python file (outside mcp/server.py) that contains
+# direct SQL writes to these tables bypasses the canonical MCP tool layer.
+# We look for .execute( patterns containing INSERT/UPDATE/DELETE + table name
+# in Python source files under scripts/, hooks/, mcp/ (but NOT mcp/server.py).
+#
+# Skills (.md files) are intentionally excluded — they call MCP tools by name
+# in prose/instructions, which is correct usage of the canonical write API.
+_MCP_OWNED_TABLES: tuple[str, ...] = (
+    "memory",
+    "artifacts",
+    "runs",
+    "state",
+    "wiki",
+    "notepad",
+    "shared_memory",
+    "trace",
+    "sessions",
+)
+
+# SQL write verb pattern: INSERT/UPDATE/DELETE/REPLACE INTO <table>
+_SQL_WRITE_RE = re.compile(
+    r"(?:INSERT|UPDATE|DELETE|REPLACE)\s+(?:INTO\s+|FROM\s+)?(\w+)",
+    re.IGNORECASE,
+)
+
+# Directories to scan for direct-DB-write violations (Python files only)
+_STATE_SCAN_DIRS_PY = ("scripts", "hooks", "mcp")
+
+# Python files allowed to write directly to MCP-owned tables
+_STATE_CANONICAL_ALLOWLIST_PY = (
+    "mcp/server.py",
+    "scripts/verify_plugin_contract.py",
+)
+
+# Test files are excluded — they may seed the DB directly for test setup
+_STATE_TEST_DIRS = ("tests",)
+
+
+def _is_state_py_allowlisted(rel: str) -> bool:
+    for prefix in _STATE_CANONICAL_ALLOWLIST_PY:
+        if rel == prefix or rel.startswith(prefix + "/"):
+            return True
+    return False
+
+
+def check_state_store_canonical(root: Path = ROOT) -> CheckResult:
+    """Verify no Python file outside mcp/server.py writes directly to MCP-owned SQLite tables.
+
+    Scans scripts/, hooks/, mcp/ (Python files only) for SQL write statements
+    (INSERT/UPDATE/DELETE/REPLACE) targeting the tables owned by the MCP server.
+    Any match outside the allowlist is a split-brain violation per ADR-0007.
+
+    Skills (.md files) are not scanned — calling MCP tools by name in skill prose
+    is the correct usage of the canonical write API.
+    """
+    violations: list[str] = []
+    messages: list[str] = []
+
+    mcp_table_set = set(_MCP_OWNED_TABLES)
+
+    for dir_name in _STATE_SCAN_DIRS_PY:
+        scan_dir = root / dir_name
+        if not scan_dir.exists():
+            continue
+        for path in sorted(scan_dir.rglob("*.py")):
+            rel = str(path.relative_to(root)).replace("\\", "/")
+            if _is_state_py_allowlisted(rel):
+                continue
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+            for line_idx, line in enumerate(content.splitlines()):
+                for m in _SQL_WRITE_RE.finditer(line):
+                    table = m.group(1).lower()
+                    if table in mcp_table_set:
+                        violations.append(
+                            f"  {rel}:{line_idx + 1}: direct SQL write to MCP-owned"
+                            f" table '{table}': {line.strip()[:100]}"
+                        )
+
+    ok = len(violations) == 0
+    if ok:
+        messages.append(
+            f"state-store-canonical check passed"
+            f" (scanned {sum(1 for d in _STATE_SCAN_DIRS_PY if (root / d).exists())} dirs,"
+            f" {len(_MCP_OWNED_TABLES)} protected tables)"
+        )
+    else:
+        messages.append(
+            f"FAIL: state-store-canonical: {len(violations)} direct-write violation(s):"
+        )
+        messages.extend(violations)
+    return ok, messages
+
+
+# ---------------------------------------------------------------------------
 # Check registry
 # ---------------------------------------------------------------------------
 
@@ -1070,6 +1170,7 @@ CHECKS: dict = {
     "mcp-tool-refs": check_mcp_tool_refs,
     "exemption-budget": check_exemption_budget,
     "stdlib-only-imports": check_stdlib_only_imports,
+    "state-store-canonical": check_state_store_canonical,
 }
 
 
