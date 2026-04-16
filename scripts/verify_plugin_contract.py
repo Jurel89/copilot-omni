@@ -85,6 +85,22 @@ ALLOWLIST_PATHS: tuple[str, ...] = (
     "tests/test_integration_phase_b.py",
     # WS7 doc references the legacy sentinel filename
     "docs/HOOK_CONTRACT.md",
+    # WS11 migration guide legitimately documents the old directory/command names
+    "docs/MIGRATION.md",
+    # WS11 ADR index summarises all ADRs including those that cite old names
+    "docs/ADR/README.md",
+    # WS11 CHANGELOG legitimately cites old names in the Breaking section
+    "CHANGELOG.md",
+    # WS12 release doc cites old names in the breaking-change section
+    "docs/RELEASE-v2.0.0.md",
+    # WS11/WS12 migrator script and its tests legitimately reference .omc/ paths
+    "scripts/omni_migrate_v1_to_v2.py",
+    "tests/test_migrate_v1_to_v2.py",
+    # WS12 WS11 report cites old names
+    ".omni/plans/wave-3-WS11-report.md",
+    ".omni/plans/wave-3-WS12-report.md",
+    # README.md migration section cites old names in the migration section
+    "README.md",
 )
 
 # Banned token patterns
