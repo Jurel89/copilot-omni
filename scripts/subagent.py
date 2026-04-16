@@ -385,7 +385,10 @@ def spawn(
     )
     status_path = str(job_dir / "status.json")
 
-    # Acquire pool slot (best-effort; if pool unavailable, proceed anyway)
+    # Acquire pool slot (best-effort; if pool unavailable, proceed anyway).
+    # Phase-C C08/C26: MemoryPolicyDenied is NOT best-effort — it is a hard
+    # reject that surfaces to the caller as an error result so memory caps
+    # are actually enforced, not silently ignored.
     pool_mod = _load_pool()
     pool = None
     if pool_mod is not None:
@@ -394,6 +397,14 @@ def spawn(
             pool = pool_mod.SubagentPool(cap=cap)
             pool.acquire(job_id)
         except Exception as exc:
+            mem_denied_cls = getattr(pool_mod, "MemoryPolicyDenied", None)
+            if mem_denied_cls is not None and isinstance(exc, mem_denied_cls):
+                status.update(state="failed", ended_at=_now_iso(),
+                              exit_code=77, error=f"memory-policy: {exc}")
+                _write_status(job_dir, status)
+                return {"job_id": job_id, "run_id": run_id, "exit_code": 77,
+                        "error": f"memory-policy: {exc}",
+                        "status_path": status_path}
             print(f"warning: pool acquire failed (non-fatal): {exc}", file=sys.stderr)
             pool = None
 

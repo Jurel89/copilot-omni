@@ -135,6 +135,91 @@ def _now() -> float:
 
 
 # ---------------------------------------------------------------------------
+# Phase-C C08 + C26: memory policing
+# ---------------------------------------------------------------------------
+
+DEFAULT_SUBAGENT_MEM_CAP_MB = 512     # C08 — per-subagent estimate / ceiling
+DEFAULT_POOL_MEM_CAP_MB = 4096        # C26 — cumulative cap across active jobs
+
+
+def _rss_mb(pid: int) -> Optional[float]:
+    """Return *pid*'s resident-set size in MB, or None when unreadable.
+
+    Linux: parse /proc/<pid>/status VmRSS.
+    Windows: GetProcessMemoryInfo via ctypes.
+    Other platforms (macOS, BSD, …): None — caller treats that as unknown
+    and skips the rollup for that pid (defensive).
+    """
+    if sys.platform.startswith("linux"):
+        status = Path(f"/proc/{pid}/status")
+        try:
+            for line in status.read_text(encoding="utf-8").splitlines():
+                if line.startswith("VmRSS:"):
+                    parts = line.split()
+                    # "VmRSS:    12345 kB"
+                    if len(parts) >= 3 and parts[2].lower() == "kb":
+                        return int(parts[1]) / 1024.0
+        except Exception:
+            return None
+        return None
+    if sys.platform == "win32":
+        try:
+            import ctypes  # noqa: PLC0415 — Windows only
+            from ctypes import wintypes  # noqa: PLC0415
+
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid)
+            )
+            if not handle:
+                return None
+            try:
+                class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                    _fields_ = [
+                        ("cb", wintypes.DWORD),
+                        ("PageFaultCount", wintypes.DWORD),
+                        ("PeakWorkingSetSize", ctypes.c_size_t),
+                        ("WorkingSetSize", ctypes.c_size_t),
+                        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                        ("PagefileUsage", ctypes.c_size_t),
+                        ("PeakPagefileUsage", ctypes.c_size_t),
+                    ]
+
+                pmc = PROCESS_MEMORY_COUNTERS()
+                pmc.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+                psapi = ctypes.windll.psapi
+                ok = psapi.GetProcessMemoryInfo(handle, ctypes.byref(pmc), pmc.cb)
+                if not ok:
+                    return None
+                return pmc.WorkingSetSize / (1024.0 * 1024.0)
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        except Exception:
+            return None
+    return None
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+        if value <= 0:
+            return default
+        return value
+    except ValueError:
+        return default
+
+
+class MemoryPolicyDenied(RuntimeError):
+    """Raised by SubagentPool.acquire when a memory cap would be exceeded."""
+
+
+# ---------------------------------------------------------------------------
 # SubagentPool
 # ---------------------------------------------------------------------------
 
@@ -205,10 +290,35 @@ class SubagentPool:
             live.append(entry)
         return live
 
+    def _rollup_rss_mb(self, acquired: list) -> float:
+        """Sum RSS across pids that report a reading; unknown pids contribute 0."""
+        total = 0.0
+        for entry in acquired:
+            pid = entry.get("pid")
+            if not isinstance(pid, int):
+                continue
+            value = _rss_mb(pid)
+            if value is not None:
+                total += value
+        return total
+
     def acquire(self, job_id: str) -> None:
-        """Block until a slot is free; raises TimeoutError after timeout."""
+        """Block until a slot is free; raises TimeoutError after timeout.
+
+        Phase-C C08 + C26: before granting a slot, enforce two memory caps:
+        - OMNI_SUBAGENT_MEM_CAP_MB (default 512): minimum estimated RSS per
+          subagent. Raises MemoryPolicyDenied when a subagent can't be sized
+          within its share of the pool cap.
+        - OMNI_POOL_MEM_CAP_MB (default 4096): cumulative across active pids.
+          When the rollup (existing + per-subagent estimate) exceeds this
+          budget, acquire raises MemoryPolicyDenied rather than spawning.
+        """
         pid = os.getpid()
         deadline = _now() + self._timeout
+        subagent_cap_mb = _env_int("OMNI_SUBAGENT_MEM_CAP_MB",
+                                    DEFAULT_SUBAGENT_MEM_CAP_MB)
+        pool_cap_mb = _env_int("OMNI_POOL_MEM_CAP_MB",
+                               DEFAULT_POOL_MEM_CAP_MB)
 
         if not _FLOCK_AVAILABLE:
             # Best-effort: no locking available, proceed
@@ -228,8 +338,23 @@ class SubagentPool:
                 acquired = self._prune_stale(state.get("acquired", []))
                 cap = state.get("cap", self._cap)
 
+                # C08 + C26: enforce memory caps BEFORE accepting the slot.
+                current_rss = self._rollup_rss_mb(acquired)
+                projected = current_rss + subagent_cap_mb
+                if projected > pool_cap_mb:
+                    _flock_unlock(fd)
+                    os.close(fd)
+                    raise MemoryPolicyDenied(
+                        f"pool memory cap exceeded: current_rss={current_rss:.1f}MB "
+                        f"+ per_subagent_cap={subagent_cap_mb}MB > "
+                        f"pool_cap={pool_cap_mb}MB"
+                    )
+
                 if len(acquired) < cap:
-                    acquired.append({"job_id": job_id, "pid": pid, "ts": _now()})
+                    acquired.append({
+                        "job_id": job_id, "pid": pid, "ts": _now(),
+                        "rss_cap_mb": subagent_cap_mb,
+                    })
                     state["acquired"] = acquired
                     state["cap"] = cap
                     self._write_state(fd, state)
@@ -241,6 +366,8 @@ class SubagentPool:
                     _flock_unlock(fd)
                     os.close(fd)
                     time.sleep(0.1)
+            except MemoryPolicyDenied:
+                raise
             except Exception:
                 try:
                     _flock_unlock(fd)
