@@ -328,13 +328,35 @@ def _sanitize_error(exc: Exception, tool_name: str) -> Dict[str, Any]:
     }
 
 
+# T3: tightened sensitive-content detector.
+# Matches:
+# - Absolute filesystem paths starting with well-known root dirs
+# - Windows absolute paths (C:\...)
+# - UNC paths (\\server\share)
+# - Well-known sensitive env-var name patterns (API_KEY, TOKEN, etc.)
+# - Python tracebacks
 _SENSITIVE_RE = re.compile(
-    r"(/[a-zA-Z0-9_.-]{2,})|([A-Z_]{3,}=)|(Traceback \(most recent)",
+    r"(?:"
+    # POSIX absolute paths with well-known root dirs
+    r"/(home|Users|var|etc|tmp|root|opt)/[a-zA-Z0-9_./ -]+"
+    r"|"
+    # Windows drive paths: C:\ or C:/
+    r"[A-Za-z]:[/\\][a-zA-Z0-9_./ \\-]+"
+    r"|"
+    # UNC paths: \\server
+    r"\\\\[a-zA-Z0-9_.-]+"
+    r"|"
+    # Sensitive env-var names (standalone words)
+    r"\b(API_KEY|TOKEN|PASSWORD|SECRET|PRIVATE_KEY|CREDENTIAL)\b"
+    r"|"
+    # Python traceback header
+    r"Traceback \(most recent"
+    r")"
 )
 
 
 def _looks_sensitive(msg: str) -> bool:
-    """Heuristic: return True if msg likely contains a path, env var, or traceback."""
+    """Heuristic: return True if msg likely contains a sensitive path, env var, or traceback."""
     return bool(_SENSITIVE_RE.search(msg))
 
 

@@ -139,5 +139,82 @@ class TestSanitizeErrorHelper(unittest.TestCase):
         self.assertIn("mode or all=true required", result["message"])
 
 
+class TestLooksSensitiveBenignMessages(unittest.TestCase):
+    """T3: tightened _looks_sensitive must NOT redact benign messages."""
+
+    def _load_server(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("mcp_server_t3", SERVER)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_unknown_action_not_redacted(self):
+        """'unknown action: /create' contains /create which is NOT a real path."""
+        srv = self._load_server()
+        self.assertFalse(srv._looks_sensitive("unknown action: /create"),
+                         "'/create' is not an absolute path and should not be redacted")
+
+    def test_get_env_var_not_redacted(self):
+        """'GET=true' has uppercase word before = but is NOT a sensitive env var."""
+        srv = self._load_server()
+        self.assertFalse(srv._looks_sensitive("GET=true"),
+                         "'GET=true' is not a sensitive env var")
+
+    def test_http_version_not_redacted(self):
+        """'HTTP=2' is not a sensitive env var pattern."""
+        srv = self._load_server()
+        self.assertFalse(srv._looks_sensitive("HTTP=2"),
+                         "'HTTP=2' is not a sensitive env var")
+
+    def test_invalid_url_not_redacted(self):
+        """'invalid URL path /api/v1' should not be redacted."""
+        srv = self._load_server()
+        self.assertFalse(srv._looks_sensitive("invalid URL path /api/v1"),
+                         "'/api/v1' is not an absolute filesystem path")
+
+    def test_real_path_redacted(self):
+        """'/home/user/secret.db' must still be redacted."""
+        srv = self._load_server()
+        self.assertTrue(srv._looks_sensitive("/home/user/secret.db"),
+                        "/home/... should be redacted")
+
+    def test_api_key_env_var_redacted(self):
+        """'API_KEY=abc123' must be redacted."""
+        srv = self._load_server()
+        self.assertTrue(srv._looks_sensitive("API_KEY=abc123"),
+                        "API_KEY should be redacted")
+
+    def test_token_env_var_redacted(self):
+        """'TOKEN=xyz' must be redacted."""
+        srv = self._load_server()
+        self.assertTrue(srv._looks_sensitive("TOKEN=xyz"),
+                        "TOKEN should be redacted")
+
+    def test_traceback_redacted(self):
+        """'Traceback (most recent call last)' must be redacted."""
+        srv = self._load_server()
+        self.assertTrue(srv._looks_sensitive("Traceback (most recent call last):"),
+                        "Traceback header should be redacted")
+
+    def test_windows_path_redacted(self):
+        """'C:\\Users\\foo' must be redacted."""
+        srv = self._load_server()
+        self.assertTrue(srv._looks_sensitive("C:\\Users\\foo\\secret.txt"),
+                        "Windows path should be redacted")
+
+    def test_password_env_var_redacted(self):
+        """'PASSWORD=mysecret' must be redacted."""
+        srv = self._load_server()
+        self.assertTrue(srv._looks_sensitive("PASSWORD=mysecret"),
+                        "PASSWORD should be redacted")
+
+    def test_etc_path_redacted(self):
+        """'/etc/passwd' must be redacted."""
+        srv = self._load_server()
+        self.assertTrue(srv._looks_sensitive("/etc/passwd"),
+                        "/etc/... should be redacted")
+
+
 if __name__ == "__main__":
     unittest.main()
