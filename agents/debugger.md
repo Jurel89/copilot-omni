@@ -1,7 +1,7 @@
 ---
 name: debugger
 description: Root-cause analysis, regression isolation, stack trace analysis, build/compilation error resolution
-model: claude-sonnet-4-6
+category: deep
 level: 3
 ---
 

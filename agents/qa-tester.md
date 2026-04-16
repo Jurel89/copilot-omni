@@ -1,7 +1,7 @@
 ---
 name: qa-tester
 description: Interactive CLI testing specialist using tmux for session management
-model: claude-sonnet-4-6
+category: deep
 level: 3
 ---
 

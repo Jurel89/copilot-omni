@@ -1,7 +1,7 @@
 ---
 name: architect
 description: Strategic Architecture & Debugging Advisor (Opus, READ-ONLY)
-model: claude-opus-4-6
+category: ultrabrain
 level: 3
 disallowedTools: Write, Edit
 ---

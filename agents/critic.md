@@ -1,7 +1,7 @@
 ---
 name: critic
 description: Work plan and code review expert — thorough, structured, multi-perspective (Opus)
-model: claude-opus-4-6
+category: ultrabrain
 level: 3
 disallowedTools: Write, Edit
 # Read-only reviewer: must not modify project files
