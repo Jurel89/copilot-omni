@@ -10,8 +10,20 @@ all-green, 1 on any failure.
 
 Contract: stdlib only. No third-party deps. Idempotent.
 
+Exemption semantics
+-------------------
+``--all``         (default)  Exemptions up to the budget cap (MAX_EXEMPTIONS_TOTAL)
+                             are accepted; only excess triggers a failure in
+                             check_exemption_budget.  Individual checks also
+                             enforce their own per-marker caps.
+
+``--all-strict``             Runs every registered check AND treats ANY non-zero
+                             exemption count as a failure.  Use this in release
+                             gates where zero-exemption cleanliness is required.
+
 Usage:
     python3 scripts/verify_plugin_contract.py --all
+    python3 scripts/verify_plugin_contract.py --all-strict
     python3 scripts/verify_plugin_contract.py --check-rename
     python3 scripts/verify_plugin_contract.py --check-rename-stub
     python3 scripts/verify_plugin_contract.py --list-checks
@@ -20,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import sys
 from pathlib import Path
@@ -46,6 +59,8 @@ ALLOWLIST_PATHS: tuple[str, ...] = (
     "scripts/verify_plugin_contract.py",
     # WS1 report documents the rename; legitimately cites old names
     ".omni/plans/wave-1-WS1-report.md",
+    # WS9 report documents the validator; legitimately cites exemption markers
+    ".omni/plans/wave-1-WS9-report.md",
 )
 
 # Banned token patterns
@@ -63,8 +78,11 @@ SCAN_EXTENSIONS: frozenset[str] = frozenset({
     ".html", ".rst", ".ini",
 })
 
-# Max allowed inline exemptions across the whole tree
+# Max allowed inline exemptions across the whole tree (hard cap for --all)
 MAX_EXEMPTIONS = 10
+
+# Hard cap for the aggregate exemption budget check (sum of all three markers)
+MAX_EXEMPTIONS_TOTAL = 15
 
 # Marker pattern for inline allowlist — supports both HTML comments (<!-- -->) and
 # shell/gitignore hash comments (# omni-rename-allow: reason)
@@ -72,6 +90,10 @@ ALLOW_MARKER_RE = re.compile(
     r"(?:<!--\s*|#\s*)omni-rename-allow\s*:.*?(?:-->|$)",
     re.IGNORECASE,
 )
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
 
 
 def _is_allowlisted_path(rel: str) -> bool:
@@ -111,6 +133,32 @@ def _has_allow_marker_nearby(lines: list[str], line_idx: int, window: int = 3) -
         if ALLOW_MARKER_RE.search(lines[i]):
             return True
     return False
+
+
+def _parse_frontmatter(text: str) -> dict:
+    """Parse YAML-ish frontmatter block (between leading --- delimiters).
+
+    Returns an empty dict if no valid frontmatter block is found.
+    This is the single canonical frontmatter parser used by all checks.
+    """
+    if not text.startswith("---"):
+        return {}
+    end = text.find("\n---", 3)
+    if end < 0:
+        return {}
+    block = text[3:end].strip()
+    meta: dict = {}
+    for line in block.splitlines():
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        meta[key.strip()] = value.strip().strip('"').strip("'")
+    return meta
+
+
+# ---------------------------------------------------------------------------
+# WS1: rename check
+# ---------------------------------------------------------------------------
 
 
 def check_rename() -> CheckResult:
@@ -388,22 +436,674 @@ def check_writable_frontmatter() -> CheckResult:
     return ok, messages
 
 
+# ---------------------------------------------------------------------------
+# WS9 checks
+# ---------------------------------------------------------------------------
+
+# Minimum counts for frontmatter schema check (ported from validate_plugin.py)
+_MIN_SKILLS = 25
+_MIN_AGENTS = 15
+_MIN_COMMANDS = 6
+
+
+def check_frontmatter_schema(root: Path = ROOT) -> CheckResult:
+    """Verify that every skill, agent, and command has required frontmatter fields.
+
+    Merges / supersedes scripts/validate_plugin.py shape checks (WS9).
+
+    Rules:
+    - Every skills/*/SKILL.md must have 'name' and 'description'.
+    - Every agents/*.md must have 'name' and 'description'.
+    - Every commands/*.md must have 'name'.
+    - If 'writable' field is present, its value must be 'true' or 'false' (strings).
+    - Minimum count thresholds: 25 skills, 15 agents, 6 commands.
+    """
+    failures: list[str] = []
+
+    skills = sorted((root / "skills").glob("*/SKILL.md"))
+    for skill in skills:
+        meta = _parse_frontmatter(skill.read_text(encoding="utf-8", errors="replace"))
+        missing = {"name", "description"} - meta.keys()
+        if missing:
+            rel = str(skill.relative_to(root)).replace("\\", "/")
+            failures.append(f"FAIL: {rel}: missing frontmatter fields {sorted(missing)}")
+        if "writable" in meta and meta["writable"] not in ("true", "false"):
+            rel = str(skill.relative_to(root)).replace("\\", "/")
+            failures.append(
+                f"FAIL: {rel}: 'writable' must be 'true' or 'false', got {meta['writable']!r}"
+            )
+
+    agents = sorted((root / "agents").glob("*.md"))
+    for agent in agents:
+        meta = _parse_frontmatter(agent.read_text(encoding="utf-8", errors="replace"))
+        missing = {"name", "description"} - meta.keys()
+        if missing:
+            rel = str(agent.relative_to(root)).replace("\\", "/")
+            failures.append(f"FAIL: {rel}: missing frontmatter fields {sorted(missing)}")
+        if "writable" in meta and meta["writable"] not in ("true", "false"):
+            rel = str(agent.relative_to(root)).replace("\\", "/")
+            failures.append(
+                f"FAIL: {rel}: 'writable' must be 'true' or 'false', got {meta['writable']!r}"
+            )
+
+    commands = sorted((root / "commands").glob("*.md"))
+    for cmd in commands:
+        meta = _parse_frontmatter(cmd.read_text(encoding="utf-8", errors="replace"))
+        if "name" not in meta:
+            rel = str(cmd.relative_to(root)).replace("\\", "/")
+            failures.append(f"FAIL: {rel}: missing 'name' frontmatter")
+        if "writable" in meta and meta["writable"] not in ("true", "false"):
+            rel = str(cmd.relative_to(root)).replace("\\", "/")
+            failures.append(
+                f"FAIL: {rel}: 'writable' must be 'true' or 'false', got {meta['writable']!r}"
+            )
+
+    messages: list[str] = []
+    messages.append(f"  skills: {len(skills)}, agents: {len(agents)}, commands: {len(commands)}")
+
+    if len(skills) < _MIN_SKILLS:
+        failures.append(f"FAIL: insufficient skills: {len(skills)} < {_MIN_SKILLS}")
+    if len(agents) < _MIN_AGENTS:
+        failures.append(f"FAIL: insufficient agents: {len(agents)} < {_MIN_AGENTS}")
+    if len(commands) < _MIN_COMMANDS:
+        failures.append(f"FAIL: insufficient commands: {len(commands)} < {_MIN_COMMANDS}")
+
+    ok = len(failures) == 0
+    if ok:
+        messages.insert(0, "frontmatter-schema check passed")
+    else:
+        messages.insert(0, f"FAIL: frontmatter-schema: {len(failures)} issue(s)")
+        messages.extend(failures)
+
+    return ok, messages
+
+
+# ---------------------------------------------------------------------------
+# Agent reference patterns
+# ---------------------------------------------------------------------------
+_AGENT_REF_PATTERNS: list[tuple[str, re.Pattern]] = [
+    # scripts/subagent.py <name>  (first token after subagent.py, no angle brackets)
+    ("subagent.py", re.compile(r"scripts/subagent\.py\s+([A-Za-z0-9_-]+)")),
+    # /copilot-omni:<name>  — agent name follows colon
+    ("slash-cmd", re.compile(r"/copilot-omni:([A-Za-z0-9_-]+)")),
+    # agent: <name>  in frontmatter (not a placeholder)
+    ("frontmatter-agent", re.compile(r"^\s*agent\s*:\s*([A-Za-z0-9_-]+)", re.MULTILINE)),
+    # subagent_type=<name>  (without quotes, in prose; not angle-bracket placeholder)
+    ("subagent_type", re.compile(r"subagent_type\s*=\s*[\"']([A-Za-z0-9_-]+)[\"']")),
+]
+
+# Placeholder names and common English words that should be ignored in ref checks
+_PLACEHOLDER_NAMES: frozenset[str] = frozenset({
+    "skill-name", "agent-name", "name", "my-skill", "my-agent",
+    "follow-up-skill", "omni-",
+    # Common English words that may appear after subagent.py in prose
+    "or", "and", "to", "via", "the", "a", "an", "in", "of", "for",
+})
+
+# Marker to allow a reference inside code fences used as examples
+_REF_ALLOW_MARKER_RE = re.compile(
+    r"(?:<!--\s*|#\s*)omni-ref-allow\s*:\s*example.*?(?:-->|$)",
+    re.IGNORECASE,
+)
+
+# Paths excluded from the agent-refs check
+_AGENT_REF_ALLOWLIST: tuple[str, ...] = (
+    "scripts/verify_plugin_contract.py",
+    "scripts/subagent.py",
+    "AGENTS.md",
+    "docs/",
+    ".git/",
+    ".omc/",
+    ".omni/",
+    "tests/",
+)
+
+
+def _is_agent_ref_allowlisted(rel: str) -> bool:
+    for prefix in _AGENT_REF_ALLOWLIST:
+        if rel.startswith(prefix):
+            return True
+    return False
+
+
+def _has_ref_allow_marker_nearby(lines: list[str], line_idx: int, window: int = 3) -> bool:
+    """Return True if an omni-ref-allow:example marker is within `window` lines."""
+    start = max(0, line_idx - window)
+    end = min(len(lines), line_idx + window + 1)
+    for i in range(start, end):
+        if _REF_ALLOW_MARKER_RE.search(lines[i]):
+            return True
+    return False
+
+
+def check_skill_agent_refs(root: Path = ROOT) -> CheckResult:
+    """Verify every agent name referenced in skills/agents/commands exists as agents/<name>.md.
+
+    Patterns checked (WS9):
+    - scripts/subagent.py <name>
+    - /copilot-omni:<name>  (agent-style refs)
+    - agent: <name>  in frontmatter
+    - subagent_type=<name>  in prose
+
+    Note: /copilot-omni:<name> references that match a skill or command are handled
+    by check_command_refs; this check only flags names that also don't match any agent.
+    Lines covered by omni-ref-allow: example within 3 lines are skipped.
+    """
+    known_agents: set[str] = {
+        p.stem for p in (root / "agents").glob("*.md")
+    }
+
+    # Also collect known skills and commands (slash-cmd refs may point to skills)
+    known_skills: set[str] = {
+        p.parent.name for p in (root / "skills").glob("*/SKILL.md")
+    }
+    known_commands: set[str] = {
+        p.stem for p in (root / "commands").glob("*.md")
+    }
+
+    violations: list[str] = []
+
+    scan_dirs = [root / "skills", root / "agents", root / "commands"]
+    for scan_dir in scan_dirs:
+        for path in sorted(scan_dir.rglob("*.md")):
+            rel = str(path.relative_to(root)).replace("\\", "/")
+            if _is_agent_ref_allowlisted(rel):
+                continue
+            try:
+                raw = path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+
+            lines_raw = raw.splitlines()
+            lines = _strip_code_fences(lines_raw)
+
+            for line_idx, line in enumerate(lines):
+                for kind, pattern in _AGENT_REF_PATTERNS:
+                    for m in pattern.finditer(line):
+                        name = m.group(1)
+                        # Skip placeholder/example names
+                        if name in _PLACEHOLDER_NAMES or name.startswith("<") or name.endswith("`"):
+                            continue
+                        # slash-cmd refs: skip if known skill or command (handled by check_command_refs)
+                        if kind == "slash-cmd" and (name in known_skills or name in known_commands):
+                            continue
+                        # subagent.py refs: skip known skills too (scripts may invoke skills)
+                        if kind == "subagent.py" and (name in known_skills or name in known_commands):
+                            continue
+                        if name not in known_agents:
+                            if _has_ref_allow_marker_nearby(lines_raw, line_idx):
+                                continue
+                            violations.append(
+                                f"  {rel}:{line_idx + 1}: [{kind}] unknown agent ref '{name}'"
+                            )
+
+    messages: list[str] = []
+    ok = len(violations) == 0
+    if ok:
+        messages.append("skill-agent-refs check passed")
+    else:
+        messages.append(f"FAIL: {len(violations)} unknown agent reference(s):")
+        messages.extend(violations)
+    return ok, messages
+
+
+# ---------------------------------------------------------------------------
+# Command reference check
+# ---------------------------------------------------------------------------
+_SLASH_CMD_RE = re.compile(r"/copilot-omni:([A-Za-z0-9_-]+)")
+
+_CMD_REF_ALLOWLIST: tuple[str, ...] = (
+    "scripts/verify_plugin_contract.py",
+    ".git/",
+    ".omc/",
+    ".omni/",
+    "docs/ADR/",
+    "tests/",
+)
+
+
+def _is_cmd_ref_allowlisted(rel: str) -> bool:
+    for prefix in _CMD_REF_ALLOWLIST:
+        if rel.startswith(prefix):
+            return True
+    return False
+
+
+def check_command_refs(root: Path = ROOT) -> CheckResult:
+    """Every /copilot-omni:<name> reference must resolve to skills/<name>/SKILL.md or commands/<name>.md.
+
+    Scans all .md and .py files under skills/, agents/, commands/ (WS9).
+    """
+    known_skills: set[str] = {
+        p.parent.name for p in (root / "skills").glob("*/SKILL.md")
+    }
+    known_commands: set[str] = {
+        p.stem for p in (root / "commands").glob("*.md")
+    }
+    known = known_skills | known_commands
+
+    violations: list[str] = []
+
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        if path.suffix not in (".md", ".py"):
+            continue
+        rel = str(path.relative_to(root)).replace("\\", "/")
+        if _is_cmd_ref_allowlisted(rel):
+            continue
+
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+
+        lines_raw = raw.splitlines()
+        lines = _strip_code_fences(lines_raw)
+
+        for line_idx, line in enumerate(lines):
+            for m in _SLASH_CMD_RE.finditer(line):
+                name = m.group(1)
+                # Skip placeholder/example names
+                if name in _PLACEHOLDER_NAMES or name.startswith("<"):
+                    continue
+                if name not in known:
+                    if _has_ref_allow_marker_nearby(lines_raw, line_idx):
+                        continue
+                    violations.append(
+                        f"  {rel}:{line_idx + 1}: unknown slash-command '/copilot-omni:{name}'"
+                    )
+
+    messages: list[str] = []
+    ok = len(violations) == 0
+    if ok:
+        messages.append("command-refs check passed")
+    else:
+        messages.append(f"FAIL: {len(violations)} unknown slash-command reference(s):")
+        messages.extend(violations)
+    return ok, messages
+
+
+# ---------------------------------------------------------------------------
+# MCP tool reference check
+# ---------------------------------------------------------------------------
+# Tools referenced via these name patterns in skills/agents
+_MCP_TOOL_REF_RE = re.compile(
+    r"\b(?:mcp__copilot_omni_(?:\w+)|omni_(\w+))\b"
+)
+
+# Alternative pattern: prose references like "omni_<tool>" where tool maps to TOOLS key
+_OMNI_TOOL_REF_RE = re.compile(r"\bomni_([a-z_]+)\b")
+
+
+def _extract_mcp_tool_names(server_py: Path) -> set[str]:
+    """Extract registered tool names from mcp/server.py by parsing the TOOLS dict.
+
+    Uses stdlib AST for structured parsing; falls back to regex if AST parse fails.
+    Returns a set of tool name strings.
+    """
+    try:
+        source = server_py.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return set()
+
+    # Primary: AST parse — find TOOLS dict assignment, collect string keys
+    try:
+        tree = ast.parse(source, filename=str(server_py))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == "TOOLS"
+                and isinstance(node.value, ast.Dict)
+            ):
+                names: set[str] = set()
+                for key in node.value.keys:
+                    if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                        names.add(key.value)
+                return names
+    except SyntaxError:
+        pass
+
+    # Fallback: regex for quoted keys immediately after "{" or ","
+    names_fb: set[str] = set()
+    for m in re.finditer(r'["{](\w+)"\s*:\s*\{', source):
+        names_fb.add(m.group(1))
+    return names_fb
+
+
+_MCP_REF_ALLOWLIST: tuple[str, ...] = (
+    "scripts/verify_plugin_contract.py",
+    "mcp/server.py",
+    ".git/",
+    ".omc/",
+    ".omni/",
+    "tests/",
+)
+
+
+def _is_mcp_ref_allowlisted(rel: str) -> bool:
+    for prefix in _MCP_REF_ALLOWLIST:
+        if rel.startswith(prefix):
+            return True
+    return False
+
+
+def check_mcp_tool_refs(root: Path = ROOT) -> CheckResult:
+    """Verify every mcp__copilot_omni_* / omni_<tool> reference matches a registered tool.
+
+    Tool names are extracted from mcp/server.py TOOLS dict via AST parsing (WS9).
+    """
+    server_py = root / "mcp" / "server.py"
+    known_tools = _extract_mcp_tool_names(server_py)
+
+    violations: list[str] = []
+
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        if path.suffix not in (".md", ".py"):
+            continue
+        rel = str(path.relative_to(root)).replace("\\", "/")
+        if _is_mcp_ref_allowlisted(rel):
+            continue
+
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+
+        lines_raw = raw.splitlines()
+        lines = _strip_code_fences(lines_raw)
+
+        for line_idx, line in enumerate(lines):
+            # mcp__copilot_omni_<tool> pattern
+            for m in re.finditer(r"\bmcp__copilot_omni_(\w+)\b", line):
+                tool_name = m.group(1)
+                if tool_name not in known_tools:
+                    if _has_ref_allow_marker_nearby(lines_raw, line_idx):
+                        continue
+                    violations.append(
+                        f"  {rel}:{line_idx + 1}: unknown MCP tool 'mcp__copilot_omni_{tool_name}'"
+                    )
+
+    messages: list[str] = []
+    ok = len(violations) == 0
+    if ok:
+        messages.append(f"mcp-tool-refs check passed (known tools: {len(known_tools)})")
+    else:
+        messages.append(f"FAIL: {len(violations)} unknown MCP tool reference(s):")
+        messages.extend(violations)
+    return ok, messages
+
+
+# ---------------------------------------------------------------------------
+# Exemption budget check
+# ---------------------------------------------------------------------------
+_EXEMPTION_MARKERS: dict[str, re.Pattern] = {
+    "omni-rename-allow": re.compile(
+        r"(?:<!--\s*|#\s*)omni-rename-allow\s*:.*?(?:-->|$)", re.IGNORECASE
+    ),
+    "cc-primitive-allow": re.compile(
+        r"(?:<!--\s*|#\s*)cc-primitive-allow\s*:.*?(?:-->|$)", re.IGNORECASE
+    ),
+    "omni-ref-allow": re.compile(
+        r"(?:<!--\s*|#\s*)omni-ref-allow\s*:.*?(?:-->|$)", re.IGNORECASE
+    ),
+}
+
+_BUDGET_ALLOWLIST: tuple[str, ...] = (
+    "scripts/verify_plugin_contract.py",
+    ".git/",
+    ".omc/",
+    ".omni/",
+)
+
+
+def _is_budget_allowlisted(rel: str) -> bool:
+    for prefix in _BUDGET_ALLOWLIST:
+        if rel.startswith(prefix):
+            return True
+    return False
+
+
+def check_exemption_budget(root: Path = ROOT) -> CheckResult:
+    """Sum all exemption markers across the tree; fail if total > MAX_EXEMPTIONS_TOTAL (15).
+
+    Counts per marker:
+    - omni-rename-allow
+    - cc-primitive-allow
+    - omni-ref-allow
+
+    Reports counts per marker and fails if sum exceeds MAX_EXEMPTIONS_TOTAL (WS9).
+    """
+    counts: dict[str, int] = {k: 0 for k in _EXEMPTION_MARKERS}
+
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        if path.suffix not in SCAN_EXTENSIONS and path.suffix != "":
+            continue
+        rel = str(path.relative_to(root)).replace("\\", "/")
+        if _is_budget_allowlisted(rel):
+            continue
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        for marker, pattern in _EXEMPTION_MARKERS.items():
+            counts[marker] += len(pattern.findall(raw))
+
+    total = sum(counts.values())
+    messages: list[str] = []
+    for marker, count in counts.items():
+        messages.append(f"  {marker}: {count}")
+    messages.append(f"  total: {total}/{MAX_EXEMPTIONS_TOTAL}")
+
+    ok = total <= MAX_EXEMPTIONS_TOTAL
+    if ok:
+        messages.insert(0, "exemption-budget check passed")
+    else:
+        messages.insert(0, f"FAIL: exemption budget exceeded ({total} > {MAX_EXEMPTIONS_TOTAL})")
+    return ok, messages
+
+
+# ---------------------------------------------------------------------------
+# Stdlib-only imports check
+# ---------------------------------------------------------------------------
+
+# Stdlib module names — use sys.stdlib_module_names on Python >= 3.10,
+# fall back to a frozen list for earlier runtimes.
+def _get_stdlib_names() -> frozenset[str]:
+    if hasattr(sys, "stdlib_module_names"):
+        return frozenset(sys.stdlib_module_names)  # type: ignore[attr-defined]
+    # Frozen fallback covering Python 3.9 stdlib
+    _STDLIB_FALLBACK = frozenset({
+        "__future__", "_thread", "abc", "aifc", "argparse", "array", "ast",
+        "asynchat", "asyncio", "asyncore", "atexit", "audioop", "base64",
+        "bdb", "binascii", "binhex", "bisect", "builtins", "bz2", "calendar",
+        "cgi", "cgitb", "chunk", "cmath", "cmd", "code", "codecs", "codeop",
+        "colorsys", "compileall", "concurrent", "configparser", "contextlib",
+        "contextvars", "copy", "copyreg", "cProfile", "csv", "ctypes",
+        "curses", "dataclasses", "datetime", "dbm", "decimal", "difflib",
+        "dis", "distutils", "doctest", "email", "encodings", "enum",
+        "errno", "faulthandler", "fcntl", "filecmp", "fileinput", "fnmatch",
+        "fractions", "ftplib", "functools", "gc", "getopt", "getpass",
+        "gettext", "glob", "grp", "gzip", "hashlib", "heapq", "hmac",
+        "html", "http", "idlelib", "imaplib", "imghdr", "importlib",
+        "inspect", "io", "ipaddress", "itertools", "json", "keyword",
+        "lib2to3", "linecache", "locale", "logging", "lzma", "mailbox",
+        "marshal", "math", "mimetypes", "mmap", "modulefinder", "multiprocessing",
+        "netrc", "nis", "nntplib", "numbers", "operator", "optparse",
+        "os", "ossaudiodev", "pathlib", "pdb", "pickle", "pickletools",
+        "pipes", "pkgutil", "platform", "plistlib", "poplib", "posix",
+        "posixpath", "pprint", "profile", "pstats", "pty", "pwd", "py_compile",
+        "pyclbr", "pydoc", "queue", "quopri", "random", "re", "readline",
+        "reprlib", "resource", "rlcompleter", "runpy", "sched", "secrets",
+        "select", "selectors", "shelve", "shlex", "shutil", "signal",
+        "site", "smtpd", "smtplib", "sndhdr", "socket", "socketserver",
+        "spwd", "sqlite3", "sre_compile", "sre_constants", "sre_parse",
+        "ssl", "stat", "statistics", "string", "stringprep", "struct",
+        "subprocess", "sunau", "symtable", "sys", "sysconfig", "syslog",
+        "tabnanny", "tarfile", "telnetlib", "tempfile", "termios", "test",
+        "textwrap", "threading", "time", "timeit", "tkinter", "token",
+        "tokenize", "tomllib", "trace", "traceback", "tracemalloc", "tty",
+        "turtle", "turtledemo", "types", "typing", "unicodedata", "unittest",
+        "urllib", "uu", "uuid", "venv", "warnings", "wave", "weakref",
+        "webbrowser", "winreg", "winsound", "wsgiref", "xdrlib", "xml",
+        "xmlrpc", "zipapp", "zipfile", "zipimport", "zlib", "zoneinfo",
+        "_collections_abc", "_weakrefset", "antigravity", "cmath", "ntpath",
+        "posixpath", "genericpath",
+    })
+    return _STDLIB_FALLBACK
+
+
+_STDLIB_NAMES = _get_stdlib_names()
+
+# Directories to scan for stdlib-only enforcement
+_STDLIB_SCAN_DIRS = ("scripts", "hooks", "mcp", "tests")
+
+# Local package imports that are allowed (relative or sibling)
+_LOCAL_PREFIXES = (".", "scripts", "hooks", "mcp", "tests")
+
+# Test-only framework imports that are permitted inside tests/ directories
+_TEST_FRAMEWORK_NAMES: frozenset[str] = frozenset({"pytest", "unittest"})
+
+_STDLIB_FILE_ALLOWLIST: tuple[str, ...] = (
+    "scripts/verify_plugin_contract.py",
+    ".git/",
+)
+
+
+def _is_stdlib_allowlisted(rel: str) -> bool:
+    for prefix in _STDLIB_FILE_ALLOWLIST:
+        if rel.startswith(prefix):
+            return True
+    return False
+
+
+def _get_imports_from_file(path: Path) -> list[tuple[int, str]]:
+    """Return (lineno, module_top_level) for every import in a Python file."""
+    try:
+        source = path.read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(source, filename=str(path))
+    except (SyntaxError, UnicodeDecodeError):
+        return []
+
+    result: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top = alias.name.split(".")[0]
+                result.append((node.lineno, top))
+        elif isinstance(node, ast.ImportFrom):
+            if node.level and node.level > 0:
+                # Relative import — always local
+                continue
+            if node.module:
+                top = node.module.split(".")[0]
+                result.append((node.lineno, top))
+    return result
+
+
+def check_stdlib_only_imports(root: Path = ROOT) -> CheckResult:
+    """Verify Python files under scripts/, hooks/, mcp/, tests/ use only stdlib imports.
+
+    Uses sys.stdlib_module_names on Python >= 3.10; falls back to a frozen list (WS9).
+    Third-party imports are flagged. Local/relative imports are allowed.
+    """
+    violations: list[str] = []
+
+    # Collect local module names from scanned dirs (e.g. verify_plugin_contract, server, etc.)
+    local_module_names: set[str] = set()
+    for dir_name in _STDLIB_SCAN_DIRS:
+        scan_dir = root / dir_name
+        if scan_dir.exists():
+            for py in scan_dir.rglob("*.py"):
+                local_module_names.add(py.stem)
+
+    for dir_name in _STDLIB_SCAN_DIRS:
+        scan_dir = root / dir_name
+        if not scan_dir.exists():
+            continue
+        in_tests = dir_name == "tests"
+        for path in sorted(scan_dir.rglob("*.py")):
+            rel = str(path.relative_to(root)).replace("\\", "/")
+            if _is_stdlib_allowlisted(rel):
+                continue
+            for lineno, top in _get_imports_from_file(path):
+                if top in _STDLIB_NAMES:
+                    continue
+                if top in _LOCAL_PREFIXES:
+                    continue
+                if top in local_module_names:
+                    continue
+                if in_tests and top in _TEST_FRAMEWORK_NAMES:
+                    continue
+                violations.append(
+                    f"  {rel}:{lineno}: third-party import '{top}'"
+                )
+
+    messages: list[str] = []
+    ok = len(violations) == 0
+    if ok:
+        messages.append("stdlib-only-imports check passed")
+    else:
+        messages.append(f"FAIL: {len(violations)} third-party import(s) found:")
+        messages.extend(violations)
+    return ok, messages
+
+
+# ---------------------------------------------------------------------------
+# Check registry
+# ---------------------------------------------------------------------------
+
 CHECKS: dict = {
     "rename": check_rename,
     "rename-stub": check_rename_stub,
     "no-claude-primitives": check_no_claude_primitives,
     "writable-frontmatter": check_writable_frontmatter,
+    "frontmatter-schema": check_frontmatter_schema,
+    "skill-agent-refs": check_skill_agent_refs,
+    "command-refs": check_command_refs,
+    "mcp-tool-refs": check_mcp_tool_refs,
+    "exemption-budget": check_exemption_budget,
+    "stdlib-only-imports": check_stdlib_only_imports,
 }
 
 
-def run_checks(names: list) -> int:
+# ---------------------------------------------------------------------------
+# Runner
+# ---------------------------------------------------------------------------
+
+
+def run_checks(names: list, strict: bool = False) -> int:
+    """Run the named checks.  If strict=True, any exemption count > 0 is a failure."""
     overall_ok = True
     for name in names:
         if name not in CHECKS:
             print(f"[error] unknown check: {name}", file=sys.stderr)
             overall_ok = False
             continue
-        ok, messages = CHECKS[name]()
+
+        fn = CHECKS[name]
+        # Root-accepting checks accept an optional root kwarg
+        try:
+            ok, messages = fn()
+        except TypeError:
+            ok, messages = fn(ROOT)
+
+        # In strict mode: if a check passes but produced exemption messages, fail it
+        if strict and ok:
+            has_exemption = any(
+                "exempt" in m.lower() or "exemption" in m.lower()
+                for m in messages
+            )
+            if has_exemption:
+                ok = False
+                messages.append("FAIL (--all-strict): non-zero exemption count not allowed")
+
         status = "ok" if ok else "FAIL"
         print(f"[{status}] {name}")
         for m in messages:
@@ -414,8 +1114,12 @@ def run_checks(names: list) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Phase-B plugin-contract verifier")
-    parser.add_argument("--all", action="store_true", help="Run every registered check")
-    parser.add_argument("--list-checks", action="store_true", help="Print the registered checks and exit")
+    parser.add_argument("--all", action="store_true",
+                        help="Run every registered check (exemptions up to budget cap accepted)")
+    parser.add_argument("--all-strict", action="store_true",
+                        help="Run every check AND treat any non-zero exemption count as failure")
+    parser.add_argument("--list-checks", action="store_true",
+                        help="Print the registered checks and exit")
     parser.add_argument("--list-rename-exemptions", action="store_true",
                         help="Print the inline rename-allowlist exemption map and exit")
     for name in CHECKS:
@@ -433,7 +1137,9 @@ def main() -> int:
     if args.list_rename_exemptions:
         return _list_rename_exemptions()
 
-    if args.all:
+    strict = args.all_strict
+
+    if args.all or args.all_strict:
         names = list(CHECKS.keys())
     elif args.requested:
         names = args.requested
@@ -441,7 +1147,7 @@ def main() -> int:
         parser.print_help()
         return 2
 
-    return run_checks(names)
+    return run_checks(names, strict=strict)
 
 
 if __name__ == "__main__":
