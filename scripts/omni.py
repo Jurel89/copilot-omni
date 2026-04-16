@@ -104,7 +104,42 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     if strict and not team_ok:
         ok = False
 
+    # Phase-C C32: optional garbage-collection pass on .omni/runs/
+    if getattr(args, "gc", False):
+        _doctor_run_gc(root, apply_=getattr(args, "gc_apply", False))
+
     return 0 if ok else 1
+
+
+def _doctor_run_gc(root: Path, *, apply_: bool) -> None:
+    """Run the runs-GC from inside `omni doctor`.
+
+    The delegation avoids duplicating the policy — runs_gc.py owns the TTL
+    resolution and deletion logic.
+    """
+    gc_path = root / "scripts" / "runs_gc.py"
+    if not gc_path.exists():
+        print("gc:           runs_gc.py not found — skipping")
+        return
+    try:
+        import importlib.util as _ilu
+        spec = _ilu.spec_from_file_location("runs_gc", gc_path)
+        if spec is None or spec.loader is None:
+            print("gc:           could not load runs_gc — skipping")
+            return
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    except Exception as exc:
+        print(f"gc:           WARN: could not import runs_gc: {exc}")
+        return
+
+    ttl_env = os.environ.get("OMNI_RUNS_TTL_DAYS")
+    try:
+        ttl_days = float(ttl_env) if ttl_env else mod.DEFAULT_TTL_DAYS
+    except ValueError:
+        ttl_days = mod.DEFAULT_TTL_DAYS
+    print(f"gc:           {'APPLY' if apply_ else 'DRY-RUN'} ttl={ttl_days:.1f}d")
+    mod.run_gc(root, ttl_days=ttl_days, apply_=apply_)
 
 
 def _doctor_categories(root: Path, *, strict: bool = False) -> bool:
@@ -534,6 +569,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Show router config and recent decisions")
     doctor.add_argument("--strict", action="store_true",
                         help="Fail if any model category resolves to a fallback (signals drift)")
+    doctor.add_argument("--gc", action="store_true",
+                        help="Garbage-collect .omni/runs/ directories older than TTL (dry-run)")
+    doctor.add_argument("--gc-apply", action="store_true",
+                        help="With --gc, actually delete stale runs (default is dry-run)")
     doctor.set_defaults(func=_cmd_doctor)
 
     init = sub.add_parser("init", help="Scaffold .omni/ in the current project")
