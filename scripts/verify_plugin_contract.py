@@ -855,6 +855,9 @@ _EXEMPTION_MARKERS: dict[str, re.Pattern] = {
     "omni-ref-allow": re.compile(
         r"(?:<!--\s*|#\s*)omni-ref-allow\s*:.*?(?:-->|$)", re.IGNORECASE
     ),
+    "omni-model-allow": re.compile(
+        r"(?:<!--\s*|#\s*)omni-model-allow\s*:.*?(?:-->|$)", re.IGNORECASE
+    ),
 }
 
 _BUDGET_ALLOWLIST: tuple[str, ...] = (
@@ -1160,6 +1163,127 @@ def check_state_store_canonical(root: Path = ROOT) -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
+# WS4: No raw model names check
+# ---------------------------------------------------------------------------
+
+# Patterns that must not appear in skills/, agents/, commands/, hooks/
+# Uses character classes to defeat 'hai' + 'ku' string concatenation evasion
+# (per critic §4 WS4).
+_RAW_MODEL_PATTERNS: tuple[re.Pattern, ...] = (
+    re.compile(r"claude-[Hh][Aa][Ii][Kk][Uu]"),          # claude-haiku variants
+    re.compile(r"claude-[Ss][Oo][Nn][Nn][Ee][Tt]"),        # claude-sonnet variants
+    re.compile(r"claude-[Oo][Pp][Uu][Ss]"),                # claude-opus variants
+    re.compile(r"gpt-[0-9]"),                               # gpt-4, gpt-5, etc.
+    re.compile(r"gemini-[0-9]"),                            # gemini-2.x, etc.
+)
+
+# Directories in scope for this check
+_RAW_MODEL_SCAN_DIRS: tuple[str, ...] = ("skills", "agents", "commands", "hooks")
+
+# Paths allowlisted for the raw-model-names check (relative to ROOT)
+_RAW_MODEL_ALLOWLIST: tuple[str, ...] = (
+    "docs/MODELS.md",
+    ".omni/config.json",
+    "scripts/category_resolver.py",
+    "docs/ADR/ADR-0003-",              # prefix match
+    ".omni/plans/wave-2-WS4-report.md",
+    "scripts/verify_plugin_contract.py",
+    ".git/",
+    ".omc/",
+    ".omni/",
+)
+
+# Marker for per-file inline exemption
+_MODEL_ALLOW_MARKER_RE = re.compile(
+    r"(?:<!--\s*|#\s*)omni-model-allow\s*:.*?(?:-->|$)",
+    re.IGNORECASE,
+)
+
+
+def _is_raw_model_allowlisted(rel: str) -> bool:
+    for prefix in _RAW_MODEL_ALLOWLIST:
+        if rel.startswith(prefix):
+            return True
+    return False
+
+
+def check_no_raw_model_names(root: Path = ROOT) -> CheckResult:
+    """Verify no raw model names appear in skills/, agents/, commands/, hooks/.
+
+    Patterns checked (WS4):
+    - claude-haiku (any case variant)
+    - claude-sonnet (any case variant)
+    - claude-opus (any case variant)
+    - gpt-<digit>
+    - gemini-<digit>
+
+    Character-class regex defeats 'hai'+'ku' concatenation evasion.
+    Lines inside markdown code fences are skipped.
+    Lines with an omni-model-allow marker nearby are reported as exemptions.
+    """
+    violations: list[str] = []
+    exemptions: list[str] = []
+
+    for dir_name in _RAW_MODEL_SCAN_DIRS:
+        scan_dir = root / dir_name
+        if not scan_dir.exists():
+            continue
+        for path in sorted(scan_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            if path.suffix not in SCAN_EXTENSIONS and path.suffix != "":
+                continue
+            rel = str(path.relative_to(root)).replace("\\", "/")
+            if _is_raw_model_allowlisted(rel):
+                continue
+
+            try:
+                raw = path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+
+            lines_raw = raw.splitlines()
+            lines = _strip_code_fences(lines_raw)
+
+            for line_idx, line in enumerate(lines):
+                for pattern in _RAW_MODEL_PATTERNS:
+                    if pattern.search(line):
+                        nearby = max(0, line_idx - 3)
+                        far = min(len(lines_raw), line_idx + 4)
+                        has_marker = any(
+                            _MODEL_ALLOW_MARKER_RE.search(lines_raw[i])
+                            for i in range(nearby, far)
+                        )
+                        entry = (
+                            f"  {rel}:{line_idx + 1}: "
+                            f"{lines_raw[line_idx].strip()[:120]}"
+                        )
+                        if has_marker:
+                            exemptions.append(f"  [exempt] {rel}:{line_idx + 1}: "
+                                              f"{lines_raw[line_idx].strip()[:120]}")
+                        else:
+                            violations.append(entry)
+                        break  # one report per line
+
+    messages: list[str] = []
+    ok = True
+
+    if exemptions:
+        messages.append(f"model-name exemptions ({len(exemptions)}):")
+        messages.extend(exemptions)
+
+    if violations:
+        ok = False
+        messages.append(f"FAIL: {len(violations)} raw model name(s) found:")
+        messages.extend(violations)
+    else:
+        if ok:
+            messages.append("no-raw-model-names check passed — 0 violations")
+
+    return ok, messages
+
+
+# ---------------------------------------------------------------------------
 # Check registry
 # ---------------------------------------------------------------------------
 
@@ -1175,6 +1299,7 @@ CHECKS: dict = {
     "exemption-budget": check_exemption_budget,
     "stdlib-only-imports": check_stdlib_only_imports,
     "state-store-canonical": check_state_store_canonical,
+    "no-raw-model-names": check_no_raw_model_names,
 }
 
 
