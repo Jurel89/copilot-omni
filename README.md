@@ -11,7 +11,7 @@ Pure Python stdlib + Markdown. Zero compiled binaries. Zero pip dependencies. In
 
 ## What it ships
 
-- **37 skills** — autopilot, ralph, ultrawork, team, plan, deep-interview, debug, trace, verify, ultraqa, wiki, remember, external-context, ask, ccg, ai-slop-cleaner, sciomc, self-improve, skill, skillify, learner, setup, omc-doctor, release, cancel, … (`omni list skills` for the full list).
+- **37 skills** — autopilot, ralph, ultrawork, team, plan, deep-interview, debug, trace, verify, ultraqa, wiki, remember, external-context, ask, ccg, ai-slop-cleaner, sciomni, self-improve, skill, skillify, learner, setup, omni-doctor, release, cancel, … (`omni list skills` for the full list).
 - **19 agents** — analyst, architect, planner, critic, executor, explore, debugger, tracer, verifier, qa-tester, test-engineer, code-reviewer, security-reviewer, code-simplifier, document-specialist, writer, git-master, designer, scientist.
 - **8 slash commands** — `/omni-init`, `/omni-doctor`, `/omni-status`, `/omni-list`, `/omni-plan`, `/omni-ship`, `/omni-verify`, `/omni-memory`.
 - **30 MCP tools** via one stdio Python server (memory, wiki, notepad, state, artifacts, runs, policy, trace, …).
@@ -43,6 +43,7 @@ copilot -p "autopilot build a habit tracker CLI with streaks" --allow-all
 
 ## Why this exists
 
+<!-- omni-rename-allow: upstream-reference -->
 GitHub Copilot CLI is powerful but unopinionated. Teams that want spec-driven, auditable, resumable workflows need orchestration around it. The excellent [`oh-my-claudecode`](https://github.com/Yeachan-Heo/oh-my-claudecode) does that for Claude Code — but relies on a 900 KB bundled Node runtime. Corporate environments often block unsigned Node binaries and arbitrary npm installs.
 
 **Copilot Omni is that orchestration layer, rebuilt for Copilot CLI, with a runtime footprint corporate EDRs cannot flag:**

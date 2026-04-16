@@ -59,7 +59,7 @@ Policy + health: `policy_check`, `health`, `doctor`, `config_resolve`, `support_
 
 ## How skills invoke subagents
 
-The reference `oh-my-claudecode` skill library targets Claude Code's `Task(subagent_type=...)`. In Copilot CLI we translate that to:
+Copilot Omni skills target Claude Code's `Task(subagent_type=...)` pattern. In Copilot CLI we translate that to:
 
 ```python
 from scripts.subagent import run_agent

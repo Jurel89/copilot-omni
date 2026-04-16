@@ -8,7 +8,7 @@
 - MCP tool names dropped `omni_` prefix (e.g. `omni_health` → `health`).
 
 ### Added
-- 37 skills (up from 8): autopilot, ralph, ultrawork, team, ralplan, plan, deep-interview, deep-dive, verify, ultraqa, debug, trace, remember, wiki, external-context, ask, ccg, ai-slop-cleaner, sciomc, skill, skillify, learner, self-improve, setup, omc-setup, omc-doctor, mcp-setup, release, cancel, deepinit, configure-notifications, hud, visual-verdict, omc-reference, omc-teams, writer-memory, project-session-manager.
+- 37 skills (up from 8): autopilot, ralph, ultrawork, team, ralplan, plan, deep-interview, deep-dive, verify, ultraqa, debug, trace, remember, wiki, external-context, ask, ccg, ai-slop-cleaner, sciomni, skill, skillify, learner, self-improve, setup, omni-setup, omni-doctor, mcp-setup, release, cancel, deepinit, configure-notifications, hud, visual-verdict, omni-reference, omni-teams, writer-memory, project-session-manager.
 - 19 agents (up from 5): analyst, architect, planner, critic, executor, explore, debugger, tracer, verifier, qa-tester, test-engineer, code-reviewer, security-reviewer, code-simplifier, document-specialist, writer, git-master, designer, scientist.
 - 8 slash commands: `/omni-init`, `/omni-doctor`, `/omni-status`, `/omni-list`, `/omni-plan`, `/omni-ship`, `/omni-verify`, `/omni-memory`.
 - 30 MCP tools across memory, artifacts, runs, policy, wiki, notepad, state, shared_memory, trace, session_search, subtask, workspace, health, doctor, config_resolve, support_bundle.

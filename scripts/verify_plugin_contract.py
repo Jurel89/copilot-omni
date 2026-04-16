@@ -64,8 +64,12 @@ SCAN_EXTENSIONS: frozenset[str] = frozenset({
 # Max allowed inline exemptions across the whole tree
 MAX_EXEMPTIONS = 10
 
-# Marker pattern for inline allowlist
-ALLOW_MARKER_RE = re.compile(r"<!--\s*omni-rename-allow\s*:.*?-->", re.IGNORECASE)
+# Marker pattern for inline allowlist — supports both HTML comments (<!-- -->) and
+# shell/gitignore hash comments (# omni-rename-allow: reason)
+ALLOW_MARKER_RE = re.compile(
+    r"(?:<!--\s*|#\s*)omni-rename-allow\s*:.*?(?:-->|$)",
+    re.IGNORECASE,
+)
 
 
 def _is_allowlisted_path(rel: str) -> bool:

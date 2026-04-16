@@ -44,11 +44,11 @@ Use `omni list skills` to get an always-fresh view directly from the filesystem.
 
 ## Setup & configuration
 - `setup` — Install/update routing.
-- `omc-setup` — Canonical setup flow for the plugin.
-- `omc-doctor` — Diagnose plugin installation.
+- `omni-setup` — Canonical setup flow for the plugin.
+- `omni-doctor` — Diagnose plugin installation.
 - `mcp-setup` — Configure additional MCP servers.
 - `configure-notifications` — Telegram/Discord/Slack integrations.
 - `hud` — Configure HUD display options.
 - `visual-verdict` — Screenshot-vs-reference visual QA.
-- `omc-reference` — OMC agent catalog reference.
-- `omc-teams` — CLI-team runtime via tmux.
+- `omni-reference` — copilot-omni agent catalog reference.
+- `omni-teams` — CLI-team runtime via tmux.

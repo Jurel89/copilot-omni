@@ -12,6 +12,7 @@ __pycache__/
 .omni/sessions/
 .omni/state/
 .omni/workspaces/
+# omni-rename-allow: historical-citation
 .omc/
 .claude/
 .sisyphus/
