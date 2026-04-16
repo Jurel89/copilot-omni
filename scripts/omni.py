@@ -94,6 +94,11 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     # WS5a: recent runs summary
     _doctor_recent_runs(root)
 
+    # WS5d: ralplan active runs + awaiting-input warning
+    ralplan_ok = _doctor_ralplan_runs(root, strict=strict)
+    if strict and not ralplan_ok:
+        ok = False
+
     return 0 if ok else 1
 
 
@@ -251,6 +256,71 @@ def _doctor_subagent_pool(root: Path, *, strict: bool = False) -> bool:
                 return False
     except Exception as exc:
         print(f"subagent pool: WARN: could not read pool status: {exc}")
+
+    return True
+
+
+def _doctor_ralplan_runs(root: Path, *, strict: bool = False) -> bool:
+    """WS5d: show ralplan active runs and warn on stale awaiting-input (--strict)."""
+    runs_dir = root / ".omni" / "runs"
+    if not runs_dir.exists():
+        return True
+
+    import json as _json
+    import time as _time
+
+    ralplan_runs: list[dict] = []
+    try:
+        for run_dir in sorted(runs_dir.iterdir()):
+            if not run_dir.is_dir():
+                continue
+            if not run_dir.name.startswith("ralplan-"):
+                continue
+            sp = run_dir / "status.json"
+            if not sp.exists():
+                continue
+            try:
+                data = _json.loads(sp.read_text(encoding="utf-8"))
+                ralplan_runs.append({
+                    "name": run_dir.name,
+                    "state": data.get("state", "unknown"),
+                    "cycle": data.get("current_cycle", 0),
+                    "verdict": data.get("last_verdict"),
+                    "mtime": sp.stat().st_mtime,
+                })
+            except Exception:
+                pass
+    except Exception as exc:
+        print(f"ralplan runs:  WARN: could not read runs: {exc}")
+        return True
+
+    if not ralplan_runs:
+        print("ralplan runs:  (none)")
+        return True
+
+    active = [r for r in ralplan_runs if r["state"] not in ("converged", "unconverged", "rejected", "cancelled")]
+    print(f"ralplan runs:  {len(ralplan_runs)} total, {len(active)} active")
+    for r in ralplan_runs[-5:]:
+        print(f"  {r['name']}: state={r['state']}, cycle={r['cycle']}, verdict={r['verdict']}")
+
+    if not strict:
+        return True
+
+    # --strict: warn if any run has been awaiting-input for >24h
+    now = _time.time()
+    stale = [
+        r for r in ralplan_runs
+        if r["state"] == "awaiting-input" and (now - r["mtime"]) > 86400
+    ]
+    if stale:
+        print(
+            f"ralplan runs:  FAIL (--strict): {len(stale)} run(s) in state='awaiting-input'"
+            " for >24h (user may have abandoned the clarification)"
+        )
+        for r in stale:
+            age_h = (now - r["mtime"]) / 3600
+            print(f"  {r['name']}: awaiting-input for {age_h:.1f}h")
+        return False
 
     return True
 
