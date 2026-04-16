@@ -57,11 +57,16 @@ class TestMcpServer(unittest.TestCase):
         ], self.env)
         tools = [r for r in responses if r.get("id") == 2][0]["result"]["tools"]
         names = {t["name"] for t in tools}
-        self.assertGreaterEqual(len(names), 20)
+        # Phase-C: C23 removed artifact_write + run_status (-2). New tools
+        # arriving later in Phase C (memory_prune, notepad_prune, wiki_ingest,
+        # lsp_*, ast_grep_*) will bring the count back above 20.
+        self.assertGreaterEqual(len(names), 18)
         for required in ("health", "memory_capture", "memory_search",
-                         "policy_check", "wiki_write", "state_write",
-                         "artifact_write", "run_status"):
+                         "policy_check", "wiki_write", "state_write"):
             self.assertIn(required, names)
+        for removed in ("artifact_write", "run_status"):
+            self.assertNotIn(removed, names,
+                             f"{removed} should have been deleted")
 
     def test_memory_capture_search_roundtrip(self):
         responses, _ = roundtrip([
@@ -146,7 +151,9 @@ class TestMcpServer(unittest.TestCase):
         init = [r for r in responses if r.get("id") == 1][0]
         self.assertEqual(init["result"]["serverInfo"]["name"], "copilot-omni")
         tools = [r for r in responses if r.get("id") == 2][0]
-        self.assertGreaterEqual(len(tools["result"]["tools"]), 20)
+        # Phase-C C23: removed artifact_write + run_status. Lower bound
+        # tracks the current surface; restored in later C waves.
+        self.assertGreaterEqual(len(tools["result"]["tools"]), 18)
         health = [r for r in responses if r.get("id") == 3][0]
         self.assertIn("content", health["result"])
 

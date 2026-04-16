@@ -452,53 +452,6 @@ def _tool_memory_search(args: Dict[str, Any]) -> Dict[str, Any]:
     return _json_result({"results": [dict(r) for r in rows]})
 
 
-def _tool_artifact_write(args: Dict[str, Any]) -> Dict[str, Any]:  # UNUSED-OUTSIDE-TESTS
-    kind = args["kind"]
-    body = args["body"]
-    raw_run_id = args.get("run_id") or "adhoc"
-    raw_path = args.get("path", f"{kind}.md")
-    run_id = _safe_identifier(raw_run_id, "run_id")
-    art_id = _new_id()
-    with _Conn() as conn:
-        conn.execute(
-            "INSERT INTO artifacts(id, run_id, kind, path, body, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (art_id, run_id, kind, raw_path, body, _now()),
-        )
-    # Mirror to .omni/runs/<run_id>/ under the current project, with traversal guard.
-    mirror_path: Optional[str] = None
-    mirror_error: Optional[str] = None
-    try:
-        cwd = Path(os.getcwd())
-        base = cwd / ".omni" / "runs" / run_id
-        base.mkdir(parents=True, exist_ok=True)
-        target = _safe_child_path(base, raw_path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(body, encoding="utf-8")
-        mirror_path = str(target)
-    except Exception as exc:
-        # Surface mirror errors without leaking full paths.
-        err_msg = str(exc)
-        if _looks_sensitive(err_msg):
-            err_msg = type(exc).__name__
-        mirror_error = err_msg
-    result: Dict[str, Any] = {"id": art_id, "kind": kind, "path": raw_path}
-    if mirror_path:
-        result["mirror_path"] = mirror_path
-    if mirror_error:
-        result["mirror_error"] = mirror_error
-    return _json_result(result)
-
-
-def _tool_run_status(args: Dict[str, Any]) -> Dict[str, Any]:  # UNUSED-OUTSIDE-TESTS
-    with _Conn() as conn:
-        run_id = args.get("run_id")
-        if run_id:
-            row = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
-            return _json_result(dict(row) if row else {"error": "not found"})
-        rows = conn.execute("SELECT * FROM runs ORDER BY updated_at DESC LIMIT 20").fetchall()
-    return _json_result({"runs": [dict(r) for r in rows]})
-
-
 def _tool_policy_check(args: Dict[str, Any]) -> Dict[str, Any]:
     tool = args.get("tool", "")
     tool_args = args.get("args", {})
@@ -749,28 +702,6 @@ TOOLS: Dict[str, Dict[str, Any]] = {
             },
         },
         "handler": _tool_memory_search,
-    },
-    "artifact_write": {
-        "description": "Write an artifact (spec, plan, decision, summary) under a run.",
-        "inputSchema": {
-            "type": "object",
-            "required": ["kind", "body"],
-            "properties": {
-                "kind": {"type": "string"},
-                "body": {"type": "string"},
-                "run_id": {"type": "string"},
-                "path": {"type": "string"},
-            },
-        },
-        "handler": _tool_artifact_write,  # UNUSED-OUTSIDE-TESTS
-    },
-    "run_status": {
-        "description": "Return status of a run or recent runs.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {"run_id": {"type": "string"}},
-        },
-        "handler": _tool_run_status,  # UNUSED-OUTSIDE-TESTS
     },
     "policy_check": {
         "description": "Check whether a tool invocation is allowed by active policy.",

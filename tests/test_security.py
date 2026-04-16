@@ -110,47 +110,51 @@ class TestMcpPolicyCheck(unittest.TestCase):
             self.assertEqual(body["decision"], "deny")
 
 
-class TestArtifactWriteTraversal(unittest.TestCase):
+class TestPathTraversalHelpers(unittest.TestCase):
+    """Phase-C C23: the artifact_write MCP tool was removed, but its
+    underlying traversal guards (_safe_identifier + _safe_child_path) are
+    still relied on by other tools (workspace, wiki_write, …). We test them
+    directly so the regression coverage is kept.
+    """
 
-    def test_run_id_with_slash_rejected(self):
-        with tempfile.TemporaryDirectory() as td:
-            resp = _rpc([
-                {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                 "params": {"name": "artifact_write",
-                            "arguments": {"kind": "x", "body": "y",
-                                          "run_id": "../../etc"}}}],
-                {"OMNI_HOME": td})
-            self.assertIn("error", resp[0])
+    def _load_server(self):
+        import importlib.util
+        from pathlib import Path as _P
+        server = _P(__file__).resolve().parent.parent / "mcp" / "server.py"
+        spec = importlib.util.spec_from_file_location("mcp_server_sec", server)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
 
-    def test_path_traversal_rejected(self):
-        with tempfile.TemporaryDirectory() as td:
-            resp = _rpc([
-                {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                 "params": {"name": "artifact_write",
-                            "arguments": {"kind": "x", "body": "y",
-                                          "run_id": "run-1",
-                                          "path": "../../../../etc/passwd"}}}],
-                {"OMNI_HOME": td})
-            body = json.loads(resp[0]["result"]["content"][0]["text"])
-            # Mirror must have failed, and the error must be surfaced.
-            self.assertIn("mirror_error", body)
+    def test_safe_identifier_rejects_slash(self):
+        srv = self._load_server()
+        with self.assertRaises(ValueError):
+            srv._safe_identifier("../../etc", "run_id")
 
-    def test_happy_path_ok(self):
+    def test_safe_identifier_rejects_backslash(self):
+        srv = self._load_server()
+        with self.assertRaises(ValueError):
+            srv._safe_identifier("foo\\bar", "run_id")
+
+    def test_safe_identifier_accepts_allowed_chars(self):
+        srv = self._load_server()
+        self.assertEqual(srv._safe_identifier("run-1_abc", "run_id"), "run-1_abc")
+
+    def test_safe_child_path_blocks_traversal(self):
+        srv = self._load_server()
         with tempfile.TemporaryDirectory() as td:
-            os.environ["OMNI_HOME"] = td
-            try:
-                resp = _rpc([
-                    {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                     "params": {"name": "artifact_write",
-                                "arguments": {"kind": "spec", "body": "# hello",
-                                              "run_id": "run-2",
-                                              "path": "spec.md"}}}],
-                    {"OMNI_HOME": td})
-                body = json.loads(resp[0]["result"]["content"][0]["text"])
-                self.assertIn("id", body)
-                self.assertNotIn("mirror_error", body)
-            finally:
-                os.environ.pop("OMNI_HOME", None)
+            from pathlib import Path as _P
+            root = _P(td)
+            with self.assertRaises(ValueError):
+                srv._safe_child_path(root, "../../../../etc/passwd")
+
+    def test_safe_child_path_allows_child(self):
+        srv = self._load_server()
+        with tempfile.TemporaryDirectory() as td:
+            from pathlib import Path as _P
+            root = _P(td)
+            child = srv._safe_child_path(root, "sub/file.md")
+            self.assertTrue(str(child).startswith(str(root)))
 
 
 class TestWorkspaceTraversal(unittest.TestCase):
