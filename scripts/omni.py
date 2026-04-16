@@ -99,6 +99,11 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     if strict and not ralplan_ok:
         ok = False
 
+    # WS6: active team runs + stale-team warning
+    team_ok = _doctor_team_runs(root, strict=strict)
+    if strict and not team_ok:
+        ok = False
+
     return 0 if ok else 1
 
 
@@ -363,6 +368,78 @@ def _doctor_recent_runs(root: Path) -> None:
             print(f"  {run_dir.name}: {count_str or '(no jobs)'}")
     except Exception as exc:
         print(f"recent runs:   WARN: could not read runs: {exc}")
+
+
+def _doctor_team_runs(root: Path, *, strict: bool = False) -> bool:
+    """WS6: show active team runs (mode startswith 'team') with worker counts.
+
+    In strict mode, warn if any team has been in state='dispatched' for >24h
+    without collection (likely abandoned).
+    """
+    runs_dir = root / ".omni" / "runs"
+    if not runs_dir.exists():
+        print("team runs:     (no .omni/runs/ directory)")
+        return True
+
+    import json as _json
+    import time as _time
+
+    team_runs: list[dict] = []
+    try:
+        for run_dir in sorted(runs_dir.iterdir()):
+            if not run_dir.is_dir():
+                continue
+            if not run_dir.name.startswith("team-"):
+                continue
+            sp = run_dir / "status.json"
+            mp = run_dir / "manifest.json"
+            if not sp.exists():
+                continue
+            try:
+                status_data = _json.loads(sp.read_text(encoding="utf-8"))
+                manifest_data = _json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else {}
+                workers = manifest_data.get("workers", [])
+                team_runs.append({
+                    "name": run_dir.name,
+                    "state": status_data.get("state", "unknown"),
+                    "worker_count": len(workers),
+                    "mtime": sp.stat().st_mtime,
+                })
+            except Exception:
+                pass
+    except Exception as exc:
+        print(f"team runs:     WARN: could not read team runs: {exc}")
+        return True
+
+    if not team_runs:
+        print("team runs:     (none)")
+        return True
+
+    active = [r for r in team_runs if r["state"] not in ("cleaned", "cancelled", "done")]
+    print(f"team runs:     {len(team_runs)} total, {len(active)} active")
+    for r in team_runs[-5:]:
+        print(f"  {r['name']}: state={r['state']}, workers={r['worker_count']}")
+
+    if not strict:
+        return True
+
+    # --strict: warn if any team has been in state='dispatched' for >24h
+    now = _time.time()
+    stale = [
+        r for r in team_runs
+        if r["state"] == "dispatched" and (now - r["mtime"]) > 86400
+    ]
+    if stale:
+        print(
+            f"team runs:     FAIL (--strict): {len(stale)} team run(s) in"
+            " state='dispatched' for >24h (likely abandoned collection)"
+        )
+        for r in stale:
+            age_h = (now - r["mtime"]) / 3600
+            print(f"  {r['name']}: dispatched for {age_h:.1f}h, workers={r['worker_count']}")
+        return False
+
+    return True
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
