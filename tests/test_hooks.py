@@ -147,8 +147,11 @@ class TestSessionStart(unittest.TestCase):
         out, rc = run_hook("session_start.py", {})
         self.assertEqual(rc, 0)
         body = json.loads(out)
-        self.assertIn("Copilot Omni", body["additionalContext"])
-        self.assertIn("1.0.0", body["additionalContext"])
+        ctx = body["additionalContext"]
+        # Banner is wrapped in <omni-banner> tag; check for the tag and version
+        self.assertIn("<omni-banner>", ctx)
+        # Version string appears in the banner (may be "unknown" if plugin.json unreadable)
+        self.assertRegex(ctx, r"copilot-omni v[\w.\-]+")
 
 
 if __name__ == "__main__":
