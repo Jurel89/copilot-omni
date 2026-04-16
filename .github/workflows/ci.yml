@@ -98,3 +98,26 @@ jobs:
           python-version: "3.11"
       - name: Discovery layout
         run: python3 scripts/discovery_smoke.py --probe layout
+
+  windows-subagent:
+    # Phase-C C11: Windows lane for subagent_pool + background-detach.
+    # Runs a scoped subset of the suite on windows-latest so the platform
+    # branches added by C02/C08/C26 are actually exercised.
+    name: Windows subagent + pool smoke
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+      - name: Windows-targeted tests
+        shell: pwsh
+        run: |
+          python -m pytest -q `
+            tests/test_subagent_windows_detach.py `
+            tests/test_subagent_memory_policy.py `
+            tests/test_portability.py `
+            tests/test_hooks_audit_logging.py `
+            tests/test_runs_gc.py
