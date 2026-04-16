@@ -13,7 +13,7 @@
 - **`configure-notifications` deferred** — moved to `.omni/deferred/configure-notifications/`. Retrievable from git. Phase-C.
 - **`CLAUDE.md` deleted** — `AGENTS.md` is the sole agent entrypoint.
 - **`CLAUDE_PLUGIN_ROOT` → `COPILOT_PLUGIN_ROOT`** — env-var used in skill bodies updated.
-- **MCP tool surface shrank from 30 → 20** — removed `subtask`, `workspace`, `memory_prune`, `run_status`. Use `state_*` for orchestration.
+- **MCP tool surface shrank from 30 → 20** — removed `subtask`, `workspace`, `memory_prune`, and several legacy helpers. `run_status` remains registered but undocumented (UNUSED-OUTSIDE-TESTS); `state_*` is the supported orchestration API.
 - **`model: claude-*`** frontmatter dropped — use `category: quick|deep|ultrabrain` in agent files.
 
 ### Added — Wave 1: rename + decontamination (WS1, WS2, WS9)

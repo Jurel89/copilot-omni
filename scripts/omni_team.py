@@ -291,7 +291,7 @@ class _SubprocessWorkerHost:
                 "started_at": _now_iso(),
                 "ended_at": _now_iso(),
             })
-            return 0
+            return None  # C4 fix (wave-3.x review): None signals failure, 0 would be truthy under `is not None`
 
     def is_worker_alive(self, slug: str) -> bool:
         """Return True if the worker process is still running."""
