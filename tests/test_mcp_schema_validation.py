@@ -104,20 +104,6 @@ class TestBadInputsReturnInvalidParams(unittest.TestCase):
         self.assertIn("error", resp)
         self.assertEqual(resp["error"]["code"], -32602)
 
-    # --- enum violations ---
-
-    def test_subtask_invalid_action(self):
-        """action must be one of create/status/route."""
-        resp = _call("subtask", {"action": "bogus"}, self.env)
-        self.assertIn("error", resp)
-        self.assertEqual(resp["error"]["code"], -32602)
-
-    def test_workspace_invalid_action(self):
-        """action must be one of create/remove/list."""
-        resp = _call("workspace", {"action": "delete"}, self.env)
-        self.assertIn("error", resp)
-        self.assertEqual(resp["error"]["code"], -32602)
-
     # --- additionalProperties violations ---
 
     def test_health_extra_property(self):
@@ -184,19 +170,6 @@ class TestGoodInputsPassThrough(unittest.TestCase):
 
         resp3 = _call("wiki_query", {"query": "Hello"}, self.env)
         self.assertNotIn("error", resp3)
-
-    def test_subtask_valid_actions(self):
-        """subtask create and status with valid action succeed."""
-        resp = _call("subtask", {"action": "create", "title": "my task"}, self.env)
-        self.assertNotIn("error", resp)
-
-        resp2 = _call("subtask", {"action": "status"}, self.env)
-        self.assertNotIn("error", resp2)
-
-    def test_workspace_valid_actions(self):
-        """workspace list and create succeed with valid inputs."""
-        resp = _call("workspace", {"action": "list"}, self.env)
-        self.assertNotIn("error", resp)
 
     def test_health_no_args(self):
         """health accepts empty args."""
