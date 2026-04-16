@@ -126,3 +126,47 @@ jobs:
         run: python3 -m pip install --quiet pytest coverage
       - name: Run coverage check
         run: python3 scripts/measure_coverage.py --check
+
+  release-gate:
+    name: release gate (WS12)
+    runs-on: ubuntu-latest
+    # Only run on phase-b/main push — this is the v2.0.0 readiness gate
+    if: github.ref == 'refs/heads/phase-b/main' && github.event_name == 'push'
+    needs: [lint, unit-tests, mcp-smoke, discovery-smoke, coverage]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dev deps (pytest + coverage)
+        run: python3 -m pip install --quiet pytest coverage
+      - name: Run plugin contract validator (--all)
+        run: python3 scripts/verify_plugin_contract.py --all
+      - name: Run full pytest suite
+        run: python3 -m pytest -q
+      - name: Run coverage gate
+        run: python3 scripts/measure_coverage.py --check
+      - name: MCP stdio smoke
+        run: python3 scripts/mcp_smoke.py
+      - name: Plugin discovery smoke (all probes)
+        run: python3 scripts/discovery_smoke.py --probe all --offline
+      - name: CHANGELOG v2.0.0 section present
+        run: |
+          python3 - <<'PY'
+          import sys, pathlib
+          text = pathlib.Path("CHANGELOG.md").read_text()
+          if "## [2.0.0]" not in text:
+              print("ERROR: CHANGELOG.md missing ## [2.0.0] section")
+              sys.exit(1)
+          print("OK: CHANGELOG.md [2.0.0] section found")
+          PY
+      - name: Release doc present
+        run: |
+          python3 - <<'PY'
+          import sys, pathlib
+          p = pathlib.Path("docs/RELEASE-v2.0.0.md")
+          if not p.exists():
+              print("ERROR: docs/RELEASE-v2.0.0.md not found")
+              sys.exit(1)
+          print(f"OK: {p} present ({p.stat().st_size} bytes)")
+          PY
