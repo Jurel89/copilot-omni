@@ -704,15 +704,26 @@ def _spawn_background(
     # Transition status to running immediately (wrapper will update too)
     # We leave it as "pending" — the wrapper transitions to "running" when it starts.
 
-    # Launch wrapper detached (T9: passes config_path as arg, no f-string source)
+    # Launch wrapper detached (T9: passes config_path as arg, no f-string source).
+    # Phase-C C02: on Windows start_new_session is silently ignored; use
+    # CREATE_NEW_PROCESS_GROUP so Ctrl-C in the parent does not cascade into
+    # the background subagent, and add DETACHED_PROCESS to fully decouple.
+    popen_kwargs: dict = dict(
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        env=spawn_env,
+    )
+    if sys.platform == "win32":
+        detached = getattr(subprocess, "DETACHED_PROCESS", 0)
+        new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        popen_kwargs["creationflags"] = detached | new_group
+    else:
+        popen_kwargs["start_new_session"] = True
     try:
         proc = subprocess.Popen(
             [sys.executable, str(wrapper_script), str(config_path)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            close_fds=True,
-            env=spawn_env,
+            **popen_kwargs,
         )
         pid = proc.pid
     except Exception as exc:

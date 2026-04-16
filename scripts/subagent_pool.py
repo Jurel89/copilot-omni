@@ -86,14 +86,45 @@ def get_cap() -> int:
 
 
 def _is_pid_alive(pid: int) -> bool:
-    """Return True if a process with the given PID is running."""
+    """Return True if a process with the given PID is running.
+
+    POSIX: ``os.kill(pid, 0)`` raises ProcessLookupError when the pid is gone,
+    PermissionError when the process exists under another owner.
+
+    Phase-C C02: on Windows, os.kill with signal 0 does not exist in the same
+    form; we fall back to OpenProcess via ctypes. A failed open (with
+    GetLastError() == ERROR_INVALID_PARAMETER == 87) means the pid is gone.
+    """
+    if sys.platform == "win32":
+        try:
+            import ctypes  # noqa: PLC0415 — Windows only
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid)
+            )
+            if not handle:
+                return False
+            try:
+                exit_code = ctypes.c_ulong(0)
+                ok = ctypes.windll.kernel32.GetExitCodeProcess(
+                    handle, ctypes.byref(exit_code)
+                )
+                if not ok:
+                    return False
+                STILL_ACTIVE = 259
+                return exit_code.value == STILL_ACTIVE
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        except Exception:
+            # Defensive: on any error fall back to "alive" so the pool
+            # errs on the side of holding the slot rather than double-issuing.
+            return True
     try:
         os.kill(pid, 0)
         return True
     except ProcessLookupError:
         return False
     except PermissionError:
-        # Process exists but we don't have permission to signal it
         return True
     except Exception:
         return False
