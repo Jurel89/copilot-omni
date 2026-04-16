@@ -1,0 +1,81 @@
+name: Copilot nightly smoke
+
+# Phase-C C28: nightly real-Copilot-CLI invocation. Requires COPILOT_TOKEN
+# to be configured as a GitHub Actions secret; absent secret → skip cleanly
+# rather than fail. The job runs a small, deterministic 2-turn smoke prompt
+# to confirm plugin discovery + hook registration still work against the
+# latest Copilot CLI release.
+
+on:
+  schedule:
+    - cron: "23 4 * * *"      # 04:23 UTC daily
+  workflow_dispatch:
+
+concurrency:
+  group: copilot-nightly
+  cancel-in-progress: true
+
+jobs:
+  copilot-smoke:
+    name: real Copilot -p smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check COPILOT_TOKEN
+        id: secret_check
+        env:
+          COPILOT_TOKEN: ${{ secrets.COPILOT_TOKEN }}
+        run: |
+          if [ -z "${COPILOT_TOKEN}" ]; then
+            echo "COPILOT_TOKEN not configured — skipping nightly smoke."
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.secret_check.outputs.has_token == 'true'
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v5
+        if: steps.secret_check.outputs.has_token == 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Install Copilot CLI
+        if: steps.secret_check.outputs.has_token == 'true'
+        run: npm install -g @github/copilot
+
+      - name: Install plugin into Copilot
+        if: steps.secret_check.outputs.has_token == 'true'
+        env:
+          COPILOT_TOKEN: ${{ secrets.COPILOT_TOKEN }}
+        run: |
+          copilot plugin install "$(pwd)"
+          copilot --version
+
+      - name: Turn 1 — list skills (assert ≥25 copilot-omni skills)
+        if: steps.secret_check.outputs.has_token == 'true'
+        env:
+          COPILOT_TOKEN: ${{ secrets.COPILOT_TOKEN }}
+        run: |
+          set -eo pipefail
+          out=$(copilot -p "List copilot-omni skills. Return one name per line." --allow-all)
+          echo "$out"
+          count=$(echo "$out" | grep -E "copilot-omni:" | wc -l)
+          echo "skills listed: $count"
+          [ "$count" -ge 25 ] || { echo "expected ≥25 copilot-omni skills; got $count"; exit 1; }
+
+      - name: Turn 2 — health via MCP (assert responds)
+        if: steps.secret_check.outputs.has_token == 'true'
+        env:
+          COPILOT_TOKEN: ${{ secrets.COPILOT_TOKEN }}
+        run: |
+          set -eo pipefail
+          out=$(copilot -p "Call the copilot-omni MCP health tool and report status." --allow-all)
+          echo "$out"
+          echo "$out" | grep -q -i "ok\|healthy\|sqlite" \
+              || { echo "MCP health call did not surface status"; exit 1; }
