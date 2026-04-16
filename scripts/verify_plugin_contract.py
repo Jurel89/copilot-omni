@@ -1466,6 +1466,113 @@ def check_cancel_signal_pairing(root: Path = ROOT) -> CheckResult:
 # Check registry
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# T1: Mode key registry check
+# ---------------------------------------------------------------------------
+
+# Path to the canonical mode registry
+_STATE_MODES_DOC = ROOT / "docs" / "STATE_MODES.md"
+
+# Patterns that identify a literal mode string in Python source or SKILL.md
+# Matches: state_write(mode="foo"), _mcp_write_best_effort('foo', ...), mode="foo"
+_MODE_LITERAL_RE = re.compile(
+    r"""(?:state_write|state_read|_mcp_write_best_effort)\s*\(\s*['"]([^'"]+)['"]""",
+    re.IGNORECASE,
+)
+
+# Directories to scan for mode= literal strings
+_MODE_SCAN_DIRS = ("scripts", "mcp", "skills")
+_MODE_SCAN_EXTENSIONS = (".py", ".md")
+
+# Mode prefixes that are dynamic (contain {var}) — skip these
+_DYNAMIC_MODE_PREFIX = re.compile(r"[\{\}]")
+
+
+def _parse_registered_modes(doc_path: Path) -> set[str]:
+    """Parse the | mode | ... table from STATE_MODES.md."""
+    if not doc_path.exists():
+        return set()
+    modes: set[str] = set()
+    for line in doc_path.read_text(encoding="utf-8").splitlines():
+        # Match table rows: | `mode.key` | ... |
+        m = re.search(r'\|\s*`([^`]+)`\s*\|', line)
+        if m:
+            modes.add(m.group(1))
+    return modes
+
+
+def check_mode_key_registry(root: Path = ROOT) -> CheckResult:
+    """T1: verify every literal mode string in source is listed in docs/STATE_MODES.md.
+
+    Scans scripts/, mcp/, skills/**/*.md|*.py for calls to
+    state_write/state_read/_mcp_write_best_effort with a literal mode string.
+    Compares against the registry in docs/STATE_MODES.md.
+    Reports any unregistered mode literal as a violation.
+    Skips dynamic mode strings (containing { or }).
+    Subagent mode keys of form 'subagent:<id>' are covered by the 'subagent' prefix.
+    """
+    registered = _parse_registered_modes(root / "docs" / "STATE_MODES.md")
+    violations: list[str] = []
+    messages: list[str] = []
+
+    if not registered:
+        messages.append(
+            "WARN: docs/STATE_MODES.md not found or has no registered modes; "
+            "check_mode_key_registry is a no-op until STATE_MODES.md is populated."
+        )
+        return True, messages
+
+    # Self-allowlist: this file defines the regex pattern, skip it
+    _self = str(Path(__file__).relative_to(root)).replace("\\", "/")
+
+    scanned = 0
+    for dir_name in _MODE_SCAN_DIRS:
+        scan_dir = root / dir_name
+        if not scan_dir.exists():
+            continue
+        for path in sorted(scan_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            if path.suffix not in _MODE_SCAN_EXTENSIONS:
+                continue
+            rel = str(path.relative_to(root)).replace("\\", "/")
+            if rel == _self:
+                continue
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+            scanned += 1
+            for line_idx, line in enumerate(content.splitlines()):
+                for m in _MODE_LITERAL_RE.finditer(line):
+                    mode_val = m.group(1)
+                    # Skip dynamic strings
+                    if _DYNAMIC_MODE_PREFIX.search(mode_val):
+                        continue
+                    # 'subagent:<id>' patterns are covered by 'subagent' in registry
+                    if mode_val.startswith("subagent:"):
+                        if "subagent" in registered:
+                            continue
+                    if mode_val not in registered:
+                        violations.append(
+                            f"  {rel}:{line_idx + 1}: unregistered mode "
+                            f"'{mode_val}' — add to docs/STATE_MODES.md"
+                        )
+
+    ok = len(violations) == 0
+    if ok:
+        messages.append(
+            f"mode-key-registry check passed (scanned {scanned} files, "
+            f"{len(registered)} registered modes)"
+        )
+    else:
+        messages.append(
+            f"FAIL: mode-key-registry: {len(violations)} unregistered mode literal(s):"
+        )
+        messages.extend(violations)
+    return ok, messages
+
+
 CHECKS: dict = {
     "rename": check_rename,
     "rename-stub": check_rename_stub,
@@ -1481,6 +1588,7 @@ CHECKS: dict = {
     "no-raw-model-names": check_no_raw_model_names,
     "run-directory-invariants": check_run_directory_invariants,
     "cancel-signal-pairing": check_cancel_signal_pairing,
+    "mode-key-registry": check_mode_key_registry,
 }
 
 

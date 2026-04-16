@@ -297,6 +297,11 @@ for idx, task in enumerate(tasks):
     agent = "ralph" if use_ralph else "executor"
     category = "deep"
 
+    # T1: set nested mode key for ralph inner invocations (ADR-0006 §3)
+    child_env = dict(os.environ)
+    if agent == "ralph":
+        child_env["RALPH_MODE"] = "autopilot.ralph"
+
     result = subprocess.run(
         [
             sys.executable, "scripts/subagent.py", agent, task,
@@ -305,7 +310,8 @@ for idx, task in enumerate(tasks):
             "--run-id", run_id,
             "--background",
         ],
-        capture_output=True, text=True
+        capture_output=True, text=True,
+        env=child_env,
     )
     if result.returncode == 0:
         try:
