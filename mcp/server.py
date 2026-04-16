@@ -144,32 +144,40 @@ MIGRATIONS: List[Tuple[int, str]] = [
     """),
 ]
 
+# Serialize migrations across all threads in this process.
+_MIGRATE_LOCK = threading.Lock()
+
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)"
-    )
-    row = conn.execute("SELECT version FROM schema_version").fetchone()
-    current = row["version"] if row else 0
-
-    # Guard: refuse to run if DB is from a newer version of the plugin.
-    if current > SCHEMA_VERSION:
-        raise RuntimeError(
-            f"DB is from a newer plugin version (db={current}, server={SCHEMA_VERSION}); "
-            "please update your plugin."
+    with _MIGRATE_LOCK:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)"
         )
+        row = conn.execute("SELECT version FROM schema_version").fetchone()
+        current = row["version"] if row else 0
 
-    for target_version, sql in MIGRATIONS:
-        if current < target_version:
-            conn.executescript(sql)
-            conn.execute(
-                "DELETE FROM schema_version"
+        # Guard: refuse to run if DB is from a newer version of the plugin.
+        if current > SCHEMA_VERSION:
+            raise RuntimeError(
+                f"DB is from a newer plugin version (db={current}, server={SCHEMA_VERSION}); "
+                "please update your plugin."
             )
-            conn.execute(
-                "INSERT INTO schema_version(version) VALUES (?)",
-                (target_version,),
-            )
-            current = target_version
+
+        for target_version, sql in MIGRATIONS:
+            if current < target_version:
+                try:
+                    conn.executescript(sql)
+                except sqlite3.OperationalError as exc:
+                    # Idempotency: ignore "duplicate column name" from ALTER TABLE
+                    # that was already applied by a concurrent connection.
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
+                conn.execute("DELETE FROM schema_version")
+                conn.execute(
+                    "INSERT INTO schema_version(version) VALUES (?)",
+                    (target_version,),
+                )
+                current = target_version
 
 
 # ------------------------------------------------------------------ connection pool
@@ -183,7 +191,7 @@ _POOL_COND = threading.Condition(_POOL_LOCK)
 
 def _make_connection() -> sqlite3.Connection:
     db_path = omni_home() / "omni.db"
-    conn = sqlite3.connect(str(db_path), isolation_level=None, timeout=10.0)
+    conn = sqlite3.connect(str(db_path), isolation_level=None, timeout=10.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
