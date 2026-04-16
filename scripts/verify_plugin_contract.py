@@ -44,6 +44,8 @@ ALLOWLIST_PATHS: tuple[str, ...] = (
     ".git/",
     # This file defines banned patterns as regex strings; self-allowlisted
     "scripts/verify_plugin_contract.py",
+    # WS1 report documents the rename; legitimately cites old names
+    ".omni/plans/wave-1-WS1-report.md",
 )
 
 # Banned token patterns
