@@ -114,8 +114,13 @@ class TestWave2Pipeline:
                 f"agent {name!r} wrongly appears in _KNOWN_SKILLS"
             )
 
-    def test_subagent_build_cmd_routes_skill_to_slash_command(self):
+    def test_subagent_build_cmd_routes_skill_to_slash_command(self, monkeypatch):
         subagent = _import_script("subagent")
+        # Mock shutil.which so the test runs on CI where copilot isn't installed.
+        # Also ensure FAKE is NOT set, so we exercise the real build path.
+        monkeypatch.delenv("OMNI_SUBAGENT_FAKE", raising=False)
+        monkeypatch.setattr(subagent.shutil, "which", lambda name: "/usr/bin/copilot")
+
         # Known skill → /copilot-omni:<name>
         # Signature: _build_cmd(agent, prompt, effective_model, allow_all)
         cmd_skill = subagent._build_cmd("ralplan", "test prompt", None, False)
