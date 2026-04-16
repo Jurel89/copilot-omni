@@ -112,3 +112,17 @@ jobs:
           which copilot || echo "copilot CLI not on PATH — smoke test will skip"
       - name: Offline plugin discovery assertion
         run: python scripts/discovery_smoke.py
+
+  coverage:
+    name: per-module coverage gate (WS10)
+    runs-on: ubuntu-latest
+    # Linux py3.11 only — coverage is a dev-dep, not in the default matrix
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dev deps (pytest + coverage)
+        run: python3 -m pip install --quiet pytest coverage
+      - name: Run coverage check
+        run: python3 scripts/measure_coverage.py --check
