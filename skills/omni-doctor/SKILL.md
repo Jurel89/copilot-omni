@@ -117,29 +117,36 @@ ls -la "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/skills/ 2>/dev/null
 
 ---
 
-## Step 7: Active Autopilot and Ralph Runs (WS5b)
+## Step 7: Active Autopilot, Ralph, Ultrawork, and UltraQA Runs (WS5b/WS5c)
 
-Read MCP state to list any currently active autopilot or ralph runs.
+Read MCP state to list any currently active autopilot, ralph, ultrawork, or ultraqa runs.
 
 ```python
 import json, sys, os
 from pathlib import Path
 
-# Scan .omni/runs/ for active autopilot and ralph runs
+# Scan .omni/runs/ for active autopilot, ralph, ultrawork, and ultraqa runs
 runs_dir = Path(".omni/runs")
 active_runs = []
+
+_PREFIXES = ("autopilot-", "ralph-", "ultrawork-", "ultraqa-")
+
+def _skill_of(run_id):
+    for prefix in _PREFIXES:
+        if run_id.startswith(prefix):
+            return prefix.rstrip("-")
+    return None
 
 if runs_dir.exists():
     for run_dir in sorted(runs_dir.iterdir()):
         if not run_dir.is_dir():
             continue
         run_id = run_dir.name
-        if not (run_id.startswith("autopilot-") or run_id.startswith("ralph-")):
+        skill = _skill_of(run_id)
+        if skill is None:
             continue
 
-        skill = "autopilot" if run_id.startswith("autopilot-") else "ralph"
-
-        # Determine current phase/iteration and last-update timestamp
+        # Determine current phase/iteration/cycle and last-update timestamp
         phase_info = "unknown"
         last_update = None
 
@@ -156,7 +163,8 @@ if runs_dir.exists():
                         break
                     except Exception:
                         pass
-        else:
+
+        elif skill == "ralph":
             # ralph: find highest iteration
             iter_dirs = sorted(
                 [p for p in run_dir.iterdir() if p.is_dir() and p.name.startswith("iteration-")],
@@ -172,6 +180,72 @@ if runs_dir.exists():
                         ended_at = d.get("ended_at", "")
                         phase_info = f"iteration={n} state={state}"
                         last_update = ended_at
+                    except Exception:
+                        pass
+
+        elif skill == "ultrawork":
+            # ultrawork: read summary.json or run-level status.json
+            summary_path = run_dir / "summary.json"
+            run_status_path = run_dir / "status.json"
+            if summary_path.exists():
+                try:
+                    d = json.loads(summary_path.read_text())
+                    total = d.get("total", "?")
+                    done = d.get("done", "?")
+                    failed = d.get("failed", 0)
+                    status = d.get("status", "?")
+                    phase_info = f"total={total} done={done} failed={failed} status={status}"
+                    last_update = d.get("by_task", {})
+                    # Extract latest ended_at from by_task
+                    latest = None
+                    for t in d.get("by_task", {}).values():
+                        ea = t.get("ended_at")
+                        if ea:
+                            latest = ea if latest is None else max(latest, ea)
+                    last_update = latest
+                except Exception:
+                    pass
+            elif run_status_path.exists():
+                try:
+                    d = json.loads(run_status_path.read_text())
+                    state = d.get("state", "?")
+                    ended_at = d.get("ended_at", "")
+                    phase_info = f"state={state}"
+                    last_update = ended_at
+                except Exception:
+                    pass
+            # Also count spawned jobs
+            job_dirs = [p for p in run_dir.iterdir()
+                        if p.is_dir() and not p.name.startswith("_")]
+            if job_dirs and phase_info == "unknown":
+                phase_info = f"jobs={len(job_dirs)}"
+
+        elif skill == "ultraqa":
+            # ultraqa: find highest cycle
+            cycle_dirs = sorted(
+                [p for p in run_dir.iterdir()
+                 if p.is_dir() and p.name.startswith("cycle-")],
+                key=lambda p: int(p.name.split("-")[1]) if p.name.split("-")[1].isdigit() else -1
+            )
+            run_status_path = run_dir / "status.json"
+            if run_status_path.exists():
+                try:
+                    d = json.loads(run_status_path.read_text())
+                    state = d.get("state", "?")
+                    ended_at = d.get("ended_at", "")
+                    n_cycles = len(cycle_dirs)
+                    phase_info = f"cycles={n_cycles} state={state}"
+                    last_update = ended_at
+                except Exception:
+                    pass
+            elif cycle_dirs:
+                sp = cycle_dirs[-1] / "status.json"
+                if sp.exists():
+                    try:
+                        d = json.loads(sp.read_text())
+                        n = d.get("cycle", "?")
+                        all_pass = d.get("all_pass", "?")
+                        phase_info = f"cycle={n} all_pass={all_pass}"
                     except Exception:
                         pass
 
@@ -194,14 +268,16 @@ else:
 ```
 
 **Diagnosis**:
-- If no active runs: OK — no autopilot or ralph sessions in progress
+- If no active runs: OK — no autopilot, ralph, ultrawork, or ultraqa sessions in progress
 - If runs present with recent last_update: INFO — active session running
 - If run has `cancel.signal` but no `state=cancelled` status: WARN — stale cancel signal (run `python3 scripts/verify_plugin_contract.py --check-cancel-signal-pairing` to confirm)
-- If run has been in the same phase/iteration for > 30 min: WARN — potentially stuck
+- If run has been in the same phase/iteration/cycle for > 30 min: WARN — potentially stuck
+- If ultrawork run shows failed > 0: WARN — one or more fan-out jobs failed
+- If ultraqa run shows state=stalled: WARN — same error repeated, needs human input
 
 Add to the Report Format table:
 ```
-| Active Runs (autopilot/ralph) | OK/INFO/WARN | <n> runs, or none |
+| Active Runs (autopilot/ralph/ultrawork/ultraqa) | OK/INFO/WARN | <n> runs, or none |
 ```
 
 ---
