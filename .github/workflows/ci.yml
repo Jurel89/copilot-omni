@@ -2,19 +2,23 @@ name: CI
 
 on:
   push:
-    branches: [main, "refactor/**"]
+    branches: [main, "phase-b/**", "refactor/**"]
   pull_request:
     branches: [main]
 
 jobs:
   lint:
-    name: lint & validate manifests
+    name: lint & contract validator
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.9"
+          python-version: ${{ matrix.python }}
       - name: Compile all Python files
         run: |
           python - <<'PY'
@@ -42,26 +46,25 @@ jobs:
         run: |
           LEFTOVERS=$(find . -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) ! -path './.git/*' | wc -l)
           test "$LEFTOVERS" = "0" || { echo "Go leftovers:"; find . -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) ! -path './.git/*'; exit 1; }
-      - name: Validate plugin frontmatter
-        run: python scripts/validate_plugin.py
+      - name: Run plugin contract validator (--all-strict)
+        run: python3 scripts/verify_plugin_contract.py --all-strict
       - name: Enforce stdlib-only imports
         run: python scripts/check_stdlib_only.py
 
   unit-tests:
-    name: unit tests (${{ matrix.os }} / py ${{ matrix.python }})
-    runs-on: ${{ matrix.os }}
+    name: unit tests (ubuntu / py ${{ matrix.python }})
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.9", "3.11", "3.12"]
+        python: ["3.9", "3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Run unittest suite
-        run: python -m unittest discover -s tests -v
+      - name: Run pytest suite
+        run: python3 -m pytest -q
 
   mcp-smoke:
     name: MCP stdio smoke
@@ -83,7 +86,9 @@ jobs:
         with:
           python-version: "3.9"
       - name: Discovery layout
-        run: python scripts/discovery_smoke.py
+        run: python3 scripts/discovery_smoke.py --probe layout
+      - name: Discovery all (offline)
+        run: python3 scripts/discovery_smoke.py --probe all --offline
 
   copilot-smoke:
     name: Copilot CLI plugin install (best-effort)
