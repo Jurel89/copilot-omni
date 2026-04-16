@@ -221,18 +221,17 @@ def test_ralph_one_iteration(tmp_path, monkeypatch):
         f"run_dir {run_dir} not created, exit={result.exit_code}"
     )
 
+    # C09: if the pipeline got far enough to create run_dir, artifacts MUST be there.
     if run_dir.exists():
-        # prd.json should exist (written in Step 1)
         prd_path = run_dir / "prd.json"
-        if prd_path.exists():
-            prd_data = json.loads(prd_path.read_text())
-            assert "stories" in prd_data, "prd.json missing stories key"
-            assert "acceptance" in prd_data, "prd.json missing acceptance key"
+        assert prd_path.exists(), f"prd.json missing in {run_dir}"
+        prd_data = json.loads(prd_path.read_text())
+        assert "stories" in prd_data, "prd.json missing stories key"
+        assert "acceptance" in prd_data, "prd.json missing acceptance key"
 
-        # progress.txt should exist
         progress_path = run_dir / "progress.txt"
-        if progress_path.exists():
-            assert progress_path.stat().st_size > 0, "progress.txt is empty"
+        assert progress_path.exists(), f"progress.txt missing in {run_dir}"
+        assert progress_path.stat().st_size > 0, "progress.txt is empty"
 
     # Blocks were executed
     assert len(result.blocks_executed) >= 1
