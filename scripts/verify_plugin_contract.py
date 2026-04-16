@@ -42,6 +42,8 @@ ALLOWLIST_PATHS: tuple[str, ...] = (
     # Runtime state dirs — not source files
     ".omc/",
     ".git/",
+    # This file defines banned patterns as regex strings; self-allowlisted
+    "scripts/verify_plugin_contract.py",
 )
 
 # Banned token patterns

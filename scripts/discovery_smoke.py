@@ -363,7 +363,7 @@ def probe_a5_grep_coverage(_: Any) -> ProbeResult:
         rel_s = str(rel)
         if rel_s.startswith(".git/"):
             continue
-        if rel_s.startswith(".omc/") or rel_s.startswith(".omni/"):
+        if rel_s.startswith(".omni/"):
             continue
         if rel_s.startswith("__pycache__") or "/__pycache__/" in rel_s:
             continue
@@ -376,7 +376,7 @@ def probe_a5_grep_coverage(_: Any) -> ProbeResult:
         "tracked_files": len(tracked_set),
         "untracked_present": sorted(seen)[:50],
         "untracked_count": len(seen),
-        "excluded_prefixes": [".git/", ".omc/", ".omni/", "__pycache__", "*.pyc"],
+        "excluded_prefixes": [".git/", ".omni/", "__pycache__", "*.pyc"],
     }
     # Pass if untracked stays small OR is entirely ignorable. Document
     # anything found so the rename verifier can choose to widen its grep.
