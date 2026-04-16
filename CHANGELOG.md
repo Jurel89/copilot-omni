@@ -1,5 +1,37 @@
 # Changelog
 
+## [2.0.0] — 2026-04-16 (WS7 hook hardening)
+
+### Added — WS7a: Kill switches, logging, portability
+
+- **Shared hook library** `hooks/_hook_lib.py` (~200 LOC): centralises kill-switch logic, atomic audit append, metrics writer, and deprecation-warn helper. All four hooks import from this single source.
+- **Five kill-switch env vars** implemented consistently across all four hooks:
+  - `OMNI_SKIP_HOOKS=1` — disable all hooks (canonical).
+  - `DISABLE_OMNI=1` — disable all hooks (canonical alternate).
+  - `OMNI_SKIP_PRE_TOOL_USE=1` / `OMNI_SKIP_POST_TOOL_USE=1` / `OMNI_SKIP_SESSION_START=1` / `OMNI_SKIP_USER_PROMPT_SUBMIT=1` — per-hook kill switches.
+  - `OMC_SKIP_HOOKS=1` / `DISABLE_OMC=1` — **deprecated** backward-compat aliases (see deprecation note below).
+- **shlex fallback hardened** (`hooks/pre_tool_use.py`): on `ValueError`, raw input is treated as one opaque token instead of falling back to `str.split()`. Prevents quote-injection bypasses (Phase-A audit finding 2.1).
+- **Atomic audit logging**: `_append_audit(record)` writes to `.omni/audit/hooks.jsonl` with `fcntl.flock` (POSIX) / `msvcrt.locking` (Windows). Lock budget: 1 second; drops write with stderr warning on contention. Fixes Phase-A audit finding 3.1 (race condition).
+- **Metrics writer**: `_write_metric(name, value, labels)` appends to `.omni/audit/metrics.jsonl`. Hooks emit `hook_latency_ms`, `hook_exit_code`, `router_decision`, `skill_trigger_matched`.
+- **Deprecation warnings**: when `OMC_SKIP_HOOKS=1` or `DISABLE_OMC=1` is set, a one-time warning is printed to stderr referencing the v3.0.0 removal milestone. De-duplicated via a named sentinel file. <!-- omni-rename-allow: OMC legacy env var names documented here -->
+
+### Added — WS7b: Banner, metrics, policy hygiene
+
+- **Session-start banner** rewritten with cache (`hooks/session_start.py`): computes `copilot-omni v<ver> | <N> skills | <N> agents | <N> commands | router=<on|off> | pool=<cap>`. Cache keyed by tree hash in `.omni/cache/banner.json`; recomputed only when manifest files change.
+- **Policy file permission check**: `session_start.py` checks all `policies/*.json` for mode > `0o644` and emits `<policy-warning>` lines in the banner context without failing the session.
+- **Frontmatter trigger hints**: `user_prompt_submit.py` reads `triggers:` fields from every `skills/*/SKILL.md` at startup and emits `<skill-trigger-hint>` blocks when the prompt matches. Trigger map built once in < 20ms.
+
+### Added — Documentation
+
+- `docs/HOOK_CONTRACT.md`: event shapes, kill switches, audit schema, metrics schema, policy expectations, frontmatter triggers, timeout budget.
+
+### Deprecated — v3.0.0 removal
+
+- `OMC_SKIP_HOOKS=1` — replaced by `OMNI_SKIP_HOOKS=1`. **Will be removed in v3.0.0.**
+- `DISABLE_OMC=1` — replaced by `DISABLE_OMNI=1`. **Will be removed in v3.0.0.**
+
+---
+
 ## [1.1.0] — 2026-04-16 (WS1 rename sweep)
 
 <!-- omni-rename-allow: changelog-entry -->
