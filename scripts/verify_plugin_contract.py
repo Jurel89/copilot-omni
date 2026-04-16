@@ -99,6 +99,13 @@ ALLOWLIST_PATHS: tuple[str, ...] = (
     # WS12 WS11 report cites old names
     ".omni/plans/wave-3-WS11-report.md",
     ".omni/plans/wave-3-WS12-report.md",
+    # Wave-3 adversarial review files legitimately cite .omc/ in their analysis
+    ".omni/plans/wave-3-review-architect.md",
+    ".omni/plans/wave-3-review-critic.md",
+    ".omni/plans/wave-3-review-code-reviewer.md",
+    ".omni/plans/wave-3-review-codex.md",
+    # Wave-3.x patch report cites old names for cross-reference
+    ".omni/plans/wave-3.x-patch-report.md",
     # README.md migration section cites old names in the migration section
     "README.md",
 )
@@ -1778,6 +1785,105 @@ def check_worktree_hygiene(root: Path = ROOT) -> CheckResult:
     return ok, messages
 
 
+def check_skill_catalog_consistency(root: Path = ROOT) -> CheckResult:
+    """C6: assert README.md + AGENTS.md skill lists match skills/ filesystem.
+
+    The authoritative source of truth is the set of directories under skills/
+    that contain a SKILL.md file.  README.md and AGENTS.md must enumerate
+    exactly those skill names (no more, no less).
+    """
+    messages: list[str] = []
+    ok = True
+
+    skills_dir = root / "skills"
+    if not skills_dir.is_dir():
+        return False, ["skill-catalog: skills/ directory not found"]
+
+    # Ground truth: skills with a SKILL.md
+    fs_skills: set[str] = set()
+    for p in skills_dir.iterdir():
+        if p.is_dir() and (p / "SKILL.md").exists():
+            fs_skills.add(p.name)
+
+    messages.append(
+        f"skill-catalog: filesystem skills ({len(fs_skills)}): "
+        + ", ".join(sorted(fs_skills))
+    )
+
+    # --- README.md ---
+    readme = root / "README.md"
+    readme_skills: set[str] = set()
+    if readme.exists():
+        text = readme.read_text(encoding="utf-8")
+        # Find line matching "**N skills** — name1, name2, ..."
+        import re as _re
+        m = _re.search(r"\*\*\d+ skills\*\*\s*—\s*([^\n]+)", text)
+        if m:
+            raw = m.group(1)
+            # Strip trailing period / parenthetical
+            raw = _re.sub(r"\s*\([^)]+\)\s*$", "", raw).strip().rstrip(".")
+            for name in raw.split(","):
+                name = name.strip()
+                if name:
+                    readme_skills.add(name)
+    else:
+        messages.append("  WARN: README.md not found")
+
+    # --- AGENTS.md skill table ---
+    # Parse only the "## Skill catalog" section (ends at next ## heading or EOF)
+    agents_md = root / "AGENTS.md"
+    agents_skills: set[str] = set()
+    if agents_md.exists():
+        import re as _re2
+        text = agents_md.read_text(encoding="utf-8")
+        skill_section_m = _re2.search(
+            r"## Skill catalog.*?(?=\n## |\Z)", text, _re2.DOTALL | _re2.IGNORECASE
+        )
+        if skill_section_m:
+            section_text = skill_section_m.group(0)
+            # Table rows: | `skill-name` | description |
+            for m2 in _re2.finditer(r"\|\s*`([^`]+)`\s*\|", section_text):
+                agents_skills.add(m2.group(1).strip())
+        else:
+            messages.append("  WARN: AGENTS.md has no '## Skill catalog' section")
+    else:
+        messages.append("  WARN: AGENTS.md not found")
+
+    # Compare
+    readme_extra = readme_skills - fs_skills
+    readme_missing = fs_skills - readme_skills
+    agents_extra = agents_skills - fs_skills
+    agents_missing = fs_skills - agents_skills
+
+    if readme_extra:
+        ok = False
+        messages.append(
+            f"  FAIL README.md lists non-existent skills: {sorted(readme_extra)}"
+        )
+    if readme_missing:
+        ok = False
+        messages.append(
+            f"  FAIL README.md missing skills: {sorted(readme_missing)}"
+        )
+    if agents_extra:
+        ok = False
+        messages.append(
+            f"  FAIL AGENTS.md lists non-existent skills: {sorted(agents_extra)}"
+        )
+    if agents_missing:
+        ok = False
+        messages.append(
+            f"  FAIL AGENTS.md missing skills: {sorted(agents_missing)}"
+        )
+
+    if ok:
+        messages.append(
+            f"  OK: README.md and AGENTS.md both enumerate exactly the "
+            f"{len(fs_skills)} filesystem skills"
+        )
+    return ok, messages
+
+
 CHECKS: dict = {
     "rename": check_rename,
     "rename-stub": check_rename_stub,
@@ -1796,6 +1902,7 @@ CHECKS: dict = {
     "mode-key-registry": check_mode_key_registry,
     "team-modes-declared": check_team_modes_declared,
     "worktree-hygiene": check_worktree_hygiene,
+    "skill-catalog-consistency": check_skill_catalog_consistency,
 }
 
 

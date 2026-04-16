@@ -67,7 +67,6 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 | `external-context` | Fetch and summarise external documentation |
 | `ask` | Single-question interactive prompt |
 | `ai-slop-cleaner` | Detect and remove AI-generated filler language |
-| `sciomni` | Scientific workflow orchestration |
 | `skill` | Invoke any other skill by name |
 | `skillify` | Convert a raw prompt into a skill template |
 | `setup` | Project bootstrap (init + doctor + configure) |

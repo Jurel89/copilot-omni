@@ -24,7 +24,7 @@ Pure Python stdlib + Markdown. Zero compiled binaries. Zero pip dependencies.
 
 ## What it ships
 
-- **29 skills** — autopilot, ralph, ultrawork, ultraqa, ralplan, team, plan, deep-interview, deep-dive, verify, debug, trace, remember, wiki, external-context, ask, ai-slop-cleaner, sciomni, skill, skillify, learner, setup, omni-setup, omni-doctor, omni-reference, omni-teams, mcp-setup, release, cancel, deepinit, hud. (`omni list skills` for the full list.)
+- **29 skills** — autopilot, ralph, ultrawork, ultraqa, ralplan, team, plan, deep-interview, deep-dive, verify, debug, trace, remember, wiki, external-context, ask, ai-slop-cleaner, skill, skillify, setup, omni-setup, omni-doctor, omni-reference, omni-teams, mcp-setup, release, cancel, deepinit, hud. (`omni list skills` for the full list.)
 - **19 agents** — analyst, architect, planner, critic, executor, explore, debugger, tracer, verifier, qa-tester, test-engineer, code-reviewer, security-reviewer, code-simplifier, document-specialist, writer, git-master, designer, scientist.
 - **10 slash commands** — `/omni-init`, `/omni-doctor`, `/omni-status`, `/omni-list`, `/omni-plan`, `/omni-ship`, `/omni-verify`, `/omni-memory`, `/omni-team`, `/omni-cancel`.
 - **22 MCP tools** via one stdio Python server — memory, wiki, notepad, state, shared-memory, trace, session, policy, health, doctor, config, support-bundle.
