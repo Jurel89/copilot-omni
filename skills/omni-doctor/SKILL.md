@@ -117,6 +117,95 @@ ls -la "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/skills/ 2>/dev/null
 
 ---
 
+## Step 7: Active Autopilot and Ralph Runs (WS5b)
+
+Read MCP state to list any currently active autopilot or ralph runs.
+
+```python
+import json, sys, os
+from pathlib import Path
+
+# Scan .omni/runs/ for active autopilot and ralph runs
+runs_dir = Path(".omni/runs")
+active_runs = []
+
+if runs_dir.exists():
+    for run_dir in sorted(runs_dir.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        run_id = run_dir.name
+        if not (run_id.startswith("autopilot-") or run_id.startswith("ralph-")):
+            continue
+
+        skill = "autopilot" if run_id.startswith("autopilot-") else "ralph"
+
+        # Determine current phase/iteration and last-update timestamp
+        phase_info = "unknown"
+        last_update = None
+
+        if skill == "autopilot":
+            for phase_n in (5, 4, 3, 2, 1):
+                sp = run_dir / f"phase-{phase_n}" / "status.json"
+                if sp.exists():
+                    try:
+                        d = json.loads(sp.read_text())
+                        state = d.get("state", "?")
+                        ended_at = d.get("ended_at", "")
+                        phase_info = f"phase={phase_n} state={state}"
+                        last_update = ended_at
+                        break
+                    except Exception:
+                        pass
+        else:
+            # ralph: find highest iteration
+            iter_dirs = sorted(
+                [p for p in run_dir.iterdir() if p.is_dir() and p.name.startswith("iteration-")],
+                key=lambda p: int(p.name.split("-")[1]) if p.name.split("-")[1].isdigit() else -1
+            )
+            if iter_dirs:
+                sp = iter_dirs[-1] / "status.json"
+                if sp.exists():
+                    try:
+                        d = json.loads(sp.read_text())
+                        n = d.get("iteration", "?")
+                        state = d.get("state", "?")
+                        ended_at = d.get("ended_at", "")
+                        phase_info = f"iteration={n} state={state}"
+                        last_update = ended_at
+                    except Exception:
+                        pass
+
+        cancel_signal = (run_dir / "cancel.signal").exists()
+        active_runs.append({
+            "run_id": run_id,
+            "skill": skill,
+            "phase_info": phase_info,
+            "last_update": last_update or "unknown",
+            "cancel_signal": cancel_signal,
+        })
+
+if not active_runs:
+    print("Active runs: none")
+else:
+    print(f"Active runs ({len(active_runs)}):")
+    for r in active_runs:
+        cancel_note = " [cancel.signal present]" if r["cancel_signal"] else ""
+        print(f"  {r['skill']:12s}  {r['run_id']}  {r['phase_info']}  last_update={r['last_update']}{cancel_note}")
+```
+
+**Diagnosis**:
+- If no active runs: OK — no autopilot or ralph sessions in progress
+- If runs present with recent last_update: INFO — active session running
+- If run has `cancel.signal` but no `state=cancelled` status: WARN — stale cancel signal (run `python3 scripts/verify_plugin_contract.py --check-cancel-signal-pairing` to confirm)
+- If run has been in the same phase/iteration for > 30 min: WARN — potentially stuck
+
+Add to the Report Format table:
+```
+| Active Runs (autopilot/ralph) | OK/INFO/WARN | <n> runs, or none |
+```
+
+---
+
 ## Report Format
 
 After running all checks, output a report:

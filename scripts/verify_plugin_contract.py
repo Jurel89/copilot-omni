@@ -65,6 +65,8 @@ ALLOWLIST_PATHS: tuple[str, ...] = (
     ".omni/plans/wave-2-WS3-report.md",
     # WS5a report documents the subagent primitives; legitimately cites exemption markers
     ".omni/plans/wave-2-WS5a-report.md",
+    # WS5b report documents autopilot/ralph rewrite; legitimately cites old patterns
+    ".omni/plans/wave-2-WS5b-report.md",
 )
 
 # Banned token patterns
@@ -1319,11 +1321,26 @@ def check_run_directory_invariants(root: Path = ROOT) -> CheckResult:
     n_stuck = 0
     now = _time.time()
 
+    # Pattern for subagent job dirs (UUID or job-N); pipeline phase/iteration dirs are skipped
+    import re as _re
+    _JOB_DIR_RE = _re.compile(
+        r"^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|job-\d+)$",
+        _re.IGNORECASE,
+    )
+    # Additional marker: a subagent job dir always contains spec.json (written by WS5a)
+    def _is_subagent_job_dir(d: Path) -> bool:
+        """Return True if this directory is a subagent job dir (not a pipeline phase dir)."""
+        return (d / "spec.json").exists() or _JOB_DIR_RE.match(d.name) is not None
+
     for run_dir in sorted(runs_dir.iterdir()):
         if not run_dir.is_dir():
             continue
         for job_dir in sorted(run_dir.iterdir()):
             if not job_dir.is_dir():
+                continue
+            # Skip pipeline phase/iteration dirs — they are managed by autopilot/ralph,
+            # not by subagent.py, and do not require the WS5a status.json contract.
+            if not _is_subagent_job_dir(job_dir):
                 continue
             n_checked += 1
             status_path = job_dir / "status.json"
@@ -1377,6 +1394,75 @@ def check_run_directory_invariants(root: Path = ROOT) -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
+# WS5b: Cancel-signal pairing check
+# ---------------------------------------------------------------------------
+
+
+def check_cancel_signal_pairing(root: Path = ROOT) -> CheckResult:
+    """For every .omni/runs/<run-id>/cancel.signal that exists, assert that at least
+    one status.json in the same run-dir has state="cancelled".
+
+    A cancel.signal with no matching cancelled status.json is a stale signal —
+    it means the cancel was never observed or cleaned up.
+
+    Returns ok=False (FAIL) if any stale cancel.signal is found.
+    Returns ok=True (with info message) if all cancel.signals are paired.
+    """
+    import json as _json
+
+    runs_dir = root / ".omni" / "runs"
+    if not runs_dir.exists():
+        return True, ["cancel-signal-pairing: no .omni/runs/ directory — skip"]
+
+    messages: list[str] = []
+    ok = True
+    n_checked = 0
+    n_stale = 0
+    n_paired = 0
+
+    for run_dir in sorted(runs_dir.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        signal_file = run_dir / "cancel.signal"
+        if not signal_file.exists():
+            continue
+
+        n_checked += 1
+        rel_run = str(run_dir.relative_to(root)).replace("\\", "/")
+
+        # Search all status.json files in this run-dir for state="cancelled"
+        found_cancelled = False
+        for status_path in run_dir.rglob("status.json"):
+            try:
+                data = _json.loads(status_path.read_text(encoding="utf-8"))
+                if data.get("state") == "cancelled":
+                    found_cancelled = True
+                    break
+            except Exception:
+                continue
+
+        if found_cancelled:
+            n_paired += 1
+        else:
+            ok = False
+            n_stale += 1
+            messages.append(
+                f"  FAIL: stale cancel.signal (no cancelled status.json): {rel_run}"
+            )
+
+    summary = (
+        f"cancel-signal-pairing: checked={n_checked},"
+        f" paired={n_paired}, stale={n_stale}"
+    )
+    if ok:
+        messages.insert(0, summary + " OK")
+    else:
+        messages.insert(0, f"FAIL: {summary}")
+
+    return ok, messages
+
+
+# ---------------------------------------------------------------------------
 # Check registry
 # ---------------------------------------------------------------------------
 
@@ -1394,6 +1480,7 @@ CHECKS: dict = {
     "state-store-canonical": check_state_store_canonical,
     "no-raw-model-names": check_no_raw_model_names,
     "run-directory-invariants": check_run_directory_invariants,
+    "cancel-signal-pairing": check_cancel_signal_pairing,
 }
 
 
