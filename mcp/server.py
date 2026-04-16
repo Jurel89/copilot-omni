@@ -589,6 +589,128 @@ def _tool_wiki_list(_: Dict[str, Any]) -> Dict[str, Any]:
     return _json_result({"entries": [dict(r) for r in rows]})
 
 
+# ------------------------------------------------------------------ Phase-C C17: ingest + graph
+
+
+import hashlib as _hashlib
+
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify(text: str) -> str:
+    s = _SLUG_RE.sub("-", text.lower()).strip("-")
+    return s[:80] or "untitled"
+
+
+def _tool_wiki_ingest(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Append a wiki page; de-duplicates by content SHA-256.
+
+    Ingesting the same *body* twice returns ``ok: true, deduped: true`` and
+    does NOT bump updated_at. This is the contract the wave-1 content-lake
+    plan called out — it lets external crawlers pipe documents in without
+    re-writing identical bodies.
+    """
+    body = args.get("body")
+    if not isinstance(body, str) or not body:
+        raise ValueError("body required (non-empty string)")
+    raw_slug = args.get("slug") or args.get("title") or "untitled"
+    slug = _slugify(raw_slug)
+    title = args.get("title", raw_slug)
+    tags_list = args.get("tags", []) or []
+    tags = ",".join(tags_list)
+    sha = _hashlib.sha256(body.encode("utf-8")).hexdigest()
+    now = _now()
+    # The wiki table doesn't have a sha column; we encode the hash into the
+    # tags column as a sentinel token "sha256=<hex>" so de-dupe works without
+    # a schema migration. Stored tags are a comma-joined string already.
+    sentinel = f"sha256={sha}"
+    with _Conn() as conn:
+        existing = conn.execute(
+            "SELECT slug, tags FROM wiki WHERE slug=?", (slug,)
+        ).fetchone()
+        if existing and existing["tags"] and sentinel in existing["tags"]:
+            return _json_result({
+                "slug": slug, "ok": True, "deduped": True, "sha256": sha,
+            })
+        merged_tags_parts: List[str] = []
+        if tags:
+            merged_tags_parts.append(tags)
+        merged_tags_parts.append(sentinel)
+        merged_tags = ",".join(merged_tags_parts)
+        conn.execute(
+            "INSERT INTO wiki(slug, title, body, tags, updated_at)"
+            " VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT(slug) DO UPDATE SET title=excluded.title,"
+            " body=excluded.body, tags=excluded.tags,"
+            " updated_at=excluded.updated_at",
+            (slug, title, body, merged_tags, now),
+        )
+    return _json_result({
+        "slug": slug, "ok": True, "deduped": False, "sha256": sha,
+    })
+
+
+_WIKI_LINK_RE = re.compile(r"\[\[\s*([^\]|]+?)\s*(?:\|[^\]]*)?\]\]")
+_MD_LINK_RE = re.compile(r"\[[^\]]*?\]\(\s*([^)\s]+?)\s*\)")
+
+
+def _extract_wiki_targets(body: str) -> List[str]:
+    """Pull wiki-link targets from a body.
+
+    Recognises:
+    - [[other-slug]] and [[Title|slug]] (wiki-link syntax)
+    - [anchor](./other-slug) or [anchor](other-slug.md) (Markdown links
+      whose destination looks like a local slug reference rather than a URL)
+    """
+    out: List[str] = []
+    for m in _WIKI_LINK_RE.finditer(body):
+        out.append(_slugify(m.group(1)))
+    for m in _MD_LINK_RE.finditer(body):
+        dest = m.group(1)
+        if "://" in dest or dest.startswith("#"):
+            continue
+        bare = dest.rsplit("/", 1)[-1]
+        if bare.endswith(".md"):
+            bare = bare[:-3]
+        out.append(_slugify(bare))
+    # Stable de-dupe while preserving order
+    seen: set = set()
+    unique: List[str] = []
+    for t in out:
+        if t and t not in seen:
+            seen.add(t)
+            unique.append(t)
+    return unique
+
+
+def _tool_wiki_graph(_args: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a knowledge graph {nodes: [...], edges: [...]} of the wiki.
+
+    Nodes are every stored slug. Edges are extracted via _extract_wiki_targets
+    from each body. Dangling targets (no matching slug) are omitted from the
+    edge set but exposed in ``dangling`` so callers can surface them.
+    """
+    with _Conn() as conn:
+        rows = conn.execute(
+            "SELECT slug, title, body FROM wiki"
+        ).fetchall()
+    slugs = {row["slug"] for row in rows}
+    nodes = [{"slug": row["slug"], "title": row["title"]} for row in rows]
+    edges: List[Dict[str, str]] = []
+    dangling: List[Dict[str, str]] = []
+    for row in rows:
+        targets = _extract_wiki_targets(row["body"] or "")
+        for target in targets:
+            if target == row["slug"]:
+                continue
+            if target in slugs:
+                edges.append({"source": row["slug"], "target": target})
+            else:
+                dangling.append({"source": row["slug"], "target": target})
+    return _json_result({"nodes": nodes, "edges": edges, "dangling": dangling})
+
+
 def _tool_notepad_write(args: Dict[str, Any]) -> Dict[str, Any]:
     kind = args.get("kind", "working")
     body = args["body"]
@@ -884,6 +1006,32 @@ TOOLS: Dict[str, Dict[str, Any]] = {
         "description": "List all wiki entries.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         "handler": _tool_wiki_list,
+    },
+    "wiki_ingest": {
+        "description": (
+            "Append a wiki page with SHA-256-based content de-duplication. "
+            "Re-ingesting identical body returns deduped=true without a write. "
+            "Slug auto-derived from title when omitted."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["body"],
+            "properties": {
+                "slug": {"type": "string"},
+                "title": {"type": "string"},
+                "body": {"type": "string"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "handler": _tool_wiki_ingest,
+    },
+    "wiki_graph": {
+        "description": (
+            "Return the wiki knowledge graph: {nodes, edges, dangling}. "
+            "Edges are derived from [[wiki-link]] and relative Markdown links."
+        ),
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "handler": _tool_wiki_graph,
     },
     "notepad_write": {
         "description": "Append a notepad entry (kind: working|priority|manual).",
