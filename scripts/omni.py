@@ -533,6 +533,117 @@ def _cmd_mcp(_args: argparse.Namespace) -> int:
     return subprocess.call([sys.executable, str(server)])
 
 
+# ---------------------------------------------------------------------------
+# Phase-C C20: artifact-first lifecycle enforcement
+# ---------------------------------------------------------------------------
+
+_ARTIFACT_REQUIRED: dict[str, tuple[str, ...]] = {
+    "execute": ("spec.json",),
+    "verify":  ("plan.md",),
+}
+
+
+def _load_state_machine():
+    path = _plugin_root() / "scripts" / "state_machine.py"
+    if not path.exists():
+        return None
+    import importlib.util as _ilu
+    spec = _ilu.spec_from_file_location("state_machine", path)
+    if spec is None or spec.loader is None:
+        return None
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+def _resolve_run_dir(raw: str) -> Path:
+    """Accept either an explicit path or a bare run-id (resolved under .omni/runs/)."""
+    cand = Path(raw)
+    if cand.is_absolute() or cand.exists():
+        return cand
+    return Path(os.getcwd()) / ".omni" / "runs" / raw
+
+
+def _enforce_artifacts(run_dir: Path, gate: str) -> list[str]:
+    """Return a list of missing-artifact paths for *gate*; empty on success."""
+    required = _ARTIFACT_REQUIRED.get(gate, ())
+    return [str(run_dir / name) for name in required
+            if not (run_dir / name).exists()]
+
+
+def _walk_gates(sm, run_dir: Path, target: str, note: str) -> None:
+    """Step-advance through every gate between current and *target*.
+
+    Artifact enforcement has already happened; this helper exists because
+    the state machine only allows single-step forward moves. The artifact
+    check subsumes the intermediate gates (spec.json ⇒ discuss is done;
+    plan.md ⇒ plan is done).
+    """
+    order = list(sm.GATES)
+    state = sm.read_state(run_dir)
+    current = state.get("gate", "discuss")
+    target_idx = order.index(target)
+    current_idx = order.index(current)
+    if current_idx >= target_idx:
+        # Already at-or-past target; advance() is idempotent for same-gate.
+        sm.advance(run_dir, target, note=note)
+        return
+    for intermediate in order[current_idx + 1:target_idx + 1]:
+        sm.advance(run_dir, intermediate, note=note)
+
+
+def _cmd_execute(args: argparse.Namespace) -> int:
+    run_dir = _resolve_run_dir(args.run_id)
+    if not run_dir.exists():
+        print(f"error: run-dir not found: {run_dir}", file=sys.stderr)
+        return 2
+    missing = _enforce_artifacts(run_dir, "execute")
+    if missing:
+        print("error: artifact-first lifecycle — missing required artifacts:",
+              file=sys.stderr)
+        for m in missing:
+            print(f"  - {m}", file=sys.stderr)
+        return 2
+    sm = _load_state_machine()
+    if sm is None:
+        print("warn: state_machine.py unavailable — skipping gate advance",
+              file=sys.stderr)
+    else:
+        try:
+            _walk_gates(sm, run_dir, "execute", note="omni execute")
+        except sm.StateMachineError as exc:
+            print(f"error: state machine: {exc}", file=sys.stderr)
+            return 2
+    print(f"omni execute: {run_dir} — ready to run (gate=execute)")
+    return 0
+
+
+def _cmd_verify(args: argparse.Namespace) -> int:
+    run_dir = _resolve_run_dir(args.run_id)
+    if not run_dir.exists():
+        print(f"error: run-dir not found: {run_dir}", file=sys.stderr)
+        return 2
+    missing = _enforce_artifacts(run_dir, "verify")
+    if missing:
+        print("error: artifact-first lifecycle — missing required artifacts:",
+              file=sys.stderr)
+        for m in missing:
+            print(f"  - {m}", file=sys.stderr)
+        return 2
+    sm = _load_state_machine()
+    if sm is None:
+        print("warn: state_machine.py unavailable — skipping gate advance",
+              file=sys.stderr)
+    else:
+        try:
+            _walk_gates(sm, run_dir, "verify", note="omni verify")
+        except sm.StateMachineError as exc:
+            print(f"error: state machine: {exc}", file=sys.stderr)
+            return 2
+    print(f"omni verify: {run_dir} — ready to run (gate=verify)")
+    return 0
+
+
 def _cmd_list(args: argparse.Namespace) -> int:
     root = _plugin_root()
     if args.kind in ("skills", "all"):
@@ -593,6 +704,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     mcp = sub.add_parser("mcp", help="Run the MCP server in stdio mode")
     mcp.set_defaults(func=_cmd_mcp)
+
+    # Phase-C C20: artifact-first lifecycle gates.
+    execute = sub.add_parser(
+        "execute",
+        help="Enforce the execute gate: require spec.json, advance state machine",
+    )
+    execute.add_argument("run_id",
+                         help="run-id or absolute path to the run directory")
+    execute.set_defaults(func=_cmd_execute)
+
+    verify = sub.add_parser(
+        "verify",
+        help="Enforce the verify gate: require plan.md, advance state machine",
+    )
+    verify.add_argument("run_id",
+                        help="run-id or absolute path to the run directory")
+    verify.set_defaults(func=_cmd_verify)
 
     lst = sub.add_parser("list", help="List installed skills/agents/commands")
     lst.add_argument("kind", choices=["skills", "agents", "commands", "all"],
