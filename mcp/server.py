@@ -42,7 +42,7 @@ from typing import Any, Dict, List, Optional, Tuple
 SERVER_NAME = "copilot-omni"
 SERVER_VERSION = "1.0.0"
 PROTOCOL_VERSION = "2024-11-05"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 # ------------------------------------------------------------------ storage
@@ -141,6 +141,10 @@ MIGRATIONS: List[Tuple[int, str]] = [
     """),
     (2, """
         ALTER TABLE state ADD COLUMN session_id TEXT;
+    """),
+    (3, """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_state_mode_session
+            ON state(mode, COALESCE(session_id, ''));
     """),
 ]
 

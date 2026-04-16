@@ -73,8 +73,8 @@ def _make_v1_db(path: str) -> sqlite3.Connection:
 
 class TestMigrationV1ToV2(unittest.TestCase):
 
-    def test_v1_to_v2_migration(self):
-        """Starting from v1 DB, _migrate() should bump to v2 and add session_id."""
+    def test_v1_to_v3_migration(self):
+        """Starting from v1 DB, _migrate() should bump to v3, add session_id, and unique index."""
         with tempfile.TemporaryDirectory() as td:
             db_path = str(Path(td) / "omni.db")
             # Create v1 DB manually.
@@ -91,20 +91,28 @@ class TestMigrationV1ToV2(unittest.TestCase):
                 conn2.execute("PRAGMA foreign_keys=ON")
                 srv._migrate(conn2)
 
-                # Version must be 2.
+                # Version must be current SCHEMA_VERSION (3).
                 row = conn2.execute("SELECT version FROM schema_version").fetchone()
-                self.assertEqual(row["version"], 2)
+                self.assertEqual(row["version"], srv.SCHEMA_VERSION)
+                self.assertEqual(srv.SCHEMA_VERSION, 3)
 
                 # session_id column must exist on state table.
                 cols = {r["name"] for r in conn2.execute("PRAGMA table_info(state)").fetchall()}
                 self.assertIn("session_id", cols)
 
+                # idx_state_mode_session must exist.
+                indexes = {
+                    r["name"]
+                    for r in conn2.execute("PRAGMA index_list(state)").fetchall()
+                }
+                self.assertIn("idx_state_mode_session", indexes)
+
                 conn2.close()
             finally:
                 os.environ.pop("OMNI_HOME", None)
 
-    def test_fresh_db_ends_at_v2(self):
-        """A brand-new DB migrated from scratch reaches SCHEMA_VERSION=2."""
+    def test_fresh_db_ends_at_current_schema_version(self):
+        """A brand-new DB migrated from scratch reaches SCHEMA_VERSION (currently 3)."""
         with tempfile.TemporaryDirectory() as td:
             import os
             os.environ["OMNI_HOME"] = td
@@ -118,7 +126,7 @@ class TestMigrationV1ToV2(unittest.TestCase):
 
                 row = conn.execute("SELECT version FROM schema_version").fetchone()
                 self.assertEqual(row["version"], srv.SCHEMA_VERSION)
-                self.assertEqual(srv.SCHEMA_VERSION, 2)
+                self.assertEqual(srv.SCHEMA_VERSION, 3)
                 conn.close()
             finally:
                 os.environ.pop("OMNI_HOME", None)
@@ -130,10 +138,10 @@ class TestNewerDbGuard(unittest.TestCase):
         """If DB schema_version > SCHEMA_VERSION, _migrate must raise RuntimeError."""
         with tempfile.TemporaryDirectory() as td:
             db_path = str(Path(td) / "omni.db")
-            # Synthesize a v3 DB.
+            # Synthesize a v4 DB (one version ahead of current SCHEMA_VERSION=3).
             conn = sqlite3.connect(db_path, isolation_level=None)
             conn.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)")
-            conn.execute("INSERT INTO schema_version(version) VALUES (3)")
+            conn.execute("INSERT INTO schema_version(version) VALUES (4)")
             conn.close()
 
             import os
@@ -146,6 +154,113 @@ class TestNewerDbGuard(unittest.TestCase):
                     srv._migrate(conn2)
                 self.assertIn("newer plugin version", str(ctx.exception))
                 conn2.close()
+            finally:
+                os.environ.pop("OMNI_HOME", None)
+
+
+class TestMigrationV2ToV3(unittest.TestCase):
+    """T2: v2→v3 migration adds UNIQUE INDEX on (mode, COALESCE(session_id, ''))."""
+
+    def test_v2_to_v3_migration(self):
+        """Starting from v2 DB, _migrate() bumps to v3 and creates the unique index."""
+        with tempfile.TemporaryDirectory() as td:
+            db_path = str(Path(td) / "omni.db")
+            # Build a v2 DB (v1 schema + session_id column already added)
+            conn = _make_v1_db(db_path)
+            conn.execute("ALTER TABLE state ADD COLUMN session_id TEXT")
+            conn.execute("DELETE FROM schema_version")
+            conn.execute("INSERT INTO schema_version(version) VALUES (2)")
+            conn.close()
+
+            import os
+            os.environ["OMNI_HOME"] = td
+            try:
+                srv = _load_server()
+                conn2 = sqlite3.connect(db_path, isolation_level=None)
+                conn2.row_factory = sqlite3.Row
+                conn2.execute("PRAGMA foreign_keys=ON")
+                srv._migrate(conn2)
+
+                # Version must be 3.
+                row = conn2.execute("SELECT version FROM schema_version").fetchone()
+                self.assertEqual(row["version"], 3)
+
+                # The unique index must exist.
+                indexes = {
+                    r["name"]
+                    for r in conn2.execute("PRAGMA index_list(state)").fetchall()
+                }
+                self.assertIn("idx_state_mode_session", indexes,
+                              f"Expected idx_state_mode_session in {indexes}")
+                conn2.close()
+            finally:
+                os.environ.pop("OMNI_HOME", None)
+
+    def test_unique_mode_session_enforced(self):
+        """T2: inserting duplicate (mode, session_id) rows must fail after migration."""
+        with tempfile.TemporaryDirectory() as td:
+            import os
+            os.environ["OMNI_HOME"] = td
+            try:
+                srv = _load_server()
+                db_path = str(Path(td) / "omni.db")
+                conn = sqlite3.connect(db_path, isolation_level=None)
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA foreign_keys=ON")
+                srv._migrate(conn)
+
+                import time
+                now = time.time()
+                # First insert should succeed
+                conn.execute(
+                    "INSERT INTO state(mode, body, session_id, updated_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    ("autopilot", '{"phase":1}', "session-abc", now),
+                )
+
+                # Second insert with same (mode, session_id) must fail
+                with self.assertRaises(sqlite3.IntegrityError):
+                    conn.execute(
+                        "INSERT INTO state(mode, body, session_id, updated_at) "
+                        "VALUES (?, ?, ?, ?)",
+                        ("autopilot", '{"phase":2}', "session-abc", now + 1),
+                    )
+
+                conn.close()
+            finally:
+                os.environ.pop("OMNI_HOME", None)
+
+    def test_unique_allows_different_mode_same_session(self):
+        """T2: different mode keys with the same session_id must be allowed."""
+        with tempfile.TemporaryDirectory() as td:
+            import os
+            os.environ["OMNI_HOME"] = td
+            try:
+                srv = _load_server()
+                db_path = str(Path(td) / "omni.db")
+                conn = sqlite3.connect(db_path, isolation_level=None)
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA foreign_keys=ON")
+                srv._migrate(conn)
+
+                import time
+                now = time.time()
+                # Different modes, same session — both must be insertable
+                conn.execute(
+                    "INSERT INTO state(mode, body, session_id, updated_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    ("autopilot", '{"phase":1}', "session-abc", now),
+                )
+                conn.execute(
+                    "INSERT INTO state(mode, body, session_id, updated_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    ("ralplan", '{"cycle":1}', "session-abc", now),
+                )
+                rows = conn.execute(
+                    "SELECT COUNT(*) as cnt FROM state WHERE session_id='session-abc'"
+                ).fetchone()
+                self.assertEqual(rows["cnt"], 2)
+                conn.close()
             finally:
                 os.environ.pop("OMNI_HOME", None)
 
