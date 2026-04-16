@@ -83,6 +83,53 @@ def _env_bool(name: str, default: bool) -> bool:
     return val.strip().lower() not in ("0", "false", "no", "off", "")
 
 
+# ---------------------------------------------------------------------------
+# Skill vs. agent dispatcher (B1)
+# ---------------------------------------------------------------------------
+
+# Known skill names — these map to `/copilot-omni:<name>` invocations rather
+# than `--agent <name>`.  ADR-0006 §2: subprocess-only composition.
+_KNOWN_SKILLS: frozenset[str] = frozenset({
+    "ralplan",
+    "ralph",
+    "ralph-prd",
+    "ultrawork",
+    "ultraqa",
+    "autopilot",
+    "team",
+    "deep-interview",
+    "plan",
+    "cancel",
+})
+
+# ---------------------------------------------------------------------------
+# T4 / B4 — Production guard on OMNI_SUBAGENT_FAKE
+# ---------------------------------------------------------------------------
+# FAKE mode is honored ONLY when running under pytest (PYTEST_CURRENT_TEST is
+# set by pytest automatically) OR when OMNI_TEST_MODE=1 is explicitly set.
+# If someone sets OMNI_SUBAGENT_FAKE in a real shell session without one of
+# these guards, we refuse to fake and emit a loud warning instead.
+def _compute_fake() -> bool:
+    if not _env_bool("OMNI_SUBAGENT_FAKE", False):
+        return False
+    in_pytest = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+    in_test_mode = _env_bool("OMNI_TEST_MODE", False)
+    if in_pytest or in_test_mode:
+        return True
+    # FAKE set but not in a test context — refuse with loud warning.
+    print(
+        "WARNING: OMNI_SUBAGENT_FAKE=1 is set outside of a test context "
+        "(PYTEST_CURRENT_TEST and OMNI_TEST_MODE are both unset). "
+        "Fake mode REFUSED — real copilot will be invoked. "
+        "Set OMNI_TEST_MODE=1 to allow fake mode in non-pytest scripts.",
+        file=sys.stderr,
+    )
+    return False
+
+
+_FAKE: bool = _compute_fake()
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -323,12 +370,11 @@ def spawn(
         else:
             return _spawn_foreground(
                 agent, prompt, effective_model, allow_all, timeout,
-                job_id, run_id, job_dir, status, status_path, session_id
+                job_id, run_id, job_dir, status, status_path, session_id, pool
             )
     finally:
-        # For foreground: pool is released inside _spawn_foreground
+        # For foreground: pool is released inside _spawn_foreground via try/finally
         # For background: pool release is handled by the spawned process wrapper
-        # If background, we already returned above so this only runs on exception path
         pass
 
 
@@ -381,34 +427,57 @@ def _get_fake_response(agent: str) -> str:
     return response_text
 
 
+def _fake_env(agent: str) -> dict:
+    """Return an os.environ copy with _F_* vars set for the fake subprocess.
+
+    B2 fix: values are passed via environment variables, never interpolated
+    into source code.
+    """
+    env = dict(os.environ)
+    env["_F_SLEEP"] = os.environ.get("OMNI_SUBAGENT_FAKE_SLEEP_SECS", "1")
+    env["_F_EXIT"] = os.environ.get("OMNI_SUBAGENT_FAKE_EXIT_CODE", "0")
+    env["_F_STDERR"] = os.environ.get("OMNI_SUBAGENT_FAKE_STDERR", "")
+    env["_F_STDOUT"] = _get_fake_response(agent)
+    return env
+
+
 def _build_cmd(
     agent: str,
     prompt: str,
     effective_model: Optional[str],
     allow_all: bool,
 ) -> Optional[list]:
-    """Build the copilot command. Returns None if copilot not found."""
-    # OMNI_SUBAGENT_FAKE=1: bypass real copilot, use synthetic exit
-    if _env_bool("OMNI_SUBAGENT_FAKE", False):
+    """Build the copilot command. Returns None if copilot not found.
+
+    Dispatch: if *agent* is a known skill name, build
+    ``copilot -p <prompt> /copilot-omni:<agent>`` (skill invocation).
+    Otherwise build ``copilot -p <prompt> --agent <agent>`` (agent invocation).
+    """
+    # OMNI_SUBAGENT_FAKE=1: bypass real copilot, use synthetic exit.
+    # B4 guard: FAKE is only honored inside pytest or when OMNI_TEST_MODE=1.
+    if _FAKE:
         sleep_secs = float(os.environ.get("OMNI_SUBAGENT_FAKE_SLEEP_SECS", "1"))
         exit_code = int(os.environ.get("OMNI_SUBAGENT_FAKE_EXIT_CODE", "0"))
-        fake_stderr = os.environ.get("OMNI_SUBAGENT_FAKE_STDERR", "")
-        # Check for scripted per-agent response
+        # B2 fix: pass values via env vars, not string interpolation.
         fake_output = _get_fake_response(agent)
-        # Build a one-liner: sleep, optionally write stderr, then exit
-        stderr_part = ""
-        if fake_stderr:
-            escaped = fake_stderr.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
-            stderr_part = f"import sys; sys.stderr.write('{escaped}\\n'); "
-        escaped_output = fake_output.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
-        return [sys.executable, "-c",
-                f"import time; time.sleep({sleep_secs}); {stderr_part}print('{escaped_output}'); exit({exit_code})"]
+        inline = (
+            "import os, sys, time; "
+            "time.sleep(float(os.environ['_F_SLEEP'])); "
+            "sys.stderr.write(os.environ.get('_F_STDERR', '')); "
+            "print(os.environ.get('_F_STDOUT', 'OK')); "
+            "sys.exit(int(os.environ['_F_EXIT']))"
+        )
+        return [sys.executable, "-c", inline]
 
     copilot = shutil.which("copilot")
     if not copilot:
         return None
 
-    cmd = [copilot, "-p", prompt, "--agent", agent]
+    # B1 fix: skill-vs-agent dispatcher
+    if agent in _KNOWN_SKILLS:
+        cmd = [copilot, "-p", prompt, f"/copilot-omni:{agent}"]
+    else:
+        cmd = [copilot, "-p", prompt, "--agent", agent]
     if allow_all:
         cmd.append("--allow-all")
     if effective_model:
@@ -428,17 +497,16 @@ def _spawn_foreground(
     status: dict,
     status_path: str,
     session_id: Optional[str],
+    pool=None,
 ) -> dict:
     """Run synchronously, tee stdout/stderr to logs + terminal."""
-    pool_mod = _load_pool()
-
     cmd = _build_cmd(agent, prompt, effective_model, allow_all)
     if cmd is None:
         status.update(state="failed", ended_at=_now_iso(), exit_code=2,
                       error="copilot CLI not found on PATH")
         _write_status(job_dir, status)
         _mcp_write_best_effort(f"subagent:{job_id}", status, session_id)
-        _release_pool_safe(pool_mod, job_id)
+        _release_pool_safe(pool, job_id)
         return {"job_id": job_id, "run_id": run_id, "exit_code": 2,
                 "error": "copilot CLI not found", "status_path": status_path}
 
@@ -461,6 +529,7 @@ def _spawn_foreground(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=_fake_env(agent) if _FAKE else None,
         )
 
         # Tee stdout/stderr: relay to terminal AND write to log files
@@ -512,7 +581,7 @@ def _spawn_foreground(
     )
     _write_status(job_dir, status)
     _mcp_write_best_effort(f"subagent:{job_id}", status, session_id)
-    _release_pool_safe(pool_mod, job_id)
+    _release_pool_safe(pool, job_id)
 
     return {
         "job_id": job_id,
@@ -553,98 +622,39 @@ def _spawn_background(
         return {"job_id": job_id, "run_id": run_id, "exit_code": 2,
                 "error": "copilot CLI not found", "status_path": status_path}
 
-    # Write a small wrapper script into the run-dir that:
-    # 1. Updates status to running
-    # 2. Runs the real command
-    # 3. Updates status to done/failed
-    # 4. Releases the pool slot
-    wrapper_script = job_dir / "_wrapper.py"
-    cmd_json = json.dumps(cmd)
-    status_json_path = str(job_dir / "status.json")
-    stdout_log_path = str(job_dir / "stdout.log")
-    stderr_log_path = str(job_dir / "stderr.log")
+    # T9: write config JSON sidecar and invoke static wrapper module.
+    # This eliminates f-string interpolation of dynamic values into Python source.
+    wrapper_script = _wrapper_module_path()
+    config = {
+        "cmd": cmd,
+        "status_path": str(job_dir / "status.json"),
+        "stdout_log": str(job_dir / "stdout.log"),
+        "stderr_log": str(job_dir / "stderr.log"),
+        "job_id": job_id,
+        "run_id": run_id,
+        "agent": agent,
+        "session_id": session_id,
+        "timeout_secs": timeout,
+        "scripts_dir": str(Path(__file__).resolve().parent),
+    }
+    config_path = job_dir / "_wrapper_config.json"
+    _write_json_atomic(config_path, config)
 
-    wrapper_src = f"""\
-#!/usr/bin/env python3
-import json, os, subprocess, sys, time, uuid
-from datetime import datetime, timezone
-from pathlib import Path
-
-def _now_iso():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-def _write_json_atomic(path, data):
-    tmp = str(path) + ".tmp"
-    with open(tmp, "w") as f:
-        f.write(json.dumps(data, indent=2))
-    os.replace(tmp, str(path))
-
-status_path = {status_json_path!r}
-stdout_log = {stdout_log_path!r}
-stderr_log = {stderr_log_path!r}
-cmd = {cmd_json}
-job_id = {job_id!r}
-run_id = {run_id!r}
-agent = {agent!r}
-session_id = {session_id!r}
-timeout_secs = {timeout}
-pool_dir = {str(job_dir.parent.parent.parent / "locks")!r}
-
-# Load current status
-with open(status_path) as f:
-    status = json.load(f)
-
-# running
-status.update(state="running", started_at=_now_iso())
-_write_json_atomic(status_path, status)
-
-exit_code = 1
-error_text = None
-try:
-    with open(stdout_log, "w") as fout, open(stderr_log, "w") as ferr:
-        proc = subprocess.run(cmd, stdout=fout, stderr=ferr,
-                               timeout=timeout_secs, check=False)
-    exit_code = proc.returncode
-except subprocess.TimeoutExpired:
-    error_text = f"agent timed out after {{timeout_secs}}s"
-    exit_code = 124
-except Exception as e:
-    error_text = str(e)
-    exit_code = 1
-
-final_state = "done" if exit_code == 0 else "failed"
-status.update(state=final_state, ended_at=_now_iso(),
-              exit_code=exit_code, error=error_text)
-_write_json_atomic(status_path, status)
-
-# Release pool slot
-try:
-    here = Path(__file__).resolve().parent.parent.parent / "scripts"
-    pool_path = here / "subagent_pool.py"
-    if pool_path.exists():
-        import importlib.util as _ilu
-        spec = _ilu.spec_from_file_location("subagent_pool", str(pool_path))
-        mod = _ilu.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        p = mod.SubagentPool(cap=mod.get_cap())
-        p.release(job_id)
-except Exception:
-    pass
-"""
-
-    wrapper_script.write_text(wrapper_src, encoding="utf-8")
+    # B2: for fake mode, pass values via environment, not source interpolation
+    spawn_env = _fake_env(agent) if _FAKE else None
 
     # Transition status to running immediately (wrapper will update too)
     # We leave it as "pending" — the wrapper transitions to "running" when it starts.
 
-    # Launch wrapper detached
+    # Launch wrapper detached (T9: passes config_path as arg, no f-string source)
     try:
         proc = subprocess.Popen(
-            [sys.executable, str(wrapper_script)],
+            [sys.executable, str(wrapper_script), str(config_path)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
             close_fds=True,
+            env=spawn_env,
         )
         pid = proc.pid
     except Exception as exc:
@@ -671,6 +681,11 @@ except Exception:
         "pid": pid,
         "status_path": status_path,
     }
+
+
+def _wrapper_module_path() -> Path:
+    """Return path to the static wrapper module (scripts/_subagent_wrapper.py)."""
+    return Path(__file__).resolve().parent / "_subagent_wrapper.py"
 
 
 def _release_pool_safe(pool_or_mod, job_id: str) -> None:
@@ -709,7 +724,7 @@ def run_agent(
     If both *category* and *model* are given, *model* wins.
     """
     copilot = shutil.which("copilot")
-    if not _env_bool("OMNI_SUBAGENT_FAKE", False) and not copilot:
+    if not _FAKE and not copilot:
         print("error: `copilot` CLI not found on PATH", file=sys.stderr)
         return 2
     if allow_all is None:
@@ -727,7 +742,12 @@ def run_agent(
         return 2
 
     try:
-        result = subprocess.run(cmd, timeout=timeout, check=False)
+        result = subprocess.run(
+            cmd,
+            timeout=timeout,
+            check=False,
+            env=_fake_env(name) if _FAKE else None,
+        )
         return result.returncode
     except subprocess.TimeoutExpired:
         print(f"error: agent {name!r} timed out after {timeout}s", file=sys.stderr)
@@ -740,6 +760,12 @@ def run_agent(
 
 
 def main() -> int:
+    # B1: --is-skill <name> subcommand — returns 0 if name is a known skill, 1 otherwise
+    if len(sys.argv) == 3 and sys.argv[1] == "--is-skill":
+        name = sys.argv[2]
+        print("1" if name in _KNOWN_SKILLS else "0")
+        return 0 if name in _KNOWN_SKILLS else 1
+
     parser = argparse.ArgumentParser(description="Run a Copilot Omni subagent")
     parser.add_argument("name", help="Agent name (matches agents/<name>.md)")
     parser.add_argument("prompt", help="Task prompt to send the agent")
