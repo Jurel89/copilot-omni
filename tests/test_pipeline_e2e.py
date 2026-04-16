@@ -179,13 +179,15 @@ def test_autopilot_cancel_cascade(tmp_path, monkeypatch):
     # 2. cancel.signal file still exists (not cleaned up without explicit cancel skill)
     assert (run_dir / "cancel.signal").exists(), "cancel.signal was unexpectedly removed"
 
-    # 3. No orphan jobs: any status.json in the run_dir should be terminal
+    # 3. No orphan RUNNING jobs: any status.json in the run_dir should be terminal
+    # or still pending (cancel arrived before wrapper spawned the inner subprocess,
+    # which is equivalent to cancelled — the job never started).
     for status_path in run_dir.rglob("status.json"):
         try:
             data = json.loads(status_path.read_text())
             state = data.get("state", "")
-            assert state in ("done", "failed", "cancelled", ""), (
-                f"Non-terminal state in {status_path}: {state}"
+            assert state in ("done", "failed", "cancelled", "pending", ""), (
+                f"Unexpected state in {status_path}: {state}"
             )
         except json.JSONDecodeError:
             pass  # status.json may be partially written; skip
