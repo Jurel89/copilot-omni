@@ -56,6 +56,33 @@ class TestPreToolUse(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out)["permissionDecision"], "allow")
 
+    def test_malformed_shell_command_denied(self):
+        """C5: malformed shell input (unclosed quote) must exit with deny, not allow.
+
+        Plan §2.WS7 contract: ValueError from shlex.split → DENY.
+        Previously the hook fell through to allow after catching ValueError.
+        """
+        out, rc = run_hook("pre_tool_use.py", {
+            "tool_name": "shell",
+            "tool_args": {"command": "echo 'unterminated"},
+        })
+        self.assertEqual(rc, 0)
+        body = json.loads(out)
+        self.assertEqual(body["permissionDecision"], "deny",
+                         f"malformed shell command must be denied, got: {body}")
+        self.assertIn("malformed", body.get("permissionDecisionReason", "").lower())
+
+    def test_malformed_bash_command_denied(self):
+        """C5 variant: tool_name='bash' with malformed quoting also denied."""
+        out, rc = run_hook("pre_tool_use.py", {
+            "tool_name": "bash",
+            "tool_args": {"command": 'echo "no closing quote'},
+        })
+        self.assertEqual(rc, 0)
+        body = json.loads(out)
+        self.assertEqual(body["permissionDecision"], "deny",
+                         f"malformed bash command must be denied, got: {body}")
+
 
 class TestUserPromptSubmit(unittest.TestCase):
     """WS3: user_prompt_submit emits structured <router-decision> blocks."""

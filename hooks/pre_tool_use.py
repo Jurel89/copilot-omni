@@ -145,10 +145,25 @@ def main() -> int:
         try:
             tokens: List[str] = shlex.split(cmd, posix=True)
         except ValueError:
-            # Malformed shell input: treat as one opaque token so deny-patterns
-            # are still applied against the raw string (via lower_cmd match)
-            # rather than being bypassed by a crafted quote sequence.
-            tokens = [cmd]
+            # Malformed shell input (e.g. unclosed quote): DENY immediately.
+            # Plan §2.WS7 contract: ValueError → DENY.
+            # Falling through to allow would violate the security contract because
+            # a crafted malformed command could bypass deny-pattern matching.
+            reason = "copilot-omni policy: malformed-shell-command (unclosed quote or invalid syntax)"
+            result = _decision("deny", reason)
+            sys.stdout.write(json.dumps(result))
+            _append_audit({
+                "hook": _HOOK_NAME,
+                "event_name": "pre_tool_use",
+                "tool_name": tool_name,
+                "prompt_excerpt": cmd[:120],
+                "action": "deny",
+                "reason": reason,
+            })
+            _write_metric("hook_exit_code", 0, {"hook": _HOOK_NAME, "action": "deny"})
+            _write_metric("hook_latency_ms", round((time.monotonic() - t_start) * 1000, 2),
+                          {"hook": _HOOK_NAME})
+            return 0
         lower_cmd = cmd.lower()
         token_set = {t.lower() for t in tokens}
         token_basenames = {os.path.basename(t).lower() for t in tokens}
