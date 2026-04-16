@@ -180,12 +180,18 @@ def parse_coverage_json(cov_json_path: Path) -> Dict[str, Any]:
         total = stats["num_statements"]
         executed = stats["num_executed"]
         if total == 0:
-            pct = 100.0
+            # C9: 0 statements means instrumentation failed or the module was
+            # not executed at all. Reporting 100% here would make the coverage
+            # gate a rubber stamp. Mark as "unmeasured" and set coverage to 0.0
+            # so --check correctly fails.
+            pct = 0.0
+            status = "unmeasured"
         else:
             pct = round(executed / total * 100, 1)
+            target = MODULE_TARGETS[module]
+            status = "ok" if pct >= target else "fail"
 
         target = MODULE_TARGETS[module]
-        status = "ok" if pct >= target else "fail"
         report[module] = {
             "line_coverage": pct,
             "missing_lines": stats["missing"][:50],  # cap at 50 for readability
@@ -215,7 +221,7 @@ def print_report(report: Dict[str, Any]) -> None:
         print(f"{module:<12} {cov:>10} {tgt:>8} {status:>8}")
     print("=" * 60)
 
-    any_fail = any(v["status"] == "fail" for v in report.values())
+    any_fail = any(v["status"] in ("fail", "unmeasured") for v in report.values())
     print(f"\nOverall: {'FAIL — some modules below target' if any_fail else 'PASS — all modules meet targets'}\n")
 
     print("JSON report:")
@@ -276,7 +282,7 @@ def main(argv: Optional[list] = None) -> int:
     print_report(report)
 
     if args.check:
-        any_fail = any(v["status"] == "fail" for v in report.values())
+        any_fail = any(v["status"] in ("fail", "unmeasured") for v in report.values())
         if any_fail:
             print("COVERAGE CHECK FAILED: one or more modules below target.", file=sys.stderr)
             return 1
