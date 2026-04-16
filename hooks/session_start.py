@@ -87,22 +87,44 @@ def _count_recursive(directory: Path, filename: str) -> int:
 
 
 def _compute_tree_hash(root: Path) -> str:
-    """Compute a lightweight hash of the plugin's manifest files.
+    """Compute a lightweight hash reflecting the current plugin state.
 
-    Uses plugin.json + AGENTS.md modification times and sizes for speed
-    (< 5ms), avoiding a full directory walk.
+    C12 fix: hash skills/ + agents/ dir mtimes + mcp/server.py mtime/size
+    so that adding/removing a skill or tool invalidates the banner cache.
+
+    Previous implementation only hashed plugin.json + AGENTS.md + hooks.json
+    which did NOT detect skill/tool additions.
     """
     h = hashlib.md5()  # noqa: S324 — not security-sensitive, just cache key
-    for candidate in [
-        root / ".claude-plugin" / "plugin.json",
-        root / "AGENTS.md",
-        root / "hooks" / "hooks.json",
-    ]:
-        try:
-            s = candidate.stat()
-            h.update(f"{candidate}:{s.st_mtime}:{s.st_size}".encode())
-        except Exception:
-            h.update(str(candidate).encode())
+
+    # Hash each SKILL.md under skills/ (sorted for determinism)
+    skills_dir = root / "skills"
+    if skills_dir.is_dir():
+        for skill_md in sorted(skills_dir.rglob("SKILL.md")):
+            try:
+                s = skill_md.stat()
+                h.update(f"skill:{skill_md}:{s.st_mtime}:{s.st_size}".encode())
+            except Exception:
+                h.update(f"skill:{skill_md}:missing".encode())
+
+    # Hash each agent definition under agents/ (sorted)
+    agents_dir = root / "agents"
+    if agents_dir.is_dir():
+        for agent_md in sorted(agents_dir.glob("*.md")):
+            try:
+                s = agent_md.stat()
+                h.update(f"agent:{agent_md}:{s.st_mtime}:{s.st_size}".encode())
+            except Exception:
+                h.update(f"agent:{agent_md}:missing".encode())
+
+    # Hash mcp/server.py (tool registry lives here)
+    mcp_server = root / "mcp" / "server.py"
+    try:
+        s = mcp_server.stat()
+        h.update(f"mcp:{mcp_server}:{s.st_mtime}:{s.st_size}".encode())
+    except Exception:
+        h.update(f"mcp:{mcp_server}:missing".encode())
+
     return h.hexdigest()
 
 
@@ -145,17 +167,20 @@ def _pool_cap(root: Path) -> str:
 def _compute_banner(root: Path) -> str:
     """Compute the banner string from current plugin state."""
     version = _read_version(root)
-    n_skills = _count_items(root / "skills", "*") if (root / "skills").is_dir() else 0
-    n_agents = 0
-    agents_path = root / "AGENTS.md"
-    if agents_path.exists():
-        try:
-            text = agents_path.read_text(encoding="utf-8")
-            import re
-            # Count lines matching "## <AgentName>" or agent definitions
-            n_agents = len(re.findall(r'^##\s+\w', text, re.MULTILINE))
-        except Exception:
-            pass
+    # C12: count skills from filesystem (skills/*/SKILL.md), not directory count
+    n_skills = _count_recursive(root / "skills", "SKILL.md") if (root / "skills").is_dir() else 0
+    # C12: count agents from agents/*.md filesystem, not AGENTS.md regex
+    n_agents = _count_items(root / "agents", "*.md") if (root / "agents").is_dir() else 0
+    if n_agents == 0:
+        # Fallback: parse AGENTS.md only if agents/ dir is absent
+        agents_path = root / "AGENTS.md"
+        if agents_path.exists():
+            try:
+                text = agents_path.read_text(encoding="utf-8")
+                import re
+                n_agents = len(re.findall(r'^##\s+\w', text, re.MULTILINE))
+            except Exception:
+                pass
     # Count slash commands from plugin.json
     n_commands = 0
     for p in [root / ".claude-plugin" / "plugin.json", root / "plugin.json"]:

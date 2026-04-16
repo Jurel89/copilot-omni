@@ -90,23 +90,29 @@ class TestBannerCache(unittest.TestCase):
         self.assertEqual(banner1, banner2)
 
     def test_cache_invalidated_on_tree_change(self):
+        """C12: adding a SKILL.md must invalidate the banner cache."""
         mod = self._load_mod()
-        # Populate cache
-        _, _ = self._get_banner(mod)
-        # Modify a file that affects tree hash
-        import time as _t
-        _t.sleep(0.01)  # ensure mtime changes
-        (self._root / "hooks" / "hooks.json").write_text('{"changed": true}', encoding="utf-8")
-        # Touch the file so mtime changes (some filesystems have 1s resolution)
-        p = self._root / "hooks" / "hooks.json"
-        p.touch()
-        # Reload mod to get fresh _compute_tree_hash
+        # Add SKILL.md to existing skills so tree hash includes them
+        for s in ["autopilot", "ralph", "plan"]:
+            (self._root / "skills" / s / "SKILL.md").write_text(
+                f"---\nname: {s}\n---\n", encoding="utf-8"
+            )
+        # First call — populates cache
+        banner1, hit1 = self._get_banner(mod)
+        self.assertFalse(hit1, "First call must miss cache")
+
+        # Add a new skill with SKILL.md
+        new_skill = self._root / "skills" / "new-skill"
+        new_skill.mkdir()
+        (new_skill / "SKILL.md").write_text("---\nname: new-skill\n---\n", encoding="utf-8")
+
+        # Reload mod so _compute_tree_hash re-evaluates
         mod2 = self._load_mod()
-        _, hit = self._get_banner(mod2)
-        # May or may not be a cache hit depending on filesystem mtime resolution,
-        # but the banner should still be valid
-        banner, _ = self._get_banner(mod2)
-        self.assertIn("copilot-omni", banner)
+        _, hit2 = self._get_banner(mod2)
+        self.assertFalse(hit2, (
+            "C12: cache must be invalidated when a new SKILL.md is added — "
+            "banner with stale skill count would be served"
+        ))
 
     def test_banner_contains_skills_count(self):
         mod = self._load_mod()
