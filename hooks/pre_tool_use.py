@@ -135,6 +135,58 @@ def _decision(decision: str, reason: str = "") -> Dict[str, Any]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Phase-C C25: router-decision enforcement (advisory → enforced).
+# ---------------------------------------------------------------------------
+
+# Tools that are exempt from enforcement: these are the ways the user
+# *takes* the redirect or manages the session around it. Without the
+# allowlist a redirect would pin every subsequent action.
+_ROUTER_EXEMPT_TOOLS = frozenset({
+    "",                        # unknown / non-routed tool
+    "deep_interview",
+    "deep-interview",
+    "ask",                     # interview UX uses read-only tools
+    "state_read",
+    "state_write",
+    "state_clear",
+    "health",
+    "doctor",
+    "memory_search",
+    "memory_capture",
+    "notepad_read",
+    "notepad_write",
+    "router",
+})
+
+
+def _router_enforce_deny() -> Dict[str, Any] | None:
+    """Return a deny-decision if the last router verdict was 'redirect'
+    and OMNI_ROUTER_ENFORCE=1 and the current tool isn't exempt.
+
+    Returns None when enforcement does not apply.
+    """
+    if os.environ.get("OMNI_ROUTER_ENFORCE", "").strip().lower() not in ("1", "true", "yes"):
+        return None
+    sentinel = Path(os.getcwd()) / ".omni" / "cache" / "router-last.json"
+    if not sentinel.exists():
+        return None
+    try:
+        data = json.loads(sentinel.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if data.get("decision") != "redirect":
+        return None
+    return {
+        "reason": (
+            "copilot-omni router (OMNI_ROUTER_ENFORCE=1): last prompt was "
+            f"classified vague (score={data.get('score', 0.0)}). Take the "
+            f"{data.get('redirect_to') or 'deep-interview'} redirect or add "
+            "--skip-interview to the prompt."
+        ),
+    }
+
+
 def main() -> int:
     t_start = time.monotonic()
     try:
@@ -150,6 +202,29 @@ def main() -> int:
 
     action = "allow"
     reason = ""
+
+    # Phase-C C25: router enforcement gate. Runs before policy checks so the
+    # operator gets one unambiguous reason back (router, not policy).
+    if tool_name not in _ROUTER_EXEMPT_TOOLS:
+        router_block = _router_enforce_deny()
+        if router_block is not None:
+            result = _decision("deny", router_block["reason"])
+            sys.stdout.write(json.dumps(result))
+            _append_audit({
+                "hook": _HOOK_NAME,
+                "event_name": "pre_tool_use",
+                "tool_name": tool_name,
+                "prompt_excerpt": "",
+                "action": "deny",
+                "reason": router_block["reason"],
+            })
+            _write_metric("hook_exit_code", 0,
+                          {"hook": _HOOK_NAME, "action": "deny",
+                           "cause": "router_enforce"})
+            _write_metric("hook_latency_ms",
+                          round((time.monotonic() - t_start) * 1000, 2),
+                          {"hook": _HOOK_NAME})
+            return 0
 
     if tool_name in ("shell", "bash"):
         cmd = str(tool_args.get("command", ""))
