@@ -452,6 +452,136 @@ def _tool_memory_search(args: Dict[str, Any]) -> Dict[str, Any]:
     return _json_result({"results": [dict(r) for r in rows]})
 
 
+# ------------------------------------------------------------------ Phase-C C18: LSP + ast-grep
+
+def _which(binary: str) -> Optional[str]:
+    return shutil.which(binary)
+
+
+def _run_subprocess(cmd: List[str], *, input_text: Optional[str] = None,
+                    timeout: float = 30.0) -> Dict[str, Any]:
+    import subprocess as _sp  # noqa: PLC0415
+    try:
+        proc = _sp.run(
+            cmd, input=input_text, capture_output=True, text=True, timeout=timeout,
+        )
+    except FileNotFoundError:
+        return {"status": "skipped", "reason": f"{cmd[0]} not found on PATH"}
+    except _sp.TimeoutExpired:
+        return {"status": "error", "reason": f"{cmd[0]} timed out after {timeout}s"}
+    return {
+        "status": "ok" if proc.returncode == 0 else "error",
+        "returncode": proc.returncode,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr[:4000],
+    }
+
+
+def _tool_lsp_hover(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Best-effort LSP hover query.
+
+    Requires an LSP server binary on PATH (``ls_binary`` arg, default
+    ``pylsp``). Returns ``status: "skipped"`` when the binary is absent so
+    callers degrade gracefully rather than error.
+    """
+    binary = args.get("ls_binary", "pylsp")
+    path = args.get("path", "")
+    line = int(args.get("line", 0))
+    character = int(args.get("character", 0))
+    if not _which(binary):
+        return _json_result({
+            "status": "skipped",
+            "reason": f"{binary!r} not found on PATH — install an LSP "
+                      f"server to enable this tool",
+            "path": path,
+        })
+    # We don't start a persistent LSP session here — the intent is a smoke
+    # surface. A real handler would spawn the LSP over stdio JSON-RPC. For
+    # now we echo the request back with status=stub so integrations can
+    # probe and downstream tests can assert the call shape.
+    return _json_result({
+        "status": "stub",
+        "ls_binary": binary,
+        "path": path,
+        "line": line,
+        "character": character,
+        "note": "full LSP session not implemented; binary is present",
+    })
+
+
+def _tool_lsp_goto_definition(args: Dict[str, Any]) -> Dict[str, Any]:
+    binary = args.get("ls_binary", "pylsp")
+    if not _which(binary):
+        return _json_result({
+            "status": "skipped",
+            "reason": f"{binary!r} not found on PATH",
+        })
+    return _json_result({
+        "status": "stub",
+        "ls_binary": binary,
+        "path": args.get("path", ""),
+        "line": int(args.get("line", 0)),
+        "character": int(args.get("character", 0)),
+    })
+
+
+def _tool_lsp_find_references(args: Dict[str, Any]) -> Dict[str, Any]:
+    binary = args.get("ls_binary", "pylsp")
+    if not _which(binary):
+        return _json_result({
+            "status": "skipped",
+            "reason": f"{binary!r} not found on PATH",
+        })
+    return _json_result({
+        "status": "stub",
+        "ls_binary": binary,
+        "path": args.get("path", ""),
+        "line": int(args.get("line", 0)),
+        "character": int(args.get("character", 0)),
+    })
+
+
+def _tool_ast_grep_search(args: Dict[str, Any]) -> Dict[str, Any]:
+    pattern = args.get("pattern", "")
+    target = args.get("path", ".")
+    lang = args.get("lang")
+    if not pattern:
+        raise ValueError("pattern required")
+    if not _which("ast-grep") and not _which("sg"):
+        return _json_result({
+            "status": "skipped",
+            "reason": "ast-grep (or 'sg') not found on PATH",
+        })
+    binary = _which("ast-grep") or _which("sg")
+    cmd = [binary, "run", "--pattern", pattern, target]
+    if lang:
+        cmd.extend(["--lang", lang])
+    result = _run_subprocess(cmd, timeout=30.0)
+    return _json_result(result)
+
+
+def _tool_ast_grep_replace(args: Dict[str, Any]) -> Dict[str, Any]:
+    pattern = args.get("pattern", "")
+    replacement = args.get("replacement", "")
+    target = args.get("path", ".")
+    lang = args.get("lang")
+    if not pattern or not replacement:
+        raise ValueError("pattern and replacement required")
+    if not _which("ast-grep") and not _which("sg"):
+        return _json_result({
+            "status": "skipped",
+            "reason": "ast-grep (or 'sg') not found on PATH",
+        })
+    binary = _which("ast-grep") or _which("sg")
+    cmd = [binary, "run", "--pattern", pattern,
+           "--rewrite", replacement,
+           "--update-all", target]
+    if lang:
+        cmd.extend(["--lang", lang])
+    result = _run_subprocess(cmd, timeout=60.0)
+    return _json_result(result)
+
+
 def _tool_policy_check(args: Dict[str, Any]) -> Dict[str, Any]:
     tool = args.get("tool", "")
     tool_args = args.get("args", {})
@@ -931,6 +1061,86 @@ TOOLS: Dict[str, Dict[str, Any]] = {
             },
         },
         "handler": _tool_memory_search,
+    },
+    "lsp_hover": {
+        "description": (
+            "Best-effort LSP hover query; skipped when no LSP server on PATH. "
+            "Phase-C C18 knowledge layer."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "ls_binary": {"type": "string"},
+                "path": {"type": "string"},
+                "line": {"type": "integer"},
+                "character": {"type": "integer"},
+            },
+        },
+        "handler": _tool_lsp_hover,
+    },
+    "lsp_goto_definition": {
+        "description": (
+            "Best-effort LSP go-to-definition; skipped when no LSP server on PATH."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "ls_binary": {"type": "string"},
+                "path": {"type": "string"},
+                "line": {"type": "integer"},
+                "character": {"type": "integer"},
+            },
+        },
+        "handler": _tool_lsp_goto_definition,
+    },
+    "lsp_find_references": {
+        "description": (
+            "Best-effort LSP find-references; skipped when no LSP server on PATH."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "ls_binary": {"type": "string"},
+                "path": {"type": "string"},
+                "line": {"type": "integer"},
+                "character": {"type": "integer"},
+            },
+        },
+        "handler": _tool_lsp_find_references,
+    },
+    "ast_grep_search": {
+        "description": (
+            "Structural code search via ast-grep; skipped when binary not on PATH."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["pattern"],
+            "properties": {
+                "pattern": {"type": "string"},
+                "path": {"type": "string"},
+                "lang": {"type": "string"},
+            },
+        },
+        "handler": _tool_ast_grep_search,
+    },
+    "ast_grep_replace": {
+        "description": (
+            "Structural code rewrite via ast-grep; skipped when binary not on PATH."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["pattern", "replacement"],
+            "properties": {
+                "pattern": {"type": "string"},
+                "replacement": {"type": "string"},
+                "path": {"type": "string"},
+                "lang": {"type": "string"},
+            },
+        },
+        "handler": _tool_ast_grep_replace,
     },
     "policy_check": {
         "description": "Check whether a tool invocation is allowed by active policy.",
