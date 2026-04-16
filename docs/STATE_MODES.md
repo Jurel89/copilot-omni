@@ -23,7 +23,10 @@ Dotted notation `<outer>.<inner>` identifies nested mode keys per ADR-0006 §3.
 | `ralplan.critic`       | skills/ralplan/SKILL.md     | Inner critic review run under ralplan            |
 | `ultrawork`            | skills/ultrawork/SKILL.md   | Ultrawork parallel task execution state          |
 | `ultraqa`              | skills/ultraqa/SKILL.md     | Ultraqa QA convergence run state                 |
-| `team`                 | skills/team/SKILL.md        | Team orchestration run state                     |
+| `team`                 | skills/team/SKILL.md        | Team orchestration run state (WS6 orchestrator)  |
+| `team.<worker-slug>`   | scripts/omni_team.py        | Per-worker team state (dynamic key per ADR-0006) |
+| `team.<slug>.ralph`    | scripts/omni_team.py        | Inner ralph run nested under team worker         |
+| `team.<slug>.autopilot`| scripts/omni_team.py        | Inner autopilot run nested under team worker     |
 
 ## Governance
 

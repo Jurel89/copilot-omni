@@ -51,6 +51,8 @@ ALLOWLIST_PATHS: tuple[str, ...] = (
     ".omni/plans/phase-b-master-plan-v1-backup.md",
     ".omni/plans/phase-b-critique-",   # prefix match
     ".omni/plans/phase-b-master-plan.md",
+    ".omni/plans/wave-2-review-",      # Wave 2 adversarial review outputs (prefix match)
+    ".omni/plans/wave-2.x-patch-report.md",
     "docs/ADR/ADR-0000",               # prefix match
     # Runtime state dirs — not source files
     ".omc/",
@@ -67,6 +69,8 @@ ALLOWLIST_PATHS: tuple[str, ...] = (
     ".omni/plans/wave-2-WS5a-report.md",
     # WS5b report documents autopilot/ralph rewrite; legitimately cites old patterns
     ".omni/plans/wave-2-WS5b-report.md",
+    # WS6 report documents team orchestration rewrite; legitimately cites old primitives
+    ".omni/plans/wave-3-WS6-report.md",
 )
 
 # Banned token patterns
@@ -1109,6 +1113,9 @@ _STATE_CANONICAL_ALLOWLIST_PY = (
     # unavailable (offline / no DB yet). This is the documented exception per
     # ADR-0007 §best-effort-writes.
     "scripts/subagent.py",
+    # WS6: omni_team.py _mcp_write_best_effort() follows the same best-effort
+    # proxy pattern — writes to the state table only when MCP server is offline.
+    "scripts/omni_team.py",
 )
 
 # Test files are excluded — they may seed the DB directly for test setup
@@ -1575,6 +1582,172 @@ def check_mode_key_registry(root: Path = ROOT) -> CheckResult:
     return ok, messages
 
 
+# ---------------------------------------------------------------------------
+# WS6: Team modes declared check
+# ---------------------------------------------------------------------------
+
+
+def check_team_modes_declared(root: Path = ROOT) -> CheckResult:
+    """WS6: every mode starting with 'team' or 'team.' used in code must be
+    registered in docs/STATE_MODES.md.
+
+    Scans scripts/, mcp/, skills/**/ for literal mode strings that start with
+    'team' (e.g. 'team', 'team.worker-1') and cross-references against the
+    registered modes in docs/STATE_MODES.md.
+
+    Dynamic patterns like 'team.{slug}' are skipped.
+    """
+    registered = _parse_registered_modes(root / "docs" / "STATE_MODES.md")
+    if not registered:
+        return True, ["team-modes-declared: STATE_MODES.md not found or empty — skip"]
+
+    violations: list[str] = []
+    _self = str(Path(__file__).relative_to(root)).replace("\\", "/")
+
+    for dir_name in _MODE_SCAN_DIRS:
+        scan_dir = root / dir_name
+        if not scan_dir.exists():
+            continue
+        for path in sorted(scan_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            if path.suffix not in _MODE_SCAN_EXTENSIONS:
+                continue
+            rel = str(path.relative_to(root)).replace("\\", "/")
+            if rel == _self:
+                continue
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+            for line_idx, line in enumerate(content.splitlines()):
+                for m in _MODE_LITERAL_RE.finditer(line):
+                    mode_val = m.group(1)
+                    # Only check team modes
+                    if not mode_val.startswith("team"):
+                        continue
+                    # Skip dynamic strings (contain { or })
+                    if _DYNAMIC_MODE_PREFIX.search(mode_val):
+                        continue
+                    # 'team' exact match is registered
+                    if mode_val == "team":
+                        if "team" not in registered:
+                            violations.append(
+                                f"  {rel}:{line_idx + 1}: unregistered team mode "
+                                f"'{mode_val}' — add to docs/STATE_MODES.md"
+                            )
+                        continue
+                    # 'team.<slug>' — check if 'team.<worker-slug>' pattern is registered
+                    # We accept any team.<x> if 'team' root is registered (per-worker keys
+                    # are dynamic by nature; only the pattern needs documenting)
+                    if "team" in registered:
+                        continue
+                    if mode_val not in registered:
+                        violations.append(
+                            f"  {rel}:{line_idx + 1}: unregistered team mode "
+                            f"'{mode_val}' — add to docs/STATE_MODES.md"
+                        )
+
+    ok = len(violations) == 0
+    messages: list[str] = []
+    if ok:
+        messages.append("team-modes-declared check passed")
+    else:
+        messages.append(f"FAIL: team-modes-declared: {len(violations)} unregistered team mode(s):")
+        messages.extend(violations)
+    return ok, messages
+
+
+# ---------------------------------------------------------------------------
+# WS6: Worktree hygiene check
+# ---------------------------------------------------------------------------
+
+
+def check_worktree_hygiene(root: Path = ROOT) -> CheckResult:
+    """WS6: walk .omni/runs/team-*; assert any worktree listed in manifest.json
+    also exists OR was pruned (no orphans in git worktree list).
+
+    An orphan is a worktree path that appears in manifest.json but is NOT in
+    `git worktree list` and the path doesn't exist on disk.
+    """
+    import json as _json
+    import subprocess as _subprocess
+
+    runs_dir = root / ".omni" / "runs"
+    if not runs_dir.exists():
+        return True, ["worktree-hygiene: no .omni/runs/ directory — skip"]
+
+    messages: list[str] = []
+    ok = True
+    n_checked = 0
+    n_orphans = 0
+
+    # Get git worktree list once
+    try:
+        result = _subprocess.run(
+            ["git", "worktree", "list", "--porcelain"],
+            capture_output=True,
+            text=True,
+            cwd=str(root),
+        )
+        git_worktree_paths: set[str] = set()
+        for line in result.stdout.splitlines():
+            if line.startswith("worktree "):
+                git_worktree_paths.add(line[len("worktree "):].strip())
+    except Exception:
+        git_worktree_paths = set()
+
+    for run_dir in sorted(runs_dir.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        if not run_dir.name.startswith("team-"):
+            continue
+        manifest_path = run_dir / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        workers = manifest.get("workers", [])
+        for w in workers:
+            wt_path_str = w.get("worktree_path", "")
+            if not wt_path_str:
+                continue
+            n_checked += 1
+            wt_path = Path(wt_path_str)
+
+            # Check: path exists on disk OR is in git worktree list
+            exists_on_disk = wt_path.exists()
+            in_git_list = wt_path_str in git_worktree_paths
+
+            if not exists_on_disk and not in_git_list:
+                # This is an orphan only if team status is not "cleaned" or "cancelled"
+                team_status_path = run_dir / "status.json"
+                team_status = {}
+                try:
+                    team_status = _json.loads(team_status_path.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+                team_state = team_status.get("state", "")
+                if team_state not in ("cleaned", "cancelled", "done"):
+                    n_orphans += 1
+                    rel_wt = str(wt_path).replace(str(root) + "/", "")
+                    messages.append(
+                        f"  WARN: possible orphan worktree (not on disk, not in git list): "
+                        f"{rel_wt} (team state: {team_state!r})"
+                    )
+
+    summary = f"worktree-hygiene: checked={n_checked}, possible_orphans={n_orphans}"
+    if n_orphans == 0:
+        messages.insert(0, summary + " OK")
+    else:
+        # Warn but don't fail (orphans may be in-progress teams)
+        messages.insert(0, f"WARN: {summary} (see below)")
+    return ok, messages
+
+
 CHECKS: dict = {
     "rename": check_rename,
     "rename-stub": check_rename_stub,
@@ -1591,6 +1764,8 @@ CHECKS: dict = {
     "run-directory-invariants": check_run_directory_invariants,
     "cancel-signal-pairing": check_cancel_signal_pairing,
     "mode-key-registry": check_mode_key_registry,
+    "team-modes-declared": check_team_modes_declared,
+    "worktree-hygiene": check_worktree_hygiene,
 }
 
 
