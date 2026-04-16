@@ -616,6 +616,113 @@ def _tool_notepad_read(args: Dict[str, Any]) -> Dict[str, Any]:
     return _json_result({"notes": [dict(r) for r in rows]})
 
 
+# ------------------------------------------------------------------ Phase-C C24: TTL prune
+
+
+DEFAULT_MEM_TTL_DAYS = 30.0
+DEFAULT_NOTEPAD_TTL_DAYS = 30.0
+
+
+def _resolve_ttl(args: Dict[str, Any], env_var: str, default_days: float) -> float:
+    """Resolve a TTL from the call args → env var → default."""
+    raw = args.get("ttl_days")
+    if raw is not None:
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"ttl_days must be numeric, got {raw!r}")
+    else:
+        env_raw = os.environ.get(env_var)
+        if env_raw:
+            try:
+                value = float(env_raw)
+            except ValueError:
+                value = default_days
+        else:
+            value = default_days
+    if value <= 0:
+        raise ValueError(f"ttl_days must be > 0, got {value}")
+    return value
+
+
+def _tool_memory_prune(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Delete memory rows whose updated_at is older than ttl_days."""
+    ttl_days = _resolve_ttl(args, "OMNI_MEM_TTL_DAYS", DEFAULT_MEM_TTL_DAYS)
+    dry_run = bool(args.get("dry_run", False))
+    scope = args.get("scope")
+    cutoff = _now() - ttl_days * 86400
+    with _Conn() as conn:
+        if dry_run:
+            if scope is not None:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM memory WHERE updated_at < ? AND scope=?",
+                    (cutoff, scope),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM memory WHERE updated_at < ?",
+                    (cutoff,),
+                ).fetchone()
+            deleted = int(row["n"] if row else 0)
+        else:
+            if scope is not None:
+                cur = conn.execute(
+                    "DELETE FROM memory WHERE updated_at < ? AND scope=?",
+                    (cutoff, scope),
+                )
+            else:
+                cur = conn.execute(
+                    "DELETE FROM memory WHERE updated_at < ?",
+                    (cutoff,),
+                )
+            deleted = cur.rowcount if cur.rowcount is not None else 0
+    return _json_result({
+        "deleted": deleted,
+        "ttl_days": ttl_days,
+        "dry_run": dry_run,
+        "scope": scope,
+    })
+
+
+def _tool_notepad_prune(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Delete notepad rows whose created_at is older than ttl_days."""
+    ttl_days = _resolve_ttl(args, "OMNI_NOTEPAD_TTL_DAYS", DEFAULT_NOTEPAD_TTL_DAYS)
+    dry_run = bool(args.get("dry_run", False))
+    kind = args.get("kind")
+    cutoff = _now() - ttl_days * 86400
+    with _Conn() as conn:
+        if dry_run:
+            if kind is not None:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM notepad WHERE created_at < ? AND kind=?",
+                    (cutoff, kind),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM notepad WHERE created_at < ?",
+                    (cutoff,),
+                ).fetchone()
+            deleted = int(row["n"] if row else 0)
+        else:
+            if kind is not None:
+                cur = conn.execute(
+                    "DELETE FROM notepad WHERE created_at < ? AND kind=?",
+                    (cutoff, kind),
+                )
+            else:
+                cur = conn.execute(
+                    "DELETE FROM notepad WHERE created_at < ?",
+                    (cutoff,),
+                )
+            deleted = cur.rowcount if cur.rowcount is not None else 0
+    return _json_result({
+        "deleted": deleted,
+        "ttl_days": ttl_days,
+        "dry_run": dry_run,
+        "kind": kind,
+    })
+
+
 def _tool_shared_memory_write(args: Dict[str, Any]) -> Dict[str, Any]:
     key = args["key"]
     body = args["body"]
@@ -794,6 +901,38 @@ TOOLS: Dict[str, Dict[str, Any]] = {
             "properties": {"kind": {"type": "string"}},
         },
         "handler": _tool_notepad_read,
+    },
+    "memory_prune": {
+        "description": (
+            "Delete memory rows older than ttl_days (default 30, or "
+            "OMNI_MEM_TTL_DAYS). Optional scope filter. dry_run=true returns "
+            "a count without deleting."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ttl_days": {"type": "number"},
+                "scope": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+            },
+        },
+        "handler": _tool_memory_prune,
+    },
+    "notepad_prune": {
+        "description": (
+            "Delete notepad rows older than ttl_days (default 30, or "
+            "OMNI_NOTEPAD_TTL_DAYS). Optional kind filter. dry_run=true "
+            "returns a count without deleting."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ttl_days": {"type": "number"},
+                "kind": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+            },
+        },
+        "handler": _tool_notepad_prune,
     },
     "shared_memory_write": {
         "description": "Write a cross-agent shared memory value.",
