@@ -109,6 +109,9 @@ _KNOWN_SKILLS: frozenset[str] = frozenset({
 # set by pytest automatically) OR when OMNI_TEST_MODE=1 is explicitly set.
 # If someone sets OMNI_SUBAGENT_FAKE in a real shell session without one of
 # these guards, we refuse to fake and emit a loud warning instead.
+_warned_fake_misuse: list = [False]
+
+
 def _compute_fake() -> bool:
     if not _env_bool("OMNI_SUBAGENT_FAKE", False):
         return False
@@ -116,18 +119,31 @@ def _compute_fake() -> bool:
     in_test_mode = _env_bool("OMNI_TEST_MODE", False)
     if in_pytest or in_test_mode:
         return True
-    # FAKE set but not in a test context — refuse with loud warning.
-    print(
-        "WARNING: OMNI_SUBAGENT_FAKE=1 is set outside of a test context "
-        "(PYTEST_CURRENT_TEST and OMNI_TEST_MODE are both unset). "
-        "Fake mode REFUSED — real copilot will be invoked. "
-        "Set OMNI_TEST_MODE=1 to allow fake mode in non-pytest scripts.",
-        file=sys.stderr,
-    )
+    # FAKE set but not in a test context — refuse with loud warning (once).
+    if not _warned_fake_misuse[0]:
+        print(
+            "WARNING: OMNI_SUBAGENT_FAKE=1 is set outside of a test context "
+            "(PYTEST_CURRENT_TEST and OMNI_TEST_MODE are both unset). "
+            "Fake mode REFUSED — real copilot will be invoked. "
+            "Set OMNI_TEST_MODE=1 to allow fake mode in non-pytest scripts.",
+            file=sys.stderr,
+        )
+        _warned_fake_misuse[0] = True
     return False
 
 
 _FAKE: bool = _compute_fake()
+
+
+def _is_fake() -> bool:
+    """Re-evaluate FAKE-mode at each call site.
+
+    Necessary because pytest sets PYTEST_CURRENT_TEST AFTER this module is
+    imported, so the eager `_FAKE` constant above evaluates to False during
+    the import even when running under pytest. Call sites that need the
+    runtime view (rather than the import-time view) use this function.
+    """
+    return _compute_fake()
 
 
 def _now_iso() -> str:
@@ -477,7 +493,7 @@ def _build_cmd(
     """
     # OMNI_SUBAGENT_FAKE=1: bypass real copilot, use synthetic exit.
     # B4 guard: FAKE is only honored inside pytest or when OMNI_TEST_MODE=1.
-    if _FAKE:
+    if _is_fake():
         sleep_secs = float(os.environ.get("OMNI_SUBAGENT_FAKE_SLEEP_SECS", "1"))
         exit_code = int(os.environ.get("OMNI_SUBAGENT_FAKE_EXIT_CODE", "0"))
         # B2 fix: pass values via env vars, not string interpolation.
@@ -548,7 +564,7 @@ def _spawn_foreground(
 
     # B5: build subprocess env with PARENT_RUN_ID so inner skills can find
     # the outer cancel.signal.
-    proc_env = _fake_env(agent) if _FAKE else dict(os.environ)
+    proc_env = _fake_env(agent) if _is_fake() else dict(os.environ)
     if parent_run_id:
         proc_env["PARENT_RUN_ID"] = parent_run_id
         here = Path(__file__).resolve().parent.parent
@@ -560,7 +576,7 @@ def _spawn_foreground(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env=proc_env if (_FAKE or parent_run_id) else None,
+            env=proc_env if (_is_fake() or parent_run_id) else None,
         )
 
         # Tee stdout/stderr: relay to terminal AND write to log files
@@ -678,11 +694,11 @@ def _spawn_background(
 
     # B2: for fake mode, pass values via environment, not source interpolation
     # B5: pass PARENT_RUN_ID / PARENT_RUN_DIR so inner skills can check outer cancel.signal
-    spawn_env = _fake_env(agent) if _FAKE else dict(os.environ)
+    spawn_env = _fake_env(agent) if _is_fake() else dict(os.environ)
     if parent_run_id:
         spawn_env["PARENT_RUN_ID"] = parent_run_id
         spawn_env["PARENT_RUN_DIR"] = config["parent_run_dir"] or ""
-    elif not _FAKE:
+    elif not _is_fake():
         spawn_env = None  # no override needed; inherit parent env
 
     # Transition status to running immediately (wrapper will update too)
@@ -766,7 +782,7 @@ def run_agent(
     If both *category* and *model* are given, *model* wins.
     """
     copilot = shutil.which("copilot")
-    if not _FAKE and not copilot:
+    if not _is_fake() and not copilot:
         print("error: `copilot` CLI not found on PATH", file=sys.stderr)
         return 2
     if allow_all is None:
@@ -788,7 +804,7 @@ def run_agent(
             cmd,
             timeout=timeout,
             check=False,
-            env=_fake_env(name) if _FAKE else None,
+            env=_fake_env(name) if _is_fake() else None,
         )
         return result.returncode
     except subprocess.TimeoutExpired:
