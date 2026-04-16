@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -109,17 +110,27 @@ def check_release_doc() -> tuple[str, bool]:
     return _check("docs/RELEASE-v2.0.0.md exists", ok, detail)
 
 
-def check_ci_runs() -> tuple[str, bool]:
+def check_ci_runs(*, skip_age_check: bool = False) -> tuple[str, bool]:
     """
-    Verify the last 3 CI runs on phase-b/main are all green.
+    Verify the last 3 CI runs on phase-b/main are all green AND that the
+    earliest green run is at least 24 hours old (plan §2.WS12 gate criterion).
 
-    Requires ``gh`` CLI authenticated. On failure, reports the raw output
-    so the user can diagnose rather than blocking on a missing tool.
+    Requirements enforced:
+    - Workflow name filter: only runs named "CI" are counted.
+    - Minimum 3 consecutive completed runs, all with conclusion="success"
+      (not "neutral" — neutral means a skipped required job).
+    - Earliest of the 3 runs must have createdAt >= 24h ago.
+
+    --skip-ci-age-check disables the 24h age requirement (dev-time use only).
+
+    Requires ``gh`` CLI authenticated.
     """
+    label = "Last 3 CI runs on phase-b/main green (≥24h apart)"
+
     gh_result = _run(["gh", "--version"])
     if gh_result.returncode != 0:
         return _check(
-            "Last 3 CI runs on phase-b/main green",
+            label,
             False,
             "gh CLI not available — install GitHub CLI to verify CI runs",
         )
@@ -128,43 +139,61 @@ def check_ci_runs() -> tuple[str, bool]:
         [
             "gh", "run", "list",
             "--branch", "phase-b/main",
-            "--limit", "3",
-            "--json", "status,conclusion,name",
+            "--workflow", "CI",
+            "--limit", "10",
+            "--json", "status,conclusion,name,createdAt",
         ]
     )
     if result.returncode != 0:
         detail = result.stderr.decode().strip()[:200]
-        return _check(
-            "Last 3 CI runs on phase-b/main green",
-            False,
-            f"gh run list failed: {detail}",
-        )
+        return _check(label, False, f"gh run list failed: {detail}")
 
     try:
-        runs = json.loads(result.stdout.decode())
+        all_runs = json.loads(result.stdout.decode())
     except json.JSONDecodeError as exc:
-        return _check(
-            "Last 3 CI runs on phase-b/main green",
-            False,
-            f"Could not parse gh output: {exc}",
-        )
+        return _check(label, False, f"Could not parse gh output: {exc}")
 
-    if not runs:
-        return _check(
-            "Last 3 CI runs on phase-b/main green",
-            False,
-            "No CI runs found for phase-b/main",
-        )
-
-    failures = [
-        f"{r.get('name','?')} status={r.get('status')} conclusion={r.get('conclusion')}"
-        for r in runs
-        if r.get("conclusion") not in ("success", "neutral")
-        or r.get("status") != "completed"
+    # Filter to completed CI runs only — exclude "neutral" (skipped jobs)
+    green_runs = [
+        r for r in all_runs
+        if r.get("status") == "completed"
+        and r.get("conclusion") == "success"
     ]
-    ok = len(failures) == 0
-    detail = "; ".join(failures) if failures else f"{len(runs)} run(s) checked"
-    return _check("Last 3 CI runs on phase-b/main green", ok, detail)
+
+    if len(green_runs) < 3:
+        detail = (
+            f"Need 3 green CI runs, found {len(green_runs)}. "
+            f"All runs: {[(r.get('name'), r.get('conclusion')) for r in all_runs[:5]]}"
+        )
+        return _check(label, False, detail)
+
+    # Take the 3 most recent green runs
+    runs = green_runs[:3]
+
+    # Age check: earliest of the 3 must be ≥24h old
+    if not skip_age_check:
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(hours=24)
+        earliest_run = runs[-1]  # oldest of the 3
+        created_str = earliest_run.get("createdAt", "")
+        try:
+            # GitHub returns ISO 8601 with trailing Z
+            created_at = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+            if created_at > cutoff:
+                age_hours = (now - created_at).total_seconds() / 3600
+                detail = (
+                    f"Earliest of 3 green runs is only {age_hours:.1f}h old "
+                    f"(need ≥24h). Use --skip-ci-age-check for dev-time testing."
+                )
+                return _check(label, False, detail)
+        except (ValueError, TypeError):
+            return _check(label, False, f"Cannot parse createdAt: {created_str!r}")
+
+    detail = (
+        f"3 green CI runs found"
+        + (" (age check skipped)" if skip_age_check else " (≥24h verified)")
+    )
+    return _check(label, True, detail)
 
 
 # ---------------------------------------------------------------------------
@@ -172,10 +201,30 @@ def check_ci_runs() -> tuple[str, bool]:
 # ---------------------------------------------------------------------------
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="release_preflight — v2.0.0 readiness gate",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    parser.add_argument(
+        "--skip-ci-age-check",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip the ≥24h age requirement for the last 3 CI green runs. "
+            "Use this only during development/testing — do NOT use for actual releases."
+        ),
+    )
+    args = parser.parse_args(argv)
+
     print("=" * 60)
     print("release_preflight — v2.0.0 readiness check")
     print("=" * 60)
+    if args.skip_ci_age_check:
+        print("WARNING: --skip-ci-age-check active; CI age requirement bypassed")
     print()
 
     results = [
@@ -185,7 +234,7 @@ def main() -> int:
         check_pytest(),
         check_changelog(),
         check_release_doc(),
-        check_ci_runs(),
+        check_ci_runs(skip_age_check=args.skip_ci_age_check),
     ]
 
     failures = []
