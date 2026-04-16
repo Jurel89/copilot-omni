@@ -34,7 +34,7 @@ def _cmd_version(_args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_doctor(_args: argparse.Namespace) -> int:
+def _cmd_doctor(args: argparse.Namespace) -> int:
     ok = True
     py_ok = sys.version_info >= (3, 9)
     print(f"python:        {sys.version.split()[0]:<12} "
@@ -77,7 +77,61 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
     print(f"omni_home:     {home}")
     home.mkdir(parents=True, exist_ok=True)
 
+    # WS3: router config check
+    _doctor_router(root, home, verbose=getattr(args, "verbose", False))
+
     return 0 if ok else 1
+
+
+def _doctor_router(root: Path, home: Path, *, verbose: bool = False) -> None:
+    """WS3: check and display router configuration."""
+    config_path = root / ".omni" / "config.json"
+    config: dict = {}
+    if config_path.exists():
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    router_cfg = config.get("router", {})
+    threshold = router_cfg.get("vagueness_threshold", None)
+
+    if threshold is None:
+        # Populate default
+        router_cfg["vagueness_threshold"] = 0.4
+        config["router"] = router_cfg
+        try:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+            threshold = 0.4
+            print(f"router:        vagueness_threshold=0.4 (defaulted OK)")
+        except Exception as exc:
+            print(f"router:        WARN: could not write default threshold: {exc}")
+    else:
+        print(f"router:        vagueness_threshold={threshold} OK")
+
+    if not verbose:
+        return
+
+    # Verbose: show last-N router decisions from MCP state
+    print("\n--- router decisions (last 5) ---")
+    try:
+        import importlib.util
+        state_path = root / "scripts" / "router_state.py"
+        spec = importlib.util.spec_from_file_location("router_state", state_path)
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            result = mod.read_pipeline_state(mode="router")
+            if result is None:
+                print("  (no router state found or MCP unavailable)")
+            else:
+                print(f"  decision:  {result.get('decision', '?')}")
+                print(f"  score:     {result.get('classifier_score', '?')}")
+                print(f"  excerpt:   {str(result.get('prompt_excerpt', ''))[:80]}")
+                print(f"  ts:        {result.get('ts', '?')}")
+    except Exception as exc:
+        print(f"  (could not read router state: {exc})")
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
@@ -167,7 +221,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("version").set_defaults(func=_cmd_version)
-    sub.add_parser("doctor").set_defaults(func=_cmd_doctor)
+    doctor = sub.add_parser("doctor")
+    doctor.add_argument("--verbose", action="store_true",
+                        help="Show router config and recent decisions")
+    doctor.set_defaults(func=_cmd_doctor)
 
     init = sub.add_parser("init", help="Scaffold .omni/ in the current project")
     init.add_argument("--path", default=None)
