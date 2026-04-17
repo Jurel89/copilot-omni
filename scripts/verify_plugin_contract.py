@@ -514,7 +514,13 @@ def check_writable_frontmatter() -> CheckResult:
     messages: list[str] = []
     ok = True
 
-    _WRITE_TOOLS = {"edit", "write", "bash", "execute", "*"}
+    # File-write tool names that disqualify an agent from the read-only
+    # contract. `bash` is intentionally not in this set — the
+    # pre_tool_use.py policy hook enforces deny-commands + protected_paths
+    # so shell access is bounded, and the reviewer agents legitimately need
+    # to run ``git log`` / ``git blame`` / ``rg`` / etc. to perform their
+    # prompts' work.
+    _WRITE_TOOLS = {"edit", "write", "create", "*"}
 
     def _tools_allowlist_is_read_only(frontmatter: str) -> bool:
         m = re.search(r"^\s*tools\s*:\s*\[(.*)\]\s*$", frontmatter, re.MULTILINE)

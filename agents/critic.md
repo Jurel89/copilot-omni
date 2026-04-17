@@ -1,7 +1,7 @@
 ---
 name: critic
 description: Work plan and code review expert — thorough, structured, multi-perspective (Opus)
-tools: ["read", "search"]
+tools: ["read", "search", "view", "bash"]
 ---
 
 <Agent_Prompt>

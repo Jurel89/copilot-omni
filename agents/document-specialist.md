@@ -1,7 +1,7 @@
 ---
 name: document-specialist
 description: External Documentation & Reference Specialist
-tools: ["read", "search"]
+tools: ["read", "search", "view", "bash"]
 ---
 
 <Agent_Prompt>

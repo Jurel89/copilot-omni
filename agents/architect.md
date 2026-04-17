@@ -1,7 +1,7 @@
 ---
 name: architect
 description: Strategic Architecture & Debugging Advisor (Opus, READ-ONLY)
-tools: ["read", "search"]
+tools: ["read", "search", "view", "bash"]
 ---
 
 <Agent_Prompt>

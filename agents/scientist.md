@@ -1,7 +1,7 @@
 ---
 name: scientist
 description: Data analysis and research execution specialist
-tools: ["read", "search"]
+tools: ["read", "search", "view", "bash"]
 ---
 
 <Agent_Prompt>

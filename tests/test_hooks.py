@@ -39,6 +39,44 @@ class TestPreToolUse(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out)["permissionDecision"], "allow")
 
+    def test_handles_copilot_cli_payload_shape(self):
+        # Regression: Copilot CLI emits `toolName` + `toolArgs` where
+        # `toolArgs` is a JSON-encoded STRING (per the hooks-configuration
+        # reference). The hook must decode it; naïve `.get()` against a
+        # string would raise AttributeError on the first live tool event.
+        out, rc = run_hook("pre_tool_use.py", {
+            "timestamp": 1704614600000,
+            "cwd": "/tmp",
+            "toolName": "bash",
+            "toolArgs": json.dumps({"command": "sudo rm -rf /"}),
+        })
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out)["permissionDecision"], "deny")
+
+    def test_deny_create_tool_on_protected_path(self):
+        # Regression: Copilot CLI's `create` tool name was previously not in
+        # the file-modification set, so `create plugin.json` silently slipped
+        # through the protected-path check.
+        out, rc = run_hook("pre_tool_use.py", {
+            "toolName": "create",
+            "toolArgs": json.dumps({"path": "plugin.json",
+                                    "file_text": "bogus"}),
+        })
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out)["permissionDecision"], "deny")
+
+    def test_malformed_toolargs_string_allows_through(self):
+        # If `toolArgs` is a string but not valid JSON, treat args as empty
+        # rather than crashing. Downstream checks fall through to allow
+        # when no command / file_path is present.
+        out, rc = run_hook("pre_tool_use.py", {
+            "toolName": "bash",
+            "toolArgs": "{not-json",
+        })
+        self.assertEqual(rc, 0)
+        # No command argument means no deny pattern matches → allow.
+        self.assertEqual(json.loads(out)["permissionDecision"], "allow")
+
     def test_deny_sudo(self):
         out, rc = run_hook("pre_tool_use.py", {
             "tool_name": "shell",
