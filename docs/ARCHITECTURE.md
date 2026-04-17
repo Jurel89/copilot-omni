@@ -85,7 +85,7 @@ overrides allow per-project pinning.
 | `notepad` | Session scratch memory by kind |
 | `shared_memory` | Cross-agent handoff |
 | `trace` | Causal-tracing entries (observation, hypothesis, evidence, verdict) |
-| `sessions` | Session summaries for `session_search` |
+| `sessions` | Session summaries (internal table, no MCP tool surface) |
 
 Schema is migrated on every server start via `_migrate()`.
 
