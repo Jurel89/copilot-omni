@@ -108,7 +108,135 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     if getattr(args, "gc", False):
         _doctor_run_gc(root, apply_=getattr(args, "gc_apply", False))
 
+    # Python-interpreter calibration (cross-OS). When requested, rewrite
+    # `.mcp.json` and `hooks/hooks.json` so Copilot CLI spawns the Python the
+    # user actually has — not a hardcoded `python3` that may not exist on
+    # Windows corporate boxes. Dry-run by default; use --fix-python-apply to
+    # persist.
+    if getattr(args, "fix_python", False):
+        fix_ok = _doctor_fix_python(
+            root, apply_=getattr(args, "fix_python_apply", False)
+        )
+        if not fix_ok and getattr(args, "fix_python_apply", False):
+            ok = False
+
     return 0 if ok else 1
+
+
+def _doctor_fix_python(root: Path, *, apply_: bool) -> bool:
+    """Calibrate `.mcp.json` + `hooks/hooks.json` to the current interpreter.
+
+    Copilot CLI launches MCP servers and hooks by invoking the literal
+    `command` string in each JSON. On Windows corporate installs the default
+    `python3` often isn't on PATH (only `py` / `python` are), which surfaces
+    as MCP error -32000 (connection closed). This helper rewrites the two
+    config files so they use the exact interpreter currently running
+    (`sys.executable`), making the plugin work on any machine that could
+    already launch this script.
+
+    Dry-run unless `apply_` is True. Idempotent: rewrites only when the
+    current command does not resolve to an executable on the current PATH.
+    Returns True on success (including when nothing needed fixing).
+    """
+    targets: list[tuple[Path, str, list[str]]] = [
+        # (path, label, list of JSON-pointer-ish selectors for audit output)
+        (root / ".mcp.json", ".mcp.json",
+         ["$.mcpServers.*.command"]),
+        (root / "hooks" / "hooks.json", "hooks/hooks.json",
+         ["$.hooks.*[*].command"]),
+    ]
+    current = sys.executable
+    print("")
+    print(f"fix-python:    current interpreter -> {current}")
+    print(f"fix-python:    mode               -> "
+          + ("APPLY (in-place rewrite)" if apply_ else "DRY-RUN"))
+
+    all_ok = True
+    for path, label, _selectors in targets:
+        if not path.exists():
+            print(f"fix-python:    {label}: NOT FOUND — skipping")
+            continue
+        try:
+            orig_text = path.read_text(encoding="utf-8")
+            data = json.loads(orig_text)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"fix-python:    {label}: FAIL to read/parse — {exc}")
+            all_ok = False
+            continue
+
+        changed, data = _rewrite_python_in_config(data, current)
+        if not changed:
+            print(f"fix-python:    {label}: already calibrated — no change")
+            continue
+
+        preview = json.dumps(data, indent=2) + "\n"
+        print(f"fix-python:    {label}: {len(changed)} command(s) would change:")
+        for before, after in changed:
+            print(f"                 {before!r} -> {after!r}")
+
+        if not apply_:
+            continue
+
+        try:
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            tmp.write_text(preview, encoding="utf-8")
+            os.replace(tmp, path)
+            print(f"fix-python:    {label}: WRITTEN")
+        except OSError as exc:
+            print(f"fix-python:    {label}: FAIL to write — {exc}")
+            all_ok = False
+
+    if not apply_:
+        print("fix-python:    (dry-run) re-run with --fix-python-apply to persist")
+    return all_ok
+
+
+def _rewrite_python_in_config(
+    data: object, interpreter: str
+) -> tuple[list[tuple[str, str]], object]:
+    """Walk the JSON tree and replace bare `python3` / `python` in any
+    `command` field with the absolute interpreter path when the current one
+    doesn't resolve on PATH.
+
+    Returns (list of (before, after) pairs, mutated data). The data is
+    mutated in place but also returned for convenience.
+    """
+    changed: list[tuple[str, str]] = []
+
+    def _needs_rewrite(cmd: str) -> bool:
+        # An absolute path that exists is already calibrated.
+        if os.path.isabs(cmd) and os.path.exists(cmd):
+            return False
+        # A bare name that resolves on PATH is fine too.
+        return shutil.which(cmd) is None
+
+    def _recurse(node: object) -> None:
+        if isinstance(node, dict):
+            cmd = node.get("command")
+            if isinstance(cmd, str):
+                # Hook commands are shell-ish strings ("python3 \"...\""). The
+                # MCP `command` is a bare executable name. Handle both: we
+                # only touch the leading token of the command string.
+                head, _, tail = cmd.partition(" ")
+                # strip a leading quote if present (Windows hook JSON quotes)
+                head_clean = head.strip('"').strip("'")
+                if head_clean and _needs_rewrite(head_clean):
+                    # Rebuild with interpreter substituted, preserving
+                    # original quoting style of the tail (if any).
+                    if tail:
+                        new_cmd = f'"{interpreter}" {tail}'
+                    else:
+                        new_cmd = interpreter
+                    node["command"] = new_cmd
+                    changed.append((cmd, new_cmd))
+            for v in node.values():
+                _recurse(v)
+        elif isinstance(node, list):
+            for v in node:
+                _recurse(v)
+
+    _recurse(data)
+    return changed, data
 
 
 def _doctor_run_gc(root: Path, *, apply_: bool) -> None:
@@ -717,6 +845,15 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Garbage-collect .omni/runs/ directories older than TTL (dry-run)")
     doctor.add_argument("--gc-apply", action="store_true",
                         help="With --gc, actually delete stale runs (default is dry-run)")
+    doctor.add_argument("--fix-python", action="store_true",
+                        help="Calibrate .mcp.json + hooks/hooks.json to the "
+                             "current Python interpreter. Dry-run by default; "
+                             "use --fix-python-apply to persist. Fix for "
+                             "Windows corporate boxes where `python3` is not "
+                             "on PATH.")
+    doctor.add_argument("--fix-python-apply", action="store_true",
+                        help="With --fix-python, actually rewrite the config "
+                             "files (default is dry-run).")
     doctor.set_defaults(func=_cmd_doctor)
 
     init = sub.add_parser("init", help="Scaffold .omni/ in the current project")
