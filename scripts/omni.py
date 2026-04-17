@@ -279,12 +279,14 @@ def _expand_plugin_root_vars(
 ) -> list[tuple[str, str]]:
     """Expand ``${OMNI_PLUGIN_ROOT}`` / ``${CLAUDE_PLUGIN_ROOT}`` to *plugin_root*.
 
-    Copilot CLI performs ``${VAR}`` substitution from the user's environment
-    but does not itself set a plugin-root variable. An unset var leaves the
-    literal token in the spawn argv and the child process fails with
-    file-not-found. ``fix-python --apply`` calls this helper after the
-    interpreter calibration pass so every shipped install becomes tied to a
-    concrete absolute path on disk.
+    Copilot CLI auto-exports ``COPILOT_PLUGIN_ROOT`` / ``CLAUDE_PLUGIN_ROOT`` /
+    ``PLUGIN_ROOT`` and substitutes ``${VAR}`` tokens at spawn time, so this
+    pass is usually a no-op. It's kept as a belt-and-braces calibration for:
+    (a) ``OMNI_PLUGIN_ROOT`` tokens left over from legacy configs,
+    (b) environments where the auto-export is disabled or the variable has
+        been filtered out (corporate shell profiles).
+    After this helper runs, ``.mcp.json`` and ``hooks/hooks.json`` contain
+    absolute paths that don't depend on any env var at all.
 
     Mutates *data* in place. Returns the list of (before, after) replacements.
     """
@@ -295,8 +297,10 @@ def _expand_plugin_root_vars(
         if "${" not in s:
             return s
         return (
-            s.replace("${OMNI_PLUGIN_ROOT}", root_str)
+            s.replace("${COPILOT_PLUGIN_ROOT}", root_str)
              .replace("${CLAUDE_PLUGIN_ROOT}", root_str)
+             .replace("${PLUGIN_ROOT}", root_str)
+             .replace("${OMNI_PLUGIN_ROOT}", root_str)
         )
 
     def _recurse(node: object) -> None:

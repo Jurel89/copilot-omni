@@ -57,12 +57,23 @@ _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
 _append_audit = _mod._append_audit
 _write_metric = _mod._write_metric
 
-# Plugin root: OMNI_PLUGIN_ROOT (primary) > file-relative default.
+# Plugin root lookup. Copilot CLI auto-exports COPILOT_PLUGIN_ROOT,
+# CLAUDE_PLUGIN_ROOT, and PLUGIN_ROOT to every hook subprocess, all pointing
+# at the installed plugin directory. OMNI_PLUGIN_ROOT is accepted as a
+# legacy fallback for configs calibrated by earlier fix-python runs. The
+# file-relative default covers the local-dev / --plugin-dir case where
+# neither is set.
 # NOTE: Path("") == Path(".") which is truthy, so we must NOT use `or` with Path("").
-_PLUGIN_ROOT = (
-    Path(os.environ["OMNI_PLUGIN_ROOT"]) if os.environ.get("OMNI_PLUGIN_ROOT")
-    else Path(__file__).resolve().parent.parent
-)
+def _resolve_plugin_root() -> Path:
+    for name in ("COPILOT_PLUGIN_ROOT", "CLAUDE_PLUGIN_ROOT",
+                 "PLUGIN_ROOT", "OMNI_PLUGIN_ROOT"):
+        val = os.environ.get(name)
+        if val:
+            return Path(val)
+    return Path(__file__).resolve().parent.parent
+
+
+_PLUGIN_ROOT = _resolve_plugin_root()
 
 
 # ---------------------------------------------------------------------------
