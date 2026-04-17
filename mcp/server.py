@@ -42,7 +42,7 @@ from typing import Any, Dict, List, Optional, Tuple
 SERVER_NAME = "copilot-omni"
 SERVER_VERSION = "1.0.0"
 PROTOCOL_VERSION = "2024-11-05"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 # ------------------------------------------------------------------ storage
@@ -56,6 +56,24 @@ def omni_home() -> Path:
         p = Path.home() / ".omni"
     p.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def _current_project() -> str:
+    """Return a project identifier (git repo root or cwd hash)."""
+    try:
+        import subprocess
+
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return os.getcwd()
 
 
 # ------------------------------------------------------------------ migration framework
@@ -153,6 +171,12 @@ MIGRATIONS: List[Tuple[int, str]] = [
         """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_state_mode_session
             ON state(mode, COALESCE(session_id, ''));
+    """,
+    ),
+    (
+        4,
+        """
+        ALTER TABLE memory ADD COLUMN project TEXT;
     """,
     ),
 ]
@@ -439,34 +463,38 @@ def _tool_memory_capture(args: Dict[str, Any]) -> Dict[str, Any]:
     tags = ",".join(args.get("tags", []) or [])
     _ensure(isinstance(content, str) and content, "content required")
     mem_id = _new_id()
+    project = _current_project()
     now = _now()
     with _Conn() as conn:
         conn.execute(
-            "INSERT INTO memory(id, scope, key, content, tags, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (mem_id, scope, key, content, tags, now, now),
+            "INSERT INTO memory(id, scope, key, content, tags, project, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (mem_id, scope, key, content, tags, project, now, now),
         )
-    return _json_result({"id": mem_id, "scope": scope, "key": key})
+    return _json_result({"id": mem_id, "scope": scope, "key": key, "project": project})
 
 
 def _tool_memory_search(args: Dict[str, Any]) -> Dict[str, Any]:
     query = args.get("query", "")
     scope = args.get("scope")
     limit = int(args.get("limit", 20))
+    project = _current_project()
     with _Conn() as conn:
         if scope:
             rows = conn.execute(
-                "SELECT id, scope, key, content, tags, updated_at FROM memory"
+                "SELECT id, scope, key, content, tags, project, updated_at FROM memory"
                 " WHERE scope=? AND (content LIKE ? OR key LIKE ?)"
+                " AND (project=? OR project IS NULL)"
                 " ORDER BY updated_at DESC LIMIT ?",
-                (scope, f"%{query}%", f"%{query}%", limit),
+                (scope, f"%{query}%", f"%{query}%", project, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, scope, key, content, tags, updated_at FROM memory"
-                " WHERE content LIKE ? OR key LIKE ?"
+                "SELECT id, scope, key, content, tags, project, updated_at FROM memory"
+                " WHERE (content LIKE ? OR key LIKE ?)"
+                " AND (project=? OR project IS NULL)"
                 " ORDER BY updated_at DESC LIMIT ?",
-                (f"%{query}%", f"%{query}%", limit),
+                (f"%{query}%", f"%{query}%", project, limit),
             ).fetchall()
     return _json_result({"results": [dict(r) for r in rows]})
 
@@ -475,18 +503,21 @@ def _tool_memory_export(args: Dict[str, Any]) -> Dict[str, Any]:
     scope = args.get("scope")
     export_format = args.get("format", "json")
     _ensure(export_format == "json", "format must be json")
+    project = _current_project()
     with _Conn() as conn:
         if scope:
             rows = conn.execute(
-                "SELECT id, scope, key, content, tags, created_at, updated_at FROM memory"
-                " WHERE scope=?"
+                "SELECT id, scope, key, content, tags, project, created_at, updated_at FROM memory"
+                " WHERE scope=? AND (project=? OR project IS NULL)"
                 " ORDER BY updated_at DESC",
-                (scope,),
+                (scope, project),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, scope, key, content, tags, created_at, updated_at FROM memory"
+                "SELECT id, scope, key, content, tags, project, created_at, updated_at FROM memory"
+                " WHERE project=? OR project IS NULL"
                 " ORDER BY updated_at DESC",
+                (project,),
             ).fetchall()
     return _json_result({"entries": [dict(r) for r in rows], "count": len(rows)})
 
@@ -1034,30 +1065,37 @@ def _tool_memory_prune(args: Dict[str, Any]) -> Dict[str, Any]:
     ttl_days = _resolve_ttl(args, "OMNI_MEM_TTL_DAYS", DEFAULT_MEM_TTL_DAYS)
     dry_run = bool(args.get("dry_run", False))
     scope = args.get("scope")
+    project = _current_project()
     cutoff = _now() - ttl_days * 86400
     with _Conn() as conn:
         if dry_run:
             if scope is not None:
                 row = conn.execute(
-                    "SELECT COUNT(*) AS n FROM memory WHERE updated_at < ? AND scope=?",
-                    (cutoff, scope),
+                    "SELECT COUNT(*) AS n FROM memory"
+                    " WHERE updated_at < ? AND scope=?"
+                    " AND (project=? OR project IS NULL)",
+                    (cutoff, scope, project),
                 ).fetchone()
             else:
                 row = conn.execute(
-                    "SELECT COUNT(*) AS n FROM memory WHERE updated_at < ?",
-                    (cutoff,),
+                    "SELECT COUNT(*) AS n FROM memory"
+                    " WHERE updated_at < ? AND (project=? OR project IS NULL)",
+                    (cutoff, project),
                 ).fetchone()
             deleted = int(row["n"] if row else 0)
         else:
             if scope is not None:
                 cur = conn.execute(
-                    "DELETE FROM memory WHERE updated_at < ? AND scope=?",
-                    (cutoff, scope),
+                    "DELETE FROM memory"
+                    " WHERE updated_at < ? AND scope=?"
+                    " AND (project=? OR project IS NULL)",
+                    (cutoff, scope, project),
                 )
             else:
                 cur = conn.execute(
-                    "DELETE FROM memory WHERE updated_at < ?",
-                    (cutoff,),
+                    "DELETE FROM memory"
+                    " WHERE updated_at < ? AND (project=? OR project IS NULL)",
+                    (cutoff, project),
                 )
             deleted = cur.rowcount if cur.rowcount is not None else 0
     return _json_result(

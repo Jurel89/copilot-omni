@@ -51,6 +51,21 @@ def _write_json_atomic(path: str, data: dict) -> None:
     os.replace(tmp, path)
 
 
+def _current_project() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return os.getcwd()
+
+
 def _mcp_memory_capture_best_effort(
     scope: str,
     content: str,
@@ -66,16 +81,18 @@ def _mcp_memory_capture_best_effort(
         if not db_path.exists():
             return
         now = time.time()
+        project = _current_project()
         with sqlite3.connect(str(db_path), timeout=5) as conn:
             conn.execute(
-                "INSERT INTO memory(id, scope, key, content, tags, created_at, updated_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO memory(id, scope, key, content, tags, project, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     uuid.uuid4().hex,
                     scope,
                     key,
                     content,
                     ",".join(tags or []),
+                    project,
                     now,
                     now,
                 ),

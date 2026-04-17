@@ -280,10 +280,25 @@ def main() -> int:
     parts = [f"<omni-banner>{banner}</omni-banner>"]
     parts.extend(policy_warnings)
 
-    # Hydrate session with recent memories (project + subagent scopes)
+    # Hydrate session with recent memories scoped to current project
     try:
         import sqlite3 as _sqlite3
         import html as _html
+        import subprocess as _subprocess
+
+        def _current_project():
+            try:
+                r = _subprocess.run(
+                    ["git", "rev-parse", "--show-toplevel"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if r.returncode == 0 and r.stdout.strip():
+                    return r.stdout.strip()
+            except Exception:
+                pass
+            return os.getcwd()
 
         _home = Path(os.environ.get("OMNI_HOME") or (Path.home() / ".omni"))
         _db = _home / "omni.db"
@@ -291,10 +306,12 @@ def main() -> int:
             _conn = _sqlite3.connect(str(_db))
             try:
                 _conn.row_factory = _sqlite3.Row
+                _proj = _current_project()
                 _rows = _conn.execute(
                     "SELECT scope, key, content, updated_at FROM memory"
-                    " WHERE scope IN ('project', 'subagent')"
-                    " ORDER BY updated_at DESC LIMIT 10"
+                    " WHERE scope IN ('project', 'subagent') AND project=?"
+                    " ORDER BY updated_at DESC LIMIT 10",
+                    (_proj,),
                 ).fetchall()
                 if _rows:
                     mem_lines = []

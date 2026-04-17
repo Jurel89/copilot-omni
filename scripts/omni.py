@@ -889,12 +889,41 @@ def _omni_home() -> Path:
     return Path(os.environ.get("OMNI_HOME") or (Path.home() / ".omni"))
 
 
+def _current_project() -> str:
+    """Return a project identifier (git repo root or cwd hash)."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return os.getcwd()
+
+
+def _ensure_memory_project_column(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("PRAGMA table_info(memory)").fetchall()
+    if not rows or any(row[1] == "project" for row in rows):
+        return
+    try:
+        conn.execute("ALTER TABLE memory ADD COLUMN project TEXT")
+        conn.commit()
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
+
+
 def _memory_db():
     db_path = _omni_home() / "omni.db"
     if not db_path.exists():
         return None
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
+    _ensure_memory_project_column(conn)
     return conn
 
 
@@ -917,21 +946,24 @@ def _cmd_memory_search(args: argparse.Namespace) -> int:
         return 1
     try:
         query = f"%{args.query}%"
+        project = _current_project()
         scope = getattr(args, "scope", None)
         limit = getattr(args, "limit", 20)
         if scope:
             rows = conn.execute(
-                "SELECT id, scope, key, content, tags, updated_at"
+                "SELECT id, scope, key, content, tags, project, updated_at"
                 " FROM memory WHERE scope=? AND (content LIKE ? OR key LIKE ?)"
+                " AND (project=? OR project IS NULL)"
                 " ORDER BY updated_at DESC LIMIT ?",
-                (scope, query, query, limit),
+                (scope, query, query, project, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, scope, key, content, tags, updated_at"
-                " FROM memory WHERE content LIKE ? OR key LIKE ?"
+                "SELECT id, scope, key, content, tags, project, updated_at"
+                " FROM memory WHERE (content LIKE ? OR key LIKE ?)"
+                " AND (project=? OR project IS NULL)"
                 " ORDER BY updated_at DESC LIMIT ?",
-                (query, query, limit),
+                (query, query, project, limit),
             ).fetchall()
         entries = [dict(r) for r in rows]
         if getattr(args, "json", False):
@@ -969,20 +1001,23 @@ def _cmd_memory_list(args: argparse.Namespace) -> int:
         print("Memory database not found. Run `omni init` first.", file=sys.stderr)
         return 1
     try:
+        project = _current_project()
         scope = getattr(args, "scope", None)
         limit = getattr(args, "limit", 20)
         if scope:
             rows = conn.execute(
-                "SELECT id, scope, key, content, tags, updated_at"
+                "SELECT id, scope, key, content, tags, project, updated_at"
                 " FROM memory WHERE scope=?"
+                " AND (project=? OR project IS NULL)"
                 " ORDER BY updated_at DESC LIMIT ?",
-                (scope, limit),
+                (scope, project, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, scope, key, content, tags, updated_at"
-                " FROM memory ORDER BY updated_at DESC LIMIT ?",
-                (limit,),
+                "SELECT id, scope, key, content, tags, project, updated_at"
+                " FROM memory WHERE project=? OR project IS NULL"
+                " ORDER BY updated_at DESC LIMIT ?",
+                (project, limit),
             ).fetchall()
         entries = [dict(r) for r in rows]
         if getattr(args, "json", False):
@@ -1025,18 +1060,26 @@ def _cmd_memory_capture(args: argparse.Namespace) -> int:
             " content TEXT NOT NULL, tags TEXT, created_at REAL NOT NULL,"
             " updated_at REAL NOT NULL)"
         )
+        _ensure_memory_project_column(conn)
         now = time.time()
         entry_id = uuid.uuid4().hex
+        project = _current_project()
         scope = getattr(args, "scope", "project")
         key = getattr(args, "key", None)
         tags = ",".join(getattr(args, "tags", []) or [])
         conn.execute(
-            "INSERT INTO memory(id, scope, key, content, tags, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (entry_id, scope, key, args.content, tags, now, now),
+            "INSERT INTO memory(id, scope, key, content, tags, project, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (entry_id, scope, key, args.content, tags, project, now, now),
         )
         conn.commit()
-        entry = {"id": entry_id, "scope": scope, "key": key, "content": args.content}
+        entry = {
+            "id": entry_id,
+            "scope": scope,
+            "key": key,
+            "content": args.content,
+            "project": project,
+        }
         if getattr(args, "json", False):
             json.dump(entry, sys.stdout, indent=2, default=str)
             print()
@@ -1054,26 +1097,36 @@ def _cmd_memory_prune(args: argparse.Namespace) -> int:
         return 1
     try:
         cutoff = time.time() - getattr(args, "older_than", 30) * 86400
+        project = _current_project()
         scope = getattr(args, "scope", None)
         dry_run = getattr(args, "dry_run", False)
         if scope:
             count = conn.execute(
-                "SELECT COUNT(*) FROM memory WHERE updated_at < ? AND scope=?",
-                (cutoff, scope),
+                "SELECT COUNT(*) FROM memory"
+                " WHERE updated_at < ? AND scope=?"
+                " AND (project=? OR project IS NULL)",
+                (cutoff, scope, project),
             ).fetchone()[0]
             if not dry_run:
                 conn.execute(
-                    "DELETE FROM memory WHERE updated_at < ? AND scope=?",
-                    (cutoff, scope),
+                    "DELETE FROM memory"
+                    " WHERE updated_at < ? AND scope=?"
+                    " AND (project=? OR project IS NULL)",
+                    (cutoff, scope, project),
                 )
                 conn.commit()
         else:
             count = conn.execute(
-                "SELECT COUNT(*) FROM memory WHERE updated_at < ?",
-                (cutoff,),
+                "SELECT COUNT(*) FROM memory"
+                " WHERE updated_at < ? AND (project=? OR project IS NULL)",
+                (cutoff, project),
             ).fetchone()[0]
             if not dry_run:
-                conn.execute("DELETE FROM memory WHERE updated_at < ?", (cutoff,))
+                conn.execute(
+                    "DELETE FROM memory"
+                    " WHERE updated_at < ? AND (project=? OR project IS NULL)",
+                    (cutoff, project),
+                )
                 conn.commit()
         result = {
             "deleted": count,
@@ -1099,17 +1152,21 @@ def _cmd_memory_export(args: argparse.Namespace) -> int:
         print("Memory database not found. Run `omni init` first.", file=sys.stderr)
         return 1
     try:
+        project = _current_project()
         scope = getattr(args, "scope", None)
         if scope:
             rows = conn.execute(
-                "SELECT id, scope, key, content, tags, created_at, updated_at"
-                " FROM memory WHERE scope=? ORDER BY updated_at DESC",
-                (scope,),
+                "SELECT id, scope, key, content, tags, project, created_at, updated_at"
+                " FROM memory WHERE scope=? AND (project=? OR project IS NULL)"
+                " ORDER BY updated_at DESC",
+                (scope, project),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, scope, key, content, tags, created_at, updated_at"
-                " FROM memory ORDER BY updated_at DESC",
+                "SELECT id, scope, key, content, tags, project, created_at, updated_at"
+                " FROM memory WHERE project=? OR project IS NULL"
+                " ORDER BY updated_at DESC",
+                (project,),
             ).fetchall()
         entries = [dict(r) for r in rows]
         output = json.dumps(
