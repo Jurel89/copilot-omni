@@ -53,7 +53,7 @@ copilot plugin install copilot-omni@copilot-omni
 
 ```bash
 # 1. Prerequisites: GitHub Copilot CLI + Python ≥ 3.9
-npm install -g @github/copilot-cli            # skip if already installed
+npm install -g @github/copilot                # skip if already installed
 python3 --version                             # POSIX
 py -3 --version                               # Windows — either works
 
@@ -198,7 +198,7 @@ Dive deeper: [ARCHITECTURE](docs/ARCHITECTURE.md) · [ROUTER](docs/ROUTER.md) ·
 
 ```bash
 # Marketplace install (recommended, forward-compatible)
-npm install -g @github/copilot-cli            # if needed
+npm install -g @github/copilot                # if needed
 copilot plugin marketplace add https://github.com/Jurel89/copilot-omni
 copilot plugin install copilot-omni@copilot-omni
 

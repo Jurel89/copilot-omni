@@ -28,7 +28,7 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 MIN_PYTHON = (3, 9)
-COPILOT_NPM_PACKAGE = "@github/copilot-cli"
+COPILOT_NPM_PACKAGE = "@github/copilot"
 AUTH_PROBE_TIMEOUT = 30   # seconds
 PLUGIN_LOAD_TIMEOUT = 60  # seconds
 AUTH_MISSING_KEYWORDS = ("login", "authenticate", "unauthorized", "sign in")
