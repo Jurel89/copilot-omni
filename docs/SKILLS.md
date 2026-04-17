@@ -17,7 +17,6 @@ Use `omni list skills` to get an always-fresh view directly from the filesystem.
 - `deep-dive` — Trace + deep-interview 2-stage pipeline.
 - `deepinit` — Deep codebase init with hierarchical AGENTS.md.
 - `external-context` — Parallel doc-specialist web/doc lookup.
-- `ask` — Process-first advisor routing.
 
 ## Verification & quality
 - `verify` — Prove a change really works.

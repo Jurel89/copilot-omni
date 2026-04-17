@@ -42,9 +42,6 @@ Prefix: `copilot-omni:`. See `agents/*.md` for full prompts.
 
 ### External AI / orchestration
 - `/team N:executor "task"`
-- `omc team N:codex|gemini "..."`
-- `omc ask <claude|codex|gemini>`
-- `/ccg`
 
 ### copilot-omni state
 - `state_read`, `state_write`, `state_clear`, `state_list`, `state_get_status`
@@ -82,7 +79,7 @@ Invoke built-in workflows via `/copilot-omni:<name>`.
 - `ai-slop-cleaner` — regression-safe cleanup workflow
 
 ### Utility skills
-- `ask`, `cancel`, `note`, `omni-setup`, `mcp-setup`, `omni-doctor`, `trace`, `release`, `skill`
+- `cancel`, `note`, `omni-setup`, `mcp-setup`, `omni-doctor`, `trace`, `release`, `skill`
 
 ### Keyword triggers kept compact in CLAUDE.md
 - `"autopilot"→autopilot`

@@ -44,7 +44,6 @@ Skills are reusable workflow templates that can be invoked via `/copilot-omni:sk
 | File | Skill | Purpose |
 |-----------|-------|---------|
 | `ai-slop-cleaner/SKILL.md` | ai-slop-cleaner | Regression-safe cleanup workflow for AI-generated code slop |
-| `ask/SKILL.md` | ask | Ask Claude, Codex, or Gemini via `omc ask` and capture an artifact |
 | `note/SKILL.md` | note | Save notes for compaction resilience |
 | `cancel/SKILL.md` | cancel | Cancel any active copilot-omni mode |
 | `omni-doctor/SKILL.md` | omni-doctor | Diagnose installation issues |
