@@ -3,12 +3,13 @@
   "name": "copilot-omni",
   "description": "Enterprise-safe multi-agent orchestration for GitHub Copilot CLI",
   "owner": {
-    "name": "Copilot Omni Team"
+    "name": "Copilot Omni Team",
+    "url": "https://github.com/Jurel89/copilot-omni"
   },
   "plugins": [
     {
       "name": "copilot-omni",
-      "description": "Pure Python + Markdown Copilot CLI plugin. No compiled binaries. 15+ agents, 30+ skills, artifact-driven workflow.",
+      "description": "Pure Python + Markdown Copilot CLI plugin. No compiled binaries. 30 skills, 19 agents, 20 MCP tools, artifact-driven workflow.",
       "version": "1.0.0",
       "source": "./",
       "category": "productivity",
@@ -17,7 +18,10 @@
         "multi-agent",
         "orchestration",
         "corporate-safe",
-        "artifact-driven"
+        "artifact-driven",
+        "copilot-cli",
+        "python-stdlib",
+        "mcp"
       ]
     }
   ],
