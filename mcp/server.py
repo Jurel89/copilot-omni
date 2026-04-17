@@ -818,8 +818,8 @@ def _tool_wiki_graph(_args: Dict[str, Any]) -> Dict[str, Any]:
     """Return a knowledge graph {nodes: [...], edges: [...]} of the wiki.
 
     Nodes are every stored slug. Edges are extracted via _extract_wiki_targets
-    from each body. Dangling targets (no matching slug) are omitted from the
-    edge set but exposed in ``dangling`` so callers can surface them.
+    applied to each body. Dangling targets (no matching slug) are omitted,
+    but surface in ``dangling`` so callers can render them separately.
     """
     with _Conn() as conn:
         rows = conn.execute(

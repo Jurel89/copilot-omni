@@ -60,6 +60,10 @@ ALLOWLIST_PATHS: tuple[str, ...] = (
     ".git/",
     # This file defines banned patterns as regex strings; self-allowlisted
     "scripts/verify_plugin_contract.py",
+    # Phase-C C22: rollback docs legitimately reference both old (.omc/,
+    # /oh-my-claudecode:*) and new (.omni/, /copilot-omni:*) names.
+    "docs/MIGRATION-ROLLBACK.md",
+    "tests/test_migrate_rollback.py",
     # WS1 report documents the rename; legitimately cites old names
     ".omni/plans/wave-1-WS1-report.md",
     # WS9 report documents the validator; legitimately cites exemption markers

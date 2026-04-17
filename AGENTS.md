@@ -79,6 +79,7 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 | `cancel` | Cancel a running mode / pipeline with cascade |
 | `deepinit` | Deep project initialisation with full scan |
 | `hud` | Display current mode / state HUD |
+| `configure-notifications` | Wire Telegram / Slack / Discord webhooks for run events |
 
 ## MCP tools (20 tools, schema-validated)
 
