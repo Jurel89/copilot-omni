@@ -175,14 +175,18 @@ The `.omni/config.json` models block below was used in v2.0.0 and is also obsole
 
 ---
 
-### 6. MCP tools — surface change (30 → 22)
+### 6. MCP tools — surface change (30 → 28)
 
-Two tools were removed; use the equivalents below.
+Several tools were removed; use the equivalents below.
 
 | Removed tool | v2.0.0 equivalent |
 |-------------|-------------------|
 | `subtask` | `state_write` + `scripts/subagent.py` |
 | `workspace` | `scripts/omni_worktree.py` + team state |
+| `artifact_write` / `artifact_read` | Filesystem is canonical store (ADR-0007) |
+| `run_status` | Filesystem is canonical store (ADR-0007) |
+| `support_bundle` | `omni doctor` |
+| `config_resolve` | `.omni/config.json` read directly |
 
 All remaining tools now validate their input payload against a JSON schema.
 Invalid `tools/call` requests return a structured error instead of silently failing.
