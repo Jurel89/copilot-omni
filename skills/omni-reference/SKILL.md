@@ -85,7 +85,6 @@ Invoke built-in workflows via `/copilot-omni:<name>`.
 - `"autopilot"→autopilot`
 - `"ralph"→ralph`
 - `"ulw"→ultrawork`
-- `"ccg"→ccg`
 - `"ralplan"→ralplan`
 - `"deep interview"→deep-interview`
 - `"deslop" / "anti-slop"→ai-slop-cleaner`
