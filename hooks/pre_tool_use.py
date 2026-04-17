@@ -147,7 +147,6 @@ _ROUTER_EXEMPT_TOOLS = frozenset({
     "",                        # unknown / non-routed tool
     "deep_interview",
     "deep-interview",
-    "ask",                     # interview UX uses read-only tools
     "state_read",
     "state_write",
     "state_clear",

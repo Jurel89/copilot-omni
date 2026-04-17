@@ -16,7 +16,7 @@
   <a href="https://modelcontextprotocol.io/"><img alt="MCP" src="https://img.shields.io/badge/MCP-JSON--RPC%202.0-10b981"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-22c55e"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-64748b">
-  <img alt="Skills" src="https://img.shields.io/badge/skills-30-6366f1">
+  <img alt="Skills" src="https://img.shields.io/badge/skills-27-6366f1">
   <img alt="Agents" src="https://img.shields.io/badge/agents-19-8b5cf6">
   <img alt="MCP tools" src="https://img.shields.io/badge/MCP%20tools-20-a855f7">
   <a href="CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-d946ef"></a>
@@ -139,7 +139,7 @@ Storage: WAL-mode SQLite with `UNIQUE(mode, session_id)`.
 ```
 GitHub Copilot CLI
  ├─ reads .claude-plugin/plugin.json         ← plugin manifest
- ├─ discovers skills/ (30), agents/ (19), commands/ (10)
+ ├─ discovers skills/ (27), agents/ (19), commands/ (10)
  ├─ wires hooks/hooks.json  → python3 hooks/*.py
  │    ├─ session_start.py       banner, policy checks, metrics
  │    ├─ pre_tool_use.py        policy guard, shlex-safe parse

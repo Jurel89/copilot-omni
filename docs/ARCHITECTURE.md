@@ -14,7 +14,7 @@ Copilot Omni is a **Copilot CLI plugin** — a directory with a manifest. Copilo
 ┌─────────────────────────────────────────────────────────┐
 │ copilot-omni plugin                                      │
 │                                                          │
-│  skills/       30 SKILL.md files (LLM instructions)      │
+│  skills/       27 SKILL.md files (LLM instructions)      │
 │  agents/       19 agent prompts                          │
 │  commands/    10 slash commands                          │
 │                                                          │

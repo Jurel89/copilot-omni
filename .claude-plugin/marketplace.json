@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "copilot-omni",
-      "description": "Pure Python + Markdown Copilot CLI plugin. No compiled binaries. 30 skills, 19 agents, 20 MCP tools, artifact-driven workflow.",
+      "description": "Pure Python + Markdown Copilot CLI plugin. No compiled binaries. 27 skills, 19 agents, 20 MCP tools, artifact-driven workflow.",
       "version": "1.0.0",
       "source": "./",
       "category": "productivity",
