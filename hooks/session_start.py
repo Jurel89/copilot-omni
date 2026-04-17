@@ -280,7 +280,7 @@ def main() -> int:
     parts = [f"<omni-banner>{banner}</omni-banner>"]
     parts.extend(policy_warnings)
 
-    # Hydrate session with recent project memories
+    # Hydrate session with recent memories (project + subagent scopes)
     try:
         import sqlite3 as _sqlite3
         import html as _html
@@ -292,15 +292,17 @@ def main() -> int:
             try:
                 _conn.row_factory = _sqlite3.Row
                 _rows = _conn.execute(
-                    "SELECT key, content, updated_at FROM memory"
-                    " WHERE scope='project'"
-                    " ORDER BY updated_at DESC LIMIT 5"
+                    "SELECT scope, key, content, updated_at FROM memory"
+                    " WHERE scope IN ('project', 'subagent')"
+                    " ORDER BY updated_at DESC LIMIT 10"
                 ).fetchall()
                 if _rows:
-                    mem_lines = [
-                        f"  - {_html.escape(r['key'] or r['content'][:80])}"
-                        for r in _rows
-                    ]
+                    mem_lines = []
+                    for r in _rows:
+                        display = r["key"] if r["key"] else r["content"][:120]
+                        mem_lines.append(
+                            f"  [{_html.escape(r['scope'])}] {_html.escape(display)}"
+                        )
                     parts.append(
                         "<project-memory>\n"
                         + "\n".join(mem_lines)

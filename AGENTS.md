@@ -77,21 +77,20 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 | `deepinit` | Deep project initialisation with full scan |
 | `configure-notifications` | Wire Telegram / Slack / Discord webhooks for run events |
 
-## MCP tools (27 tools, schema-validated)
+## MCP tools (28 tools, schema-validated)
 
 All tools are served by `mcp/server.py` (stdio JSON-RPC 2.0, stdlib only).
 Every `tools/call` is schema-validated; invalid payloads return a structured error.
 
 **Memory:** `memory_capture`, `memory_search`, `memory_prune`, `memory_export`.
 **Artifacts:** write to `.omni/runs/<run-id>/` directly; the canonical store is the filesystem. (The SQLite mirror `artifact_write` / `run_status` was removed in Phase-C C23 — see docs/ADR/ADR-0007-state-store-ownership.md.)
-**State:** `state_write`, `state_read`, `state_clear`, `state_get_status`, `state_list_active`.
+**State:** `state_write`, `state_read`, `state_clear`.
 **Wiki:** `wiki_write`, `wiki_read`, `wiki_query`, `wiki_list`, `wiki_ingest`, `wiki_graph`.
 **Notepad:** `notepad_write`, `notepad_read`, `notepad_prune`.
 **Shared memory:** `shared_memory_write`, `shared_memory_read`.
 **Trace:** `trace_summary`, `trace_timeline`.
-**Session:** `session_search`.
 **Code intelligence:** `lsp_hover`, `lsp_goto_definition`, `lsp_find_references`, `ast_grep_search`, `ast_grep_replace`.
-**Policy + health:** `policy_check`, `health`, `doctor`, `config_resolve`, `support_bundle`.
+**Policy + health:** `policy_check`, `health`, `doctor`.
 
 See `docs/STATE_MODES.md` for the full mode-key registry and ownership matrix (ADR-0007).
 

@@ -44,7 +44,7 @@ Prefix: `copilot-omni:`. See `agents/*.md` for full prompts.
 - `/team N:executor "task"`
 
 ### copilot-omni state
-- `state_read`, `state_write`, `state_clear`, `state_list`, `state_get_status`
+- `state_read`, `state_write`, `state_clear`
 
 ### Team runtime (Copilot CLI — via scripts/subagent.py or omni_team.py)
 - `python3 scripts/subagent.py <agent> "<prompt>"` — spawn a single agent
