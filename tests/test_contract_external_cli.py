@@ -2,11 +2,12 @@
 """Tests for the --check-external-cli gate in scripts/verify_plugin_contract.py.
 
 Enforces ADR-0000 decisions 1 (Copilot-CLI host only) and 7 (no external CLIs
-invoked).  All tests use subprocess so they exercise the real CLI surface.
+invoked).  Subprocess tests cover CLI wiring (clean-tree exit code, --all
+discovery); pure-function tests cover the check's scanning logic against an
+isolated tmp_path tree because the CLI does not accept a --root override.
 """
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +17,10 @@ import pytest
 # Absolute path to the validator script — never relies on cwd.
 _VALIDATOR = Path(__file__).resolve().parent.parent / "scripts" / "verify_plugin_contract.py"
 _REPO_ROOT = _VALIDATOR.parent.parent
+
+# Import check_external_cli so tests can scan an arbitrary tmp_path root.
+sys.path.insert(0, str(_REPO_ROOT / "scripts"))
+from verify_plugin_contract import check_external_cli  # noqa: E402
 
 
 def _run(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
@@ -67,14 +72,11 @@ def test_external_cli_check_catches_hud_reintroduction(tmp_path: Path):
         encoding="utf-8",
     )
 
-    result = _run(["--check-external-cli"], cwd=tmp_path)
-    combined = result.stdout + result.stderr
-    assert result.returncode != 0, (
-        f"Expected non-zero exit when statusLine present; got {result.returncode}\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
+    ok, messages = check_external_cli(tmp_path)
+    combined = "\n".join(messages)
+    assert not ok, f"Expected failure when statusLine present; got:\n{combined}"
     assert "statusLine" in combined, (
-        f"Expected 'statusLine' mentioned in output; got:\n{combined}"
+        f"Expected 'statusLine' mentioned in messages; got:\n{combined}"
     )
 
 
@@ -93,14 +95,11 @@ def test_external_cli_check_catches_codex_invocation(tmp_path: Path):
         encoding="utf-8",
     )
 
-    result = _run(["--check-external-cli"], cwd=tmp_path)
-    combined = result.stdout + result.stderr
-    assert result.returncode != 0, (
-        f"Expected non-zero exit when 'codex --' present; got {result.returncode}\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
+    ok, messages = check_external_cli(tmp_path)
+    combined = "\n".join(messages)
+    assert not ok, f"Expected failure when 'codex --' present; got:\n{combined}"
     assert "codex" in combined.lower(), (
-        f"Expected 'codex' mentioned in output; got:\n{combined}"
+        f"Expected 'codex' mentioned in messages; got:\n{combined}"
     )
 
 
@@ -132,12 +131,9 @@ def test_external_cli_check_ignores_changelog_and_adr(tmp_path: Path):
         encoding="utf-8",
     )
 
-    result = _run(["--check-external-cli"], cwd=tmp_path)
-    combined = result.stdout + result.stderr
-    assert result.returncode == 0, (
-        f"Expected exit 0 when tokens only in excluded paths; got {result.returncode}\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
+    ok, messages = check_external_cli(tmp_path)
+    combined = "\n".join(messages)
+    assert ok, f"Expected pass when tokens only in excluded paths; got:\n{combined}"
 
 
 # ---------------------------------------------------------------------------

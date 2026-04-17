@@ -89,7 +89,7 @@ All slash-commands moved to the `copilot-omni` namespace.
 | `/oh-my-claudecode:omc-doctor` | `/copilot-omni:omni-doctor` |
 | `/oh-my-claudecode:omc-setup` | `/copilot-omni:omni-setup` |
 | `/oh-my-claudecode:omc-reference` | `/copilot-omni:omni-reference` |
-| `/oh-my-claudecode:omc-teams` | `/copilot-omni:omni-teams` |
+| `/oh-my-claudecode:omc-teams` | *(deleted in v2.1 — see section 4b)* |
 | `/oh-my-claudecode:autopilot` | `/copilot-omni:autopilot` |
 | `/oh-my-claudecode:ralph` | `/copilot-omni:ralph` |
 | `/oh-my-claudecode:team` | `/copilot-omni:team` |
