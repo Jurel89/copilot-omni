@@ -18,7 +18,7 @@
   <img alt="Platform" src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-64748b">
   <img alt="Skills" src="https://img.shields.io/badge/skills-27-6366f1">
   <img alt="Agents" src="https://img.shields.io/badge/agents-19-8b5cf6">
-  <img alt="MCP tools" src="https://img.shields.io/badge/MCP%20tools-20-a855f7">
+  <img alt="MCP tools" src="https://img.shields.io/badge/MCP%20tools-27-a855f7">
   <a href="CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-d946ef"></a>
 </p>
 
@@ -121,9 +121,9 @@ Routing cheatsheet in [AGENTS.md](AGENTS.md).
 ### 0 slash commands
 Slash commands were removed in v2.1.0. Use skills directly via Copilot CLI prompts.
 
-### 20 MCP tools
+### 27 MCP tools
 Over stdio JSON-RPC 2.0, schema-validated on every call:
-`memory` · `wiki` · `notepad` · `state` · `shared-memory` · `trace` · `session` · `policy` · `health` · `doctor` · `config` · `support-bundle`.
+`memory` · `wiki` · `notepad` · `state` · `shared-memory` · `trace` · `session` · `policy` · `health` · `doctor` · `config` · `support-bundle` · `lsp` · `ast-grep`.
 
 Storage: WAL-mode SQLite with `UNIQUE(mode, session_id)`.
 

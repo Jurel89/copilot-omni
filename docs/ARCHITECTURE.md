@@ -32,7 +32,7 @@ Copilot Omni is a **Copilot CLI plugin** — a directory with a manifest. Copilo
 
 ### `mcp/server.py`
 
-Single-file stdio MCP 2024-11-05 server. Registers 20 tools across 9 families. Persists to a SQLite database opened in WAL mode with `UNIQUE(mode, session_id)` constraint on the state table. Every `tools/call` is schema-validated. No imports outside the Python standard library.
+Single-file stdio MCP 2024-11-05 server. Registers 27 tools across 9 families. Persists to a SQLite database opened in WAL mode with `UNIQUE(mode, session_id)` constraint on the state table. Every `tools/call` is schema-validated. No imports outside the Python standard library.
 
 Protocol transport is newline-delimited JSON (one JSON-RPC message per line on stdin → one response per line on stdout). That's what Copilot CLI sends by default.
 

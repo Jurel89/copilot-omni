@@ -18,7 +18,7 @@ Copilot Omni uses several persistent stores that have grown organically across P
 
 | Data Class | Canonical Store | Location | API Surface |
 |---|---|---|---|
-| Agent memory (long-term facts) | MCP SQLite `memory` table | `$OMNI_HOME/omni.db` | `memory_capture`, `memory_search` |
+| Agent memory (long-term facts) | MCP SQLite `memory` table | `$OMNI_HOME/omni.db` | `memory_capture`, `memory_search`, `memory_export` |
 | Run artifacts (specs, plans, reports) | Filesystem + SQLite mirror | `.omni/runs/<run_id>/` + `artifacts` table | `artifact_write` (writes both) |
 | Run metadata (status, phase) | MCP SQLite `runs` table | `$OMNI_HOME/omni.db` | `run_status`, `subtask` |
 | Skill/mode runtime state | MCP SQLite `state` table | `$OMNI_HOME/omni.db` | `state_write`, `state_read`, `state_clear` |
@@ -40,7 +40,7 @@ Copilot Omni uses several persistent stores that have grown organically across P
 ### 2. Read/Write API Surface
 
 **MCP tool API (via `mcp/server.py`):**
-- `memory_capture`, `memory_search` — sole writers/readers of `memory` table
+- `memory_capture`, `memory_search`, `memory_export` — sole writers/readers of `memory` table
 - `artifact_write` — writes `artifacts` table AND mirrors to `.omni/runs/<id>/`
 - `run_status`, `subtask` — read/write `runs` table
 - `state_write`, `state_read`, `state_clear` — sole writers/readers of `state` table

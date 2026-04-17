@@ -55,6 +55,7 @@ All vars are read at command-build time in _build_cmd(). They are ignored
 when OMNI_SUBAGENT_FAKE is not set. The contract is additive: existing tests that
 only set OMNI_SUBAGENT_FAKE=1 continue to work unchanged (exit_code=0, stderr="").
 """
+
 from __future__ import annotations
 
 import argparse
@@ -89,18 +90,20 @@ def _env_bool(name: str, default: bool) -> bool:
 
 # Known skill names — these map to `/copilot-omni:<name>` invocations rather
 # than `--agent <name>`.  ADR-0006 §2: subprocess-only composition.
-_KNOWN_SKILLS: frozenset[str] = frozenset({
-    "ralplan",
-    "ralph",
-    "ralph-prd",
-    "ultrawork",
-    "ultraqa",
-    "autopilot",
-    "team",
-    "deep-interview",
-    "plan",
-    "cancel",
-})
+_KNOWN_SKILLS: frozenset[str] = frozenset(
+    {
+        "ralplan",
+        "ralph",
+        "ralph-prd",
+        "ultrawork",
+        "ultraqa",
+        "autopilot",
+        "team",
+        "deep-interview",
+        "plan",
+        "cancel",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # T4 / B4 — Production guard on OMNI_SUBAGENT_FAKE
@@ -164,7 +167,9 @@ def _load_resolver():
     if not resolver_path.exists():
         return None
     try:
-        spec = importlib.util.spec_from_file_location("category_resolver", resolver_path)
+        spec = importlib.util.spec_from_file_location(
+            "category_resolver", resolver_path
+        )
         if spec is None or spec.loader is None:
             return None
         mod = importlib.util.module_from_spec(spec)
@@ -234,6 +239,7 @@ def _mcp_write_best_effort(mode: str, body: dict, session_id: Optional[str]) -> 
         # This is best-effort; if it fails we log and continue.
         # We use a direct sqlite3 write approach to avoid JSON-RPC overhead.
         import sqlite3
+
         home = _omni_home()
         db_path = home / "omni.db"
         if not db_path.exists():
@@ -262,6 +268,38 @@ def _mcp_write_best_effort(mode: str, body: dict, session_id: Optional[str]) -> 
                 )
     except Exception as exc:
         print(f"warning: MCP state write failed (non-fatal): {exc}", file=sys.stderr)
+
+
+def _mcp_memory_capture_best_effort(
+    scope: str,
+    content: str,
+    key: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+) -> None:
+    """Write a row to MCP memory table (best-effort; never raises)."""
+    try:
+        import sqlite3
+
+        db_path = _omni_home() / "omni.db"
+        if not db_path.exists():
+            return
+        now = time.time()
+        with sqlite3.connect(str(db_path), timeout=5) as conn:
+            conn.execute(
+                "INSERT INTO memory(id, scope, key, content, tags, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    uuid.uuid4().hex,
+                    scope,
+                    key,
+                    content,
+                    ",".join(tags or []),
+                    now,
+                    now,
+                ),
+            )
+    except Exception as exc:
+        print(f"warning: MCP memory capture failed (non-fatal): {exc}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -371,8 +409,12 @@ def spawn(
     if effective_model is None and category is not None:
         effective_model = _resolve_category(category)
         if effective_model is None:
-            return {"job_id": job_id, "run_id": run_id, "exit_code": 1,
-                    "error": f"unknown category: {category}"}
+            return {
+                "job_id": job_id,
+                "run_id": run_id,
+                "exit_code": 1,
+                "error": f"unknown category: {category}",
+            }
         model_used = effective_model
 
     if allow_all is None:
@@ -380,7 +422,13 @@ def spawn(
 
     # Create run-dir + write spec.json + pending status.json BEFORE spawn
     job_dir, status = _init_run_dir(
-        run_id, job_id, agent, category, model_used, prompt, session_id,
+        run_id,
+        job_id,
+        agent,
+        category,
+        model_used,
+        prompt,
+        session_id,
         parent_run_id=parent_run_id,
     )
     status_path = str(job_dir / "status.json")
@@ -399,26 +447,54 @@ def spawn(
         except Exception as exc:
             mem_denied_cls = getattr(pool_mod, "MemoryPolicyDenied", None)
             if mem_denied_cls is not None and isinstance(exc, mem_denied_cls):
-                status.update(state="failed", ended_at=_now_iso(),
-                              exit_code=77, error=f"memory-policy: {exc}")
+                status.update(
+                    state="failed",
+                    ended_at=_now_iso(),
+                    exit_code=77,
+                    error=f"memory-policy: {exc}",
+                )
                 _write_status(job_dir, status)
-                return {"job_id": job_id, "run_id": run_id, "exit_code": 77,
-                        "error": f"memory-policy: {exc}",
-                        "status_path": status_path}
+                return {
+                    "job_id": job_id,
+                    "run_id": run_id,
+                    "exit_code": 77,
+                    "error": f"memory-policy: {exc}",
+                    "status_path": status_path,
+                }
             print(f"warning: pool acquire failed (non-fatal): {exc}", file=sys.stderr)
             pool = None
 
     try:
         if background:
             return _spawn_background(
-                agent, prompt, effective_model, allow_all, timeout,
-                job_id, run_id, job_dir, status, status_path, session_id, pool,
+                agent,
+                prompt,
+                effective_model,
+                allow_all,
+                timeout,
+                job_id,
+                run_id,
+                job_dir,
+                status,
+                status_path,
+                session_id,
+                pool,
                 parent_run_id=parent_run_id,
             )
         else:
             return _spawn_foreground(
-                agent, prompt, effective_model, allow_all, timeout,
-                job_id, run_id, job_dir, status, status_path, session_id, pool,
+                agent,
+                prompt,
+                effective_model,
+                allow_all,
+                timeout,
+                job_id,
+                run_id,
+                job_dir,
+                status,
+                status_path,
+                session_id,
+                pool,
                 parent_run_id=parent_run_id,
             )
     finally:
@@ -440,6 +516,7 @@ def _get_fake_response(agent: str) -> str:
         return "OK"
 
     import json as _json
+
     rf = Path(response_file)
     if not rf.exists():
         return "OK"
@@ -456,7 +533,11 @@ def _get_fake_response(agent: str) -> str:
     # Track invocation count via sidecar file (atomic read-modify-write)
     counts_file = rf.with_suffix(".counts.json")
     try:
-        counts: dict = _json.loads(counts_file.read_text(encoding="utf-8")) if counts_file.exists() else {}
+        counts: dict = (
+            _json.loads(counts_file.read_text(encoding="utf-8"))
+            if counts_file.exists()
+            else {}
+        )
     except Exception:
         counts = {}
 
@@ -505,10 +586,6 @@ def _build_cmd(
     # OMNI_SUBAGENT_FAKE=1: bypass real copilot, use synthetic exit.
     # B4 guard: FAKE is only honored inside pytest or when OMNI_TEST_MODE=1.
     if _is_fake():
-        sleep_secs = float(os.environ.get("OMNI_SUBAGENT_FAKE_SLEEP_SECS", "1"))
-        exit_code = int(os.environ.get("OMNI_SUBAGENT_FAKE_EXIT_CODE", "0"))
-        # B2 fix: pass values via env vars, not string interpolation.
-        fake_output = _get_fake_response(agent)
         inline = (
             "import os, sys, time; "
             "time.sleep(float(os.environ['_F_SLEEP'])); "
@@ -552,13 +629,36 @@ def _spawn_foreground(
     """Run synchronously, tee stdout/stderr to logs + terminal."""
     cmd = _build_cmd(agent, prompt, effective_model, allow_all)
     if cmd is None:
-        status.update(state="failed", ended_at=_now_iso(), exit_code=2,
-                      error="copilot CLI not found on PATH")
+        status.update(
+            state="failed",
+            ended_at=_now_iso(),
+            exit_code=2,
+            error="copilot CLI not found on PATH",
+        )
         _write_status(job_dir, status)
         _mcp_write_best_effort(f"subagent:{job_id}", status, session_id)
+        _mcp_memory_capture_best_effort(
+            scope="subagent",
+            content=json.dumps(
+                {
+                    "agent": agent,
+                    "exit_code": 2,
+                    "error": "copilot CLI not found on PATH"[:500],
+                    "prompt_excerpt": prompt[:200],
+                    "run_id": run_id,
+                }
+            ),
+            key=f"subagent:{agent}:{run_id}",
+            tags=["subagent", agent],
+        )
         _release_pool_safe(pool, job_id)
-        return {"job_id": job_id, "run_id": run_id, "exit_code": 2,
-                "error": "copilot CLI not found", "status_path": status_path}
+        return {
+            "job_id": job_id,
+            "run_id": run_id,
+            "exit_code": 2,
+            "error": "copilot CLI not found",
+            "status_path": status_path,
+        }
 
     # Transition: pending → running
     started_at = _now_iso()
@@ -639,6 +739,20 @@ def _spawn_foreground(
     )
     _write_status(job_dir, status)
     _mcp_write_best_effort(f"subagent:{job_id}", status, session_id)
+    _mcp_memory_capture_best_effort(
+        scope="subagent",
+        content=json.dumps(
+            {
+                "agent": agent,
+                "exit_code": exit_code,
+                "error": (error_text or "")[:500],
+                "prompt_excerpt": prompt[:200],
+                "run_id": run_id,
+            }
+        ),
+        key=f"subagent:{agent}:{run_id}",
+        tags=["subagent", agent],
+    )
     _release_pool_safe(pool, job_id)
 
     return {
@@ -669,17 +783,40 @@ def _spawn_background(
     """Spawn detached; return immediately with pid."""
     cmd = _build_cmd(agent, prompt, effective_model, allow_all)
     if cmd is None:
-        status.update(state="failed", ended_at=_now_iso(), exit_code=2,
-                      error="copilot CLI not found on PATH")
+        status.update(
+            state="failed",
+            ended_at=_now_iso(),
+            exit_code=2,
+            error="copilot CLI not found on PATH",
+        )
         _write_status(job_dir, status)
         _mcp_write_best_effort(f"subagent:{job_id}", status, session_id)
+        _mcp_memory_capture_best_effort(
+            scope="subagent",
+            content=json.dumps(
+                {
+                    "agent": agent,
+                    "exit_code": 2,
+                    "error": "copilot CLI not found on PATH"[:500],
+                    "prompt_excerpt": prompt[:200],
+                    "run_id": run_id,
+                }
+            ),
+            key=f"subagent:{agent}:{run_id}",
+            tags=["subagent", agent],
+        )
         if pool is not None:
             try:
                 pool.release(job_id)
             except Exception:
                 pass
-        return {"job_id": job_id, "run_id": run_id, "exit_code": 2,
-                "error": "copilot CLI not found", "status_path": status_path}
+        return {
+            "job_id": job_id,
+            "run_id": run_id,
+            "exit_code": 2,
+            "error": "copilot CLI not found",
+            "status_path": status_path,
+        }
 
     # T9: write config JSON sidecar and invoke static wrapper module.
     # This eliminates f-string interpolation of dynamic values into Python source.
@@ -694,11 +831,14 @@ def _spawn_background(
         "run_id": run_id,
         "agent": agent,
         "session_id": session_id,
+        "prompt_excerpt": prompt[:200],
         "timeout_secs": timeout,
         "scripts_dir": str(Path(__file__).resolve().parent),
         # B5: cancel cascade
         "parent_run_id": parent_run_id,
-        "parent_run_dir": str(here / ".omni" / "runs" / parent_run_id) if parent_run_id else None,
+        "parent_run_dir": str(here / ".omni" / "runs" / parent_run_id)
+        if parent_run_id
+        else None,
     }
     config_path = job_dir / "_wrapper_config.json"
     _write_json_atomic(config_path, config)
@@ -738,21 +878,40 @@ def _spawn_background(
         )
         pid = proc.pid
     except Exception as exc:
-        status.update(state="failed", ended_at=_now_iso(), exit_code=1,
-                      error=str(exc))
+        status.update(state="failed", ended_at=_now_iso(), exit_code=1, error=str(exc))
         _write_status(job_dir, status)
+        _mcp_memory_capture_best_effort(
+            scope="subagent",
+            content=json.dumps(
+                {
+                    "agent": agent,
+                    "exit_code": 1,
+                    "error": str(exc)[:500],
+                    "prompt_excerpt": prompt[:200],
+                    "run_id": run_id,
+                }
+            ),
+            key=f"subagent:{agent}:{run_id}",
+            tags=["subagent", agent],
+        )
         if pool is not None:
             try:
                 pool.release(job_id)
             except Exception:
                 pass
-        return {"job_id": job_id, "run_id": run_id, "exit_code": 1,
-                "error": str(exc), "status_path": status_path}
+        return {
+            "job_id": job_id,
+            "run_id": run_id,
+            "exit_code": 1,
+            "error": str(exc),
+            "status_path": status_path,
+        }
 
     # Pool release for background: wrapper handles it on exit.
     # Parent atexit: release if parent dies before wrapper finishes.
     if pool is not None:
         import atexit
+
         atexit.register(_release_pool_safe, pool, job_id)
 
     return {
@@ -864,33 +1023,52 @@ def main() -> int:
             "Ignored when --model is also given."
         ),
     )
-    parser.add_argument("--allow-all", dest="allow_all", action="store_true",
-                        help="Pass --allow-all to the spawned copilot session")
-    parser.add_argument("--no-allow-all", dest="allow_all", action="store_false",
-                        help="Require the spawned session to ask for permissions (default)")
+    parser.add_argument(
+        "--allow-all",
+        dest="allow_all",
+        action="store_true",
+        help="Pass --allow-all to the spawned copilot session",
+    )
+    parser.add_argument(
+        "--no-allow-all",
+        dest="allow_all",
+        action="store_false",
+        help="Require the spawned session to ask for permissions (default)",
+    )
     parser.set_defaults(allow_all=None)
     parser.add_argument(
-        "--background", action="store_true",
+        "--background",
+        action="store_true",
         help="Spawn detached; print {run_id, job_id, pid, status_path} to stdout and exit 0",
     )
     parser.add_argument(
-        "--session-id", default=None, dest="session_id",
+        "--session-id",
+        default=None,
+        dest="session_id",
         help="Session ID passed through to MCP state writes (FK to state.session_id)",
     )
     parser.add_argument(
-        "--run-id", default=None, dest="run_id",
+        "--run-id",
+        default=None,
+        dest="run_id",
         help="Explicit run ID; if omitted, a UUID4 is generated",
     )
     parser.add_argument(
-        "--job-id", default=None, dest="job_id",
+        "--job-id",
+        default=None,
+        dest="job_id",
         help="Explicit job ID; if omitted, a UUID4 is generated",
     )
     parser.add_argument(
-        "--timeout", type=int, default=1800,
+        "--timeout",
+        type=int,
+        default=1800,
         help="Timeout in seconds (default: 1800)",
     )
     parser.add_argument(
-        "--parent-run-id", default=None, dest="parent_run_id",
+        "--parent-run-id",
+        default=None,
+        dest="parent_run_id",
         help=(
             "B5 cancel cascade: outer run-id. When set, this inner skill's "
             "run-dir is nested under .omni/runs/<parent-run-id>/inner/. "

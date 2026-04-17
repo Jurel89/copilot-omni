@@ -11,6 +11,7 @@ Kill switches:
   DISABLE_OMC=1            — legacy alias, deprecated, removed in v3.0.0
   OMNI_SKIP_SESSION_START=1 — disable only this hook
 """
+
 from __future__ import annotations
 
 import sys
@@ -25,6 +26,7 @@ def _quick_disabled() -> bool:
         return True
     if env.get("DISABLE_OMC") or env.get("OMC_SKIP_HOOKS"):
         import importlib.util as _iu
+
         _lib_path = _os.path.join(_os.path.dirname(__file__), "_hook_lib.py")
         _spec = _iu.spec_from_file_location("_hook_lib", _lib_path)
         if _spec and _spec.loader:
@@ -42,20 +44,21 @@ if _quick_disabled():
     sys.stdout.flush()
     sys.exit(0)
 
-import hashlib
-import json
-import os
-import stat
-import time
-from pathlib import Path
+import hashlib  # noqa: E402
+import json  # noqa: E402
+import os  # noqa: E402
+import time  # noqa: E402
+from pathlib import Path  # noqa: E402
 
-import importlib.util as _iu
+import importlib.util as _iu  # noqa: E402
+
 _lib_path = os.path.join(os.path.dirname(__file__), "_hook_lib.py")
 _spec = _iu.spec_from_file_location("_hook_lib", _lib_path)
 _mod = _iu.module_from_spec(_spec)  # type: ignore[arg-type]
 _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
 _append_audit = _mod._append_audit
 _write_metric = _mod._write_metric
+
 
 # Plugin root lookup. Copilot CLI auto-exports COPILOT_PLUGIN_ROOT,
 # CLAUDE_PLUGIN_ROOT, and PLUGIN_ROOT to every hook subprocess, all pointing
@@ -65,8 +68,12 @@ _write_metric = _mod._write_metric
 # neither is set.
 # NOTE: Path("") == Path(".") which is truthy, so we must NOT use `or` with Path("").
 def _resolve_plugin_root() -> Path:
-    for name in ("COPILOT_PLUGIN_ROOT", "CLAUDE_PLUGIN_ROOT",
-                 "PLUGIN_ROOT", "OMNI_PLUGIN_ROOT"):
+    for name in (
+        "COPILOT_PLUGIN_ROOT",
+        "CLAUDE_PLUGIN_ROOT",
+        "PLUGIN_ROOT",
+        "OMNI_PLUGIN_ROOT",
+    ):
         val = os.environ.get(name)
         if val:
             return Path(val)
@@ -79,6 +86,7 @@ _PLUGIN_ROOT = _resolve_plugin_root()
 # ---------------------------------------------------------------------------
 # Banner computation helpers
 # ---------------------------------------------------------------------------
+
 
 def _count_items(directory: Path, glob: str) -> int:
     """Count items matching *glob* under *directory* (non-recursive top level)."""
@@ -156,7 +164,8 @@ def _pool_cap(root: Path) -> str:
         text = pool_path.read_text(encoding="utf-8")
         # Look for MAX_WORKERS = N or DEFAULT_POOL_SIZE = N
         import re
-        m = re.search(r'(?:MAX_WORKERS|DEFAULT_POOL_SIZE|_CAP)\s*=\s*(\d+)', text)
+
+        m = re.search(r"(?:MAX_WORKERS|DEFAULT_POOL_SIZE|_CAP)\s*=\s*(\d+)", text)
         if m:
             return m.group(1)
     except Exception:
@@ -168,9 +177,15 @@ def _compute_banner(root: Path) -> str:
     """Compute the banner string from current plugin state."""
     version = _read_version(root)
     # C12: count skills from filesystem (skills/*/SKILL.md), not directory count
-    n_skills = _count_recursive(root / "skills", "SKILL.md") if (root / "skills").is_dir() else 0
+    n_skills = (
+        _count_recursive(root / "skills", "SKILL.md")
+        if (root / "skills").is_dir()
+        else 0
+    )
     # C12: count agents from agents/*.md filesystem, not AGENTS.md regex
-    n_agents = _count_items(root / "agents", "*.md") if (root / "agents").is_dir() else 0
+    n_agents = (
+        _count_items(root / "agents", "*.md") if (root / "agents").is_dir() else 0
+    )
     if n_agents == 0:
         # Fallback: parse AGENTS.md only if agents/ dir is absent
         agents_path = root / "AGENTS.md"
@@ -178,16 +193,14 @@ def _compute_banner(root: Path) -> str:
             try:
                 text = agents_path.read_text(encoding="utf-8")
                 import re
-                n_agents = len(re.findall(r'^##\s+\w', text, re.MULTILINE))
+
+                n_agents = len(re.findall(r"^##\s+\w", text, re.MULTILINE))
             except Exception:
                 pass
     pool = _pool_cap(root)
 
     return (
-        f"copilot-omni v{version} | "
-        f"{n_skills} skills | "
-        f"{n_agents} agents | "
-        f"pool={pool}"
+        f"copilot-omni v{version} | {n_skills} skills | {n_agents} agents | pool={pool}"
     )
 
 
@@ -226,6 +239,7 @@ def _get_banner(root: Path) -> tuple[str, bool]:
 # Policy permission check
 # ---------------------------------------------------------------------------
 
+
 def _check_policy_permissions(root: Path) -> list[str]:
     """Return list of warning messages for over-permissive policy files.
 
@@ -255,6 +269,7 @@ def _check_policy_permissions(root: Path) -> list[str]:
 # main
 # ---------------------------------------------------------------------------
 
+
 def main() -> int:
     t_start = time.monotonic()
 
@@ -264,23 +279,60 @@ def main() -> int:
     # Build additionalContext
     parts = [f"<omni-banner>{banner}</omni-banner>"]
     parts.extend(policy_warnings)
+
+    # Hydrate session with recent project memories
+    try:
+        import sqlite3 as _sqlite3
+        import html as _html
+
+        _home = Path(os.environ.get("OMNI_HOME") or (Path.home() / ".omni"))
+        _db = _home / "omni.db"
+        if _db.exists():
+            _conn = _sqlite3.connect(str(_db))
+            try:
+                _conn.row_factory = _sqlite3.Row
+                _rows = _conn.execute(
+                    "SELECT key, content, updated_at FROM memory"
+                    " WHERE scope='project'"
+                    " ORDER BY updated_at DESC LIMIT 5"
+                ).fetchall()
+                if _rows:
+                    mem_lines = [
+                        f"  - {_html.escape(r['key'] or r['content'][:80])}"
+                        for r in _rows
+                    ]
+                    parts.append(
+                        "<project-memory>\n"
+                        + "\n".join(mem_lines)
+                        + "\n</project-memory>"
+                    )
+            finally:
+                _conn.close()
+    except Exception:
+        pass  # non-fatal
+
     context = "\n".join(parts)
 
     payload = {"additionalContext": context}
     sys.stdout.write(json.dumps(payload))
     sys.stdout.flush()
 
-    _append_audit({
-        "hook": _HOOK_NAME,
-        "event_name": "session_start",
-        "tool_name": "",
-        "prompt_excerpt": "",
-        "action": "banner",
-        "reason": f"cache_hit={cache_hit}",
-    })
+    _append_audit(
+        {
+            "hook": _HOOK_NAME,
+            "event_name": "session_start",
+            "tool_name": "",
+            "prompt_excerpt": "",
+            "action": "banner",
+            "reason": f"cache_hit={cache_hit}",
+        }
+    )
     _write_metric("hook_exit_code", 0, {"hook": _HOOK_NAME})
-    _write_metric("hook_latency_ms", round((time.monotonic() - t_start) * 1000, 2),
-                  {"hook": _HOOK_NAME})
+    _write_metric(
+        "hook_latency_ms",
+        round((time.monotonic() - t_start) * 1000, 2),
+        {"hook": _HOOK_NAME},
+    )
 
     return 0
 

@@ -51,10 +51,11 @@ Prefix: `copilot-omni:`. See `agents/*.md` for full prompts.
 - `python3 scripts/omni_team.py` — team lifecycle for native Copilot team skill
 
 ### Notepad
-- `notepad_read`, `notepad_write_priority`, `notepad_write_working`, `notepad_write_manual`
+- `notepad_read`, `notepad_write`, `notepad_prune`
 
 ### Project memory
-- `project_memory_read`, `project_memory_write`, `project_memory_add_note`, `project_memory_add_directive`
+- `memory_capture`, `memory_search`, `memory_prune`, `memory_export`
+- CLI: `omni memory search "query"`, `omni memory list`, `omni memory capture "text"`, `omni memory prune`, `omni memory export`
 
 ### Code intelligence
 - LSP: `lsp_hover`, `lsp_goto_definition`, `lsp_find_references`, `lsp_diagnostics`, and related helpers

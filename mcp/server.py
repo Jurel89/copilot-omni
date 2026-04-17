@@ -24,6 +24,7 @@ Storage:
 from __future__ import annotations
 
 import atexit
+import hashlib as _hashlib
 import importlib.util as _importlib_util
 import json
 import os
@@ -64,7 +65,9 @@ def omni_home() -> Path:
 # Migrations MUST be additive-only: no DROP COLUMN, no rename, no destructive ALTER.
 # New columns must be NULLable or have defaults.
 MIGRATIONS: List[Tuple[int, str]] = [
-    (1, """
+    (
+        1,
+        """
         CREATE TABLE IF NOT EXISTS memory (
             id TEXT PRIMARY KEY,
             scope TEXT NOT NULL,
@@ -138,14 +141,21 @@ MIGRATIONS: List[Tuple[int, str]] = [
             tags TEXT,
             summary TEXT
         );
-    """),
-    (2, """
+    """,
+    ),
+    (
+        2,
+        """
         ALTER TABLE state ADD COLUMN session_id TEXT;
-    """),
-    (3, """
+    """,
+    ),
+    (
+        3,
+        """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_state_mode_session
             ON state(mode, COALESCE(session_id, ''));
-    """),
+    """,
+    ),
 ]
 
 # Serialize migrations across all threads in this process.
@@ -195,7 +205,9 @@ _POOL_COND = threading.Condition(_POOL_LOCK)
 
 def _make_connection() -> sqlite3.Connection:
     db_path = omni_home() / "omni.db"
-    conn = sqlite3.connect(str(db_path), isolation_level=None, timeout=10.0, check_same_thread=False)
+    conn = sqlite3.connect(
+        str(db_path), isolation_level=None, timeout=10.0, check_same_thread=False
+    )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
@@ -225,7 +237,7 @@ def _pool_acquire() -> sqlite3.Connection:
             return _make_connection()
         except sqlite3.OperationalError as exc:
             last_err = exc
-            time.sleep(0.1 * (2 ** attempt))
+            time.sleep(0.1 * (2**attempt))
     # All attempts failed — restore the slot we reserved
     with _POOL_COND:
         _POOL_ACTIVE -= 1
@@ -388,19 +400,26 @@ def _ensure(cond: bool, msg: str) -> None:
 
 
 def _tool_health(_: Dict[str, Any]) -> Dict[str, Any]:
-    return _json_result({
-        "status": "ok",
-        "server": SERVER_NAME,
-        "version": SERVER_VERSION,
-        "python": sys.version.split()[0],
-        "omni_home": str(omni_home()),
-    })
+    return _json_result(
+        {
+            "status": "ok",
+            "server": SERVER_NAME,
+            "version": SERVER_VERSION,
+            "python": sys.version.split()[0],
+            "omni_home": str(omni_home()),
+        }
+    )
 
 
 def _tool_doctor(_: Dict[str, Any]) -> Dict[str, Any]:
     checks = []
-    checks.append({"name": "python_version", "ok": sys.version_info >= (3, 9),
-                   "value": sys.version.split()[0]})
+    checks.append(
+        {
+            "name": "python_version",
+            "ok": sys.version_info >= (3, 9),
+            "value": sys.version.split()[0],
+        }
+    )
     try:
         conn = _pool_acquire()
         conn.execute("SELECT 1")
@@ -408,8 +427,9 @@ def _tool_doctor(_: Dict[str, Any]) -> Dict[str, Any]:
         checks.append({"name": "sqlite", "ok": True, "value": sqlite3.sqlite_version})
     except Exception as e:
         checks.append({"name": "sqlite", "ok": False, "value": str(e)})
-    checks.append({"name": "omni_home", "ok": omni_home().exists(),
-                   "value": str(omni_home())})
+    checks.append(
+        {"name": "omni_home", "ok": omni_home().exists(), "value": str(omni_home())}
+    )
     return _json_result({"checks": checks, "ok": all(c["ok"] for c in checks)})
 
 
@@ -452,18 +472,45 @@ def _tool_memory_search(args: Dict[str, Any]) -> Dict[str, Any]:
     return _json_result({"results": [dict(r) for r in rows]})
 
 
+def _tool_memory_export(args: Dict[str, Any]) -> Dict[str, Any]:
+    scope = args.get("scope")
+    export_format = args.get("format", "json")
+    _ensure(export_format == "json", "format must be json")
+    with _Conn() as conn:
+        if scope:
+            rows = conn.execute(
+                "SELECT id, scope, key, content, tags, created_at, updated_at FROM memory"
+                " WHERE scope=?"
+                " ORDER BY updated_at DESC",
+                (scope,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, scope, key, content, tags, created_at, updated_at FROM memory"
+                " ORDER BY updated_at DESC",
+            ).fetchall()
+    return _json_result({"entries": [dict(r) for r in rows], "count": len(rows)})
+
+
 # ------------------------------------------------------------------ Phase-C C18: LSP + ast-grep
+
 
 def _which(binary: str) -> Optional[str]:
     return shutil.which(binary)
 
 
-def _run_subprocess(cmd: List[str], *, input_text: Optional[str] = None,
-                    timeout: float = 30.0) -> Dict[str, Any]:
+def _run_subprocess(
+    cmd: List[str], *, input_text: Optional[str] = None, timeout: float = 30.0
+) -> Dict[str, Any]:
     import subprocess as _sp  # noqa: PLC0415
+
     try:
         proc = _sp.run(
-            cmd, input=input_text, capture_output=True, text=True, timeout=timeout,
+            cmd,
+            input=input_text,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
         )
     except FileNotFoundError:
         return {"status": "skipped", "reason": f"{cmd[0]} not found on PATH"}
@@ -489,56 +536,68 @@ def _tool_lsp_hover(args: Dict[str, Any]) -> Dict[str, Any]:
     line = int(args.get("line", 0))
     character = int(args.get("character", 0))
     if not _which(binary):
-        return _json_result({
-            "status": "skipped",
-            "reason": f"{binary!r} not found on PATH — install an LSP "
-                      f"server to enable this tool",
-            "path": path,
-        })
+        return _json_result(
+            {
+                "status": "skipped",
+                "reason": f"{binary!r} not found on PATH — install an LSP "
+                f"server to enable this tool",
+                "path": path,
+            }
+        )
     # We don't start a persistent LSP session here — the intent is a smoke
     # surface. A real handler would spawn the LSP over stdio JSON-RPC. For
     # now we echo the request back with status=stub so integrations can
     # probe and downstream tests can assert the call shape.
-    return _json_result({
-        "status": "stub",
-        "ls_binary": binary,
-        "path": path,
-        "line": line,
-        "character": character,
-        "note": "full LSP session not implemented; binary is present",
-    })
+    return _json_result(
+        {
+            "status": "stub",
+            "ls_binary": binary,
+            "path": path,
+            "line": line,
+            "character": character,
+            "note": "full LSP session not implemented; binary is present",
+        }
+    )
 
 
 def _tool_lsp_goto_definition(args: Dict[str, Any]) -> Dict[str, Any]:
     binary = args.get("ls_binary", "pylsp")
     if not _which(binary):
-        return _json_result({
-            "status": "skipped",
-            "reason": f"{binary!r} not found on PATH",
-        })
-    return _json_result({
-        "status": "stub",
-        "ls_binary": binary,
-        "path": args.get("path", ""),
-        "line": int(args.get("line", 0)),
-        "character": int(args.get("character", 0)),
-    })
+        return _json_result(
+            {
+                "status": "skipped",
+                "reason": f"{binary!r} not found on PATH",
+            }
+        )
+    return _json_result(
+        {
+            "status": "stub",
+            "ls_binary": binary,
+            "path": args.get("path", ""),
+            "line": int(args.get("line", 0)),
+            "character": int(args.get("character", 0)),
+        }
+    )
 
 
 def _tool_lsp_find_references(args: Dict[str, Any]) -> Dict[str, Any]:
     binary = args.get("ls_binary", "pylsp")
     if not _which(binary):
-        return _json_result({
-            "status": "skipped",
-            "reason": f"{binary!r} not found on PATH",
-        })
-    return _json_result({
-        "status": "stub",
-        "ls_binary": binary,
-        "path": args.get("path", ""),
-        "line": int(args.get("line", 0)),
-        "character": int(args.get("character", 0)),
-    })
+        return _json_result(
+            {
+                "status": "skipped",
+                "reason": f"{binary!r} not found on PATH",
+            }
+        )
+    return _json_result(
+        {
+            "status": "stub",
+            "ls_binary": binary,
+            "path": args.get("path", ""),
+            "line": int(args.get("line", 0)),
+            "character": int(args.get("character", 0)),
+        }
+    )
 
 
 def _assert_no_flag_injection(*values: str) -> None:
@@ -552,9 +611,7 @@ def _assert_no_flag_injection(*values: str) -> None:
     """
     for v in values:
         if isinstance(v, str) and v.startswith("-"):
-            raise ValueError(
-                f"refusing ast-grep arg that begins with '-': {v[:40]!r}"
-            )
+            raise ValueError(f"refusing ast-grep arg that begins with '-': {v[:40]!r}")
 
 
 def _tool_ast_grep_search(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -565,10 +622,12 @@ def _tool_ast_grep_search(args: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("pattern required")
     _assert_no_flag_injection(pattern, target, lang or "")
     if not _which("ast-grep") and not _which("sg"):
-        return _json_result({
-            "status": "skipped",
-            "reason": "ast-grep (or 'sg') not found on PATH",
-        })
+        return _json_result(
+            {
+                "status": "skipped",
+                "reason": "ast-grep (or 'sg') not found on PATH",
+            }
+        )
     binary = _which("ast-grep") or _which("sg")
     # `--` separates flags from positional arguments so ast-grep cannot
     # reinterpret `target` as another flag.
@@ -589,13 +648,22 @@ def _tool_ast_grep_replace(args: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("pattern and replacement required")
     _assert_no_flag_injection(pattern, replacement, target, lang or "")
     if not _which("ast-grep") and not _which("sg"):
-        return _json_result({
-            "status": "skipped",
-            "reason": "ast-grep (or 'sg') not found on PATH",
-        })
+        return _json_result(
+            {
+                "status": "skipped",
+                "reason": "ast-grep (or 'sg') not found on PATH",
+            }
+        )
     binary = _which("ast-grep") or _which("sg")
-    cmd = [binary, "run", "--pattern", pattern,
-           "--rewrite", replacement, "--update-all"]
+    cmd = [
+        binary,
+        "run",
+        "--pattern",
+        pattern,
+        "--rewrite",
+        replacement,
+        "--update-all",
+    ]
     if lang:
         cmd.extend(["--lang", lang])
     # `--` barrier so *target* (user-supplied) can never be re-parsed as a flag
@@ -612,10 +680,19 @@ def _tool_policy_check(args: Dict[str, Any]) -> Dict[str, Any]:
 
     policy_file = cwd / ".omni" / f"policy-{profile}.json"
     default = {
-        "deny_commands": ["sudo", "rm -rf /", "mkfs", "dd if=/dev/zero",
-                          ":(){ :|:& };:"],
-        "protected_paths": [".omni/config.json", ".github/copilot-instructions.md",
-                            "plugin.json", "AGENTS.md"],
+        "deny_commands": [
+            "sudo",
+            "rm -rf /",
+            "mkfs",
+            "dd if=/dev/zero",
+            ":(){ :|:& };:",
+        ],
+        "protected_paths": [
+            ".omni/config.json",
+            ".github/copilot-instructions.md",
+            "plugin.json",
+            "AGENTS.md",
+        ],
     }
     policy = default
     if policy_file.exists():
@@ -639,27 +716,41 @@ def _tool_policy_check(args: Dict[str, Any]) -> Dict[str, Any]:
                 continue
             if " " in dlow:
                 if dlow in lower_cmd:
-                    return _json_result({
-                        "decision": "deny",
-                        "reason": f"policy({profile}): blocked pattern '{deny}'",
-                    })
+                    return _json_result(
+                        {
+                            "decision": "deny",
+                            "reason": f"policy({profile}): blocked pattern '{deny}'",
+                        }
+                    )
             elif dlow in token_set or dlow in basenames:
-                return _json_result({
-                    "decision": "deny",
-                    "reason": f"policy({profile}): blocked command '{deny}'",
-                })
-    if tool in ("write", "edit", "edit_file", "multi_edit",
-                "multiedit", "patch", "apply_patch", "str_replace_editor"):
+                return _json_result(
+                    {
+                        "decision": "deny",
+                        "reason": f"policy({profile}): blocked command '{deny}'",
+                    }
+                )
+    if tool in (
+        "write",
+        "edit",
+        "edit_file",
+        "multi_edit",
+        "multiedit",
+        "patch",
+        "apply_patch",
+        "str_replace_editor",
+    ):
         raw_path = str(tool_args.get("file_path") or tool_args.get("path", ""))
         norm = os.path.normpath(raw_path).replace("\\", "/").lower()
         for prot in policy.get("protected_paths", []):
             if not prot:
                 continue
             if prot.replace("\\", "/").lower() in norm:
-                return _json_result({
-                    "decision": "deny",
-                    "reason": f"policy({profile}): protected path '{prot}'",
-                })
+                return _json_result(
+                    {
+                        "decision": "deny",
+                        "reason": f"policy({profile}): protected path '{prot}'",
+                    }
+                )
     return _json_result({"decision": "allow"})
 
 
@@ -682,8 +773,13 @@ def _tool_state_read(args: Dict[str, Any]) -> Dict[str, Any]:
             row = conn.execute("SELECT * FROM state WHERE mode=?", (mode,)).fetchone()
             if not row:
                 return _json_result({"mode": mode, "body": None})
-            return _json_result({"mode": row["mode"], "body": json.loads(row["body"]),
-                                 "updated_at": row["updated_at"]})
+            return _json_result(
+                {
+                    "mode": row["mode"],
+                    "body": json.loads(row["body"]),
+                    "updated_at": row["updated_at"],
+                }
+            )
         rows = conn.execute("SELECT mode, updated_at FROM state").fetchall()
     return _json_result({"modes": [dict(r) for r in rows]})
 
@@ -737,14 +833,13 @@ def _tool_wiki_query(args: Dict[str, Any]) -> Dict[str, Any]:
 
 def _tool_wiki_list(_: Dict[str, Any]) -> Dict[str, Any]:
     with _Conn() as conn:
-        rows = conn.execute("SELECT slug, title, updated_at FROM wiki ORDER BY updated_at DESC").fetchall()
+        rows = conn.execute(
+            "SELECT slug, title, updated_at FROM wiki ORDER BY updated_at DESC"
+        ).fetchall()
     return _json_result({"entries": [dict(r) for r in rows]})
 
 
 # ------------------------------------------------------------------ Phase-C C17: ingest + graph
-
-
-import hashlib as _hashlib
 
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -788,9 +883,14 @@ def _tool_wiki_ingest(args: Dict[str, Any]) -> Dict[str, Any]:
                 t.strip() for t in (existing["tags"] or "").split(",") if t.strip()
             }
             if sentinel in existing_tokens:
-                return _json_result({
-                    "slug": slug, "ok": True, "deduped": True, "sha256": sha,
-                })
+                return _json_result(
+                    {
+                        "slug": slug,
+                        "ok": True,
+                        "deduped": True,
+                        "sha256": sha,
+                    }
+                )
         merged_tags_parts: List[str] = []
         if tags:
             merged_tags_parts.append(tags)
@@ -804,9 +904,14 @@ def _tool_wiki_ingest(args: Dict[str, Any]) -> Dict[str, Any]:
             " updated_at=excluded.updated_at",
             (slug, title, body, merged_tags, now),
         )
-    return _json_result({
-        "slug": slug, "ok": True, "deduped": False, "sha256": sha,
-    })
+    return _json_result(
+        {
+            "slug": slug,
+            "ok": True,
+            "deduped": False,
+            "sha256": sha,
+        }
+    )
 
 
 # [[slug]] or [[Title|slug]] — when a pipe is present we capture the slug
@@ -852,9 +957,7 @@ def _tool_wiki_graph(_args: Dict[str, Any]) -> Dict[str, Any]:
     but surface in ``dangling`` so callers can render them separately.
     """
     with _Conn() as conn:
-        rows = conn.execute(
-            "SELECT slug, title, body FROM wiki"
-        ).fetchall()
+        rows = conn.execute("SELECT slug, title, body FROM wiki").fetchall()
     slugs = {row["slug"] for row in rows}
     nodes = [{"slug": row["slug"], "title": row["title"]} for row in rows]
     edges: List[Dict[str, str]] = []
@@ -958,12 +1061,14 @@ def _tool_memory_prune(args: Dict[str, Any]) -> Dict[str, Any]:
                     (cutoff,),
                 )
             deleted = cur.rowcount if cur.rowcount is not None else 0
-    return _json_result({
-        "deleted": deleted,
-        "ttl_days": ttl_days,
-        "dry_run": dry_run,
-        "scope": scope,
-    })
+    return _json_result(
+        {
+            "deleted": deleted,
+            "ttl_days": ttl_days,
+            "dry_run": dry_run,
+            "scope": scope,
+        }
+    )
 
 
 def _tool_notepad_prune(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -997,12 +1102,14 @@ def _tool_notepad_prune(args: Dict[str, Any]) -> Dict[str, Any]:
                     (cutoff,),
                 )
             deleted = cur.rowcount if cur.rowcount is not None else 0
-    return _json_result({
-        "deleted": deleted,
-        "ttl_days": ttl_days,
-        "dry_run": dry_run,
-        "kind": kind,
-    })
+    return _json_result(
+        {
+            "deleted": deleted,
+            "ttl_days": ttl_days,
+            "dry_run": dry_run,
+            "kind": kind,
+        }
+    )
 
 
 def _tool_shared_memory_write(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1021,7 +1128,9 @@ def _tool_shared_memory_read(args: Dict[str, Any]) -> Dict[str, Any]:
     key = args.get("key")
     with _Conn() as conn:
         if key:
-            row = conn.execute("SELECT * FROM shared_memory WHERE key=?", (key,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM shared_memory WHERE key=?", (key,)
+            ).fetchone()
             return _json_result(dict(row) if row else {"error": "not found"})
         rows = conn.execute(
             "SELECT key, updated_at FROM shared_memory ORDER BY updated_at DESC"
@@ -1035,7 +1144,9 @@ def _tool_trace_summary(args: Dict[str, Any]) -> Dict[str, Any]:
         if trace_id:
             row = conn.execute("SELECT * FROM trace WHERE id=?", (trace_id,)).fetchone()
             return _json_result(dict(row) if row else {"error": "not found"})
-        rows = conn.execute("SELECT * FROM trace ORDER BY created_at DESC LIMIT 20").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM trace ORDER BY created_at DESC LIMIT 20"
+        ).fetchall()
     return _json_result({"traces": [dict(r) for r in rows]})
 
 
@@ -1058,12 +1169,20 @@ def _tool_trace_timeline(args: Dict[str, Any]) -> Dict[str, Any]:
 TOOLS: Dict[str, Dict[str, Any]] = {
     "health": {
         "description": "Check server health and environment.",
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
         "handler": _tool_health,
     },
     "doctor": {
         "description": "Diagnose Copilot Omni installation (python, sqlite, omni_home).",
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
         "handler": _tool_doctor,
     },
     "memory_capture": {
@@ -1091,6 +1210,17 @@ TOOLS: Dict[str, Dict[str, Any]] = {
             },
         },
         "handler": _tool_memory_search,
+    },
+    "memory_export": {
+        "description": "Export memory entries (optionally filtered by scope).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "scope": {"type": "string"},
+            },
+            "additionalProperties": False,
+        },
+        "handler": _tool_memory_export,
     },
     "lsp_hover": {
         "description": (
@@ -1244,7 +1374,11 @@ TOOLS: Dict[str, Dict[str, Any]] = {
     },
     "wiki_list": {
         "description": "List all wiki entries.",
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
         "handler": _tool_wiki_list,
     },
     "wiki_ingest": {
@@ -1270,7 +1404,11 @@ TOOLS: Dict[str, Dict[str, Any]] = {
             "Return the wiki knowledge graph: {nodes, edges, dangling}. "
             "Edges are derived from [[wiki-link]] and relative Markdown links."
         ),
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
         "handler": _tool_wiki_graph,
     },
     "notepad_write": {
@@ -1369,7 +1507,9 @@ _sv_spec.loader.exec_module(_sv_mod)  # type: ignore[union-attr]
 _schema_validate = _sv_mod.validate  # type: ignore[attr-defined]
 
 
-def _validate_tool_input(name: str, spec: Dict[str, Any], args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _validate_tool_input(
+    name: str, spec: Dict[str, Any], args: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
     """Validate args against the tool's inputSchema. Return error dict or None."""
     schema = spec.get("inputSchema")
     if not schema:
@@ -1388,7 +1528,9 @@ def _validate_tool_input(name: str, spec: Dict[str, Any], args: Dict[str, Any]) 
 # ------------------------------------------------------------------ JSON-RPC
 
 
-def _rpc_response(rpc_id: Any, result: Any = None, error: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _rpc_response(
+    rpc_id: Any, result: Any = None, error: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     msg: Dict[str, Any] = {"jsonrpc": "2.0", "id": rpc_id}
     if error:
         msg["error"] = error
@@ -1403,28 +1545,35 @@ def _handle(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     params = message.get("params") or {}
 
     if method == "initialize":
-        return _rpc_response(rpc_id, {
-            "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
-        })
+        return _rpc_response(
+            rpc_id,
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": {"tools": {"listChanged": False}},
+                "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
+            },
+        )
     if method == "notifications/initialized":
         return None
     if method == "tools/list":
         tools = []
         for name, spec in TOOLS.items():
-            tools.append({
-                "name": name,
-                "description": spec["description"],
-                "inputSchema": spec["inputSchema"],
-            })
+            tools.append(
+                {
+                    "name": name,
+                    "description": spec["description"],
+                    "inputSchema": spec["inputSchema"],
+                }
+            )
         return _rpc_response(rpc_id, {"tools": tools})
     if method == "tools/call":
         name = params.get("name")
         args = params.get("arguments") or {}
         spec = TOOLS.get(name)
         if not spec:
-            return _rpc_response(rpc_id, error={"code": -32601, "message": f"unknown tool: {name}"})
+            return _rpc_response(
+                rpc_id, error={"code": -32601, "message": f"unknown tool: {name}"}
+            )
         # Validate input schema before dispatching.
         validation_error = _validate_tool_input(name, spec, args)
         if validation_error:
@@ -1442,7 +1591,9 @@ def _handle(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     if rpc_id is None:
         return None
-    return _rpc_response(rpc_id, error={"code": -32601, "message": f"unknown method: {method}"})
+    return _rpc_response(
+        rpc_id, error={"code": -32601, "message": f"unknown method: {method}"}
+    )
 
 
 def _write_response(stdout, resp: Any, framed: bool) -> None:
