@@ -241,12 +241,16 @@ class TestFixPythonRewrite(unittest.TestCase):
         self.assertNotIn("already calibrated", out)
         mcp_after = json.loads(self._mcp.read_text())
         hooks_after = json.loads(self._hooks.read_text())
+        # Resolve the expected plugin-root path the same way the rewriter
+        # does. Windows 8.3 short-filename aliases (e.g. RUNNER~1 vs
+        # runneradmin) make a naive string compare flaky.
+        resolved_root = str(Path(self._tmp).resolve())
         self.assertEqual(
-            mcp_after["mcpServers"]["copilot-omni"]["args"][0],
-            f"{self._tmp}/mcp/server.py",
+            Path(mcp_after["mcpServers"]["copilot-omni"]["args"][0]).resolve(),
+            Path(f"{resolved_root}/mcp/server.py").resolve(),
         )
         self.assertIn(
-            f"{self._tmp}/hooks/session_start.py",
+            resolved_root,
             hooks_after["hooks"]["sessionStart"][0]["command"],
         )
 
