@@ -51,7 +51,7 @@ User-facing CLI. Subcommands: `version`, `doctor`, `init`, `status`, `plugin-ins
 ### `scripts/subagent.py`
 
 Dispatches specialist work to sub-invocations of Copilot CLI. Known skills are routed via the
-`/copilot-omni:<name>` slash-command namespace; named agents via `--agent <name>`. A file-lock
+`/copilot-omni:<name>` plugin skill invocation; named agents via `--agent <name>`. A file-lock
 semaphore caps the number of concurrent children at `min(8, cpu_count())` by default, configurable
 in `.omni/config.json` (ADR-0010). The wrapper blocks rather than fails when the cap is hit.
 
