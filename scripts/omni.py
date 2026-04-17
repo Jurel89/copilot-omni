@@ -910,7 +910,7 @@ def _ensure_memory_project_column(conn: sqlite3.Connection) -> None:
     if not rows or any(row[1] == "project" for row in rows):
         return
     try:
-        conn.execute("ALTER TABLE memory ADD COLUMN project TEXT")
+        conn.execute("ALTER TABLE memory ADD COLUMN project TEXT NOT NULL DEFAULT ''")
         conn.commit()
     except sqlite3.OperationalError as exc:
         if "duplicate column name" not in str(exc).lower():
