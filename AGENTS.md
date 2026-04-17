@@ -7,7 +7,7 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 
 | Area | Count | Location |
 |------|-------|----------|
-| Skills | 29 | `skills/<name>/SKILL.md` |
+| Skills | 30 | `skills/<name>/SKILL.md` |
 | Agents | 19 | `agents/<name>.md` |
 | Slash commands | 10 | `commands/<name>.md` |
 | MCP tools | 20 | served by `mcp/server.py` |
