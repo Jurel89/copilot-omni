@@ -61,6 +61,30 @@ class TestShimSource(unittest.TestCase):
         self.assertIn("exit /b 127", text,
                       "omni.cmd should exit non-zero when no Python is found")
 
+    def test_cmd_probes_launcher_before_use(self) -> None:
+        """Regression for P2: a broken `py -3` must fall through, not exit.
+
+        The batch shim must version-probe each launcher with `-c ...` and
+        only dispatch to it if that probe exits 0. Otherwise a present-but-
+        broken `py` launcher (e.g. no -3 registered) would short-circuit the
+        fallback chain.
+        """
+        text = (ROOT / "scripts" / "omni.cmd").read_text(encoding="utf-8")
+        # Each launcher line is preceded by a `-c` probe that checks
+        # sys.version_info. Assert at least one such probe per launcher.
+        self.assertGreaterEqual(
+            text.count('-c "import sys;raise SystemExit('), 3,
+            "omni.cmd should probe all three launchers with a version check",
+        )
+        # The first launcher invocation guarded by `if !errorlevel! equ 0`
+        # must appear AFTER the first `-c` probe, not before.
+        probe_pos = text.find('-c "import sys;')
+        dispatch_pos = text.find("%~dp0omni.py")
+        self.assertLess(
+            probe_pos, dispatch_pos,
+            "omni.cmd must probe the launcher before dispatching",
+        )
+
     def test_bash_shim_probes_in_order(self) -> None:
         text = (ROOT / "scripts" / "omni").read_text(encoding="utf-8")
         self.assertIn("python3", text)
@@ -186,6 +210,85 @@ class TestFixPythonRewrite(unittest.TestCase):
         self.assertIn("FAIL to read/parse", out)
         # Content preserved verbatim.
         self.assertEqual(self._mcp.read_text(), "{not json")
+
+    def test_quoted_interpreter_with_spaces_is_respected(self) -> None:
+        """Regression for P1: `"C:\\Program Files\\...\\python.exe" ...`
+        must not be truncated at the first space.
+
+        Seed the hooks file with a pre-calibrated Windows-style quoted path
+        and confirm the rewriter recognises the interpreter as already-
+        resolved (i.e. it does NOT re-rewrite it into a corrupt string).
+        """
+        # Use this test's real interpreter so the calibration check passes
+        # and nothing gets rewritten.
+        fake_mcp = {
+            "mcpServers": {
+                "copilot-omni": {
+                    "type": "stdio",
+                    "command": sys.executable,
+                    "args": [],
+                }
+            }
+        }
+        # Simulate a hook command whose interpreter path contains spaces
+        # (mimics a real Windows install: C:\Program Files\...).
+        faux_interp = sys.executable  # absolute + exists on PATH
+        fake_hooks = {
+            "version": 1,
+            "hooks": {
+                "sessionStart": [{
+                    "type": "command",
+                    "command": f'"{faux_interp}" "${{CLAUDE_PLUGIN_ROOT}}/hooks/session_start.py"',
+                }],
+            },
+        }
+        self._mcp.write_text(
+            json.dumps(fake_mcp, indent=2) + "\n", encoding="utf-8"
+        )
+        self._hooks.write_text(
+            json.dumps(fake_hooks, indent=2) + "\n", encoding="utf-8"
+        )
+        before = self._hooks.read_text()
+        out = self._run(apply_=True)
+        self.assertIn("already calibrated", out)
+        # File content is byte-identical — the quoted path was not split
+        # on the first space and no spurious rewrite happened.
+        self.assertEqual(self._hooks.read_text(), before)
+
+
+class TestSplitCmdHead(unittest.TestCase):
+    """Unit coverage for `_split_cmd_head` — the quote-aware head parser."""
+
+    def test_unquoted_bare_name(self) -> None:
+        self.assertEqual(omni._split_cmd_head("python3"), ("python3", ""))
+
+    def test_unquoted_with_args(self) -> None:
+        head, rest = omni._split_cmd_head('python3 script.py arg')
+        self.assertEqual(head, "python3")
+        self.assertEqual(rest, "script.py arg")
+
+    def test_double_quoted_path_with_spaces(self) -> None:
+        head, rest = omni._split_cmd_head(
+            '"C:\\Program Files\\Python311\\python.exe" "arg one" "arg two"'
+        )
+        self.assertEqual(head, "C:\\Program Files\\Python311\\python.exe")
+        self.assertEqual(rest, '"arg one" "arg two"')
+
+    def test_single_quoted_path_with_spaces(self) -> None:
+        head, rest = omni._split_cmd_head(
+            "'/Applications/Python 3.11/bin/python3' --version"
+        )
+        self.assertEqual(head, "/Applications/Python 3.11/bin/python3")
+        self.assertEqual(rest, "--version")
+
+    def test_unterminated_quote_is_treated_as_head(self) -> None:
+        head, rest = omni._split_cmd_head('"C:\\Program Files')
+        self.assertEqual(head, "C:\\Program Files")
+        self.assertEqual(rest, "")
+
+    def test_empty_string(self) -> None:
+        self.assertEqual(omni._split_cmd_head(""), ("", ""))
+        self.assertEqual(omni._split_cmd_head("   "), ("", ""))
 
 
 if __name__ == "__main__":

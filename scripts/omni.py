@@ -214,19 +214,16 @@ def _rewrite_python_in_config(
         if isinstance(node, dict):
             cmd = node.get("command")
             if isinstance(cmd, str):
-                # Hook commands are shell-ish strings ("python3 \"...\""). The
-                # MCP `command` is a bare executable name. Handle both: we
-                # only touch the leading token of the command string.
-                head, _, tail = cmd.partition(" ")
-                # strip a leading quote if present (Windows hook JSON quotes)
-                head_clean = head.strip('"').strip("'")
-                if head_clean and _needs_rewrite(head_clean):
-                    # Rebuild with interpreter substituted, preserving
-                    # original quoting style of the tail (if any).
-                    if tail:
-                        new_cmd = f'"{interpreter}" {tail}'
-                    else:
-                        new_cmd = interpreter
+                # Hook commands are shell-ish strings (`python3 "..."` or
+                # `"C:\Program Files\Python311\python.exe" "..."`). The MCP
+                # `command` is a bare executable name. `_split_cmd_head`
+                # honours quoting so a path with spaces is not truncated on
+                # the first space (which would break Windows installs).
+                head, rest = _split_cmd_head(cmd)
+                if head and _needs_rewrite(head):
+                    new_cmd = (
+                        f'"{interpreter}" {rest}' if rest else interpreter
+                    )
                     node["command"] = new_cmd
                     changed.append((cmd, new_cmd))
             for v in node.values():
@@ -237,6 +234,40 @@ def _rewrite_python_in_config(
 
     _recurse(data)
     return changed, data
+
+
+def _split_cmd_head(cmd: str) -> tuple[str, str]:
+    """Split a shell-style command string into (interpreter, rest).
+
+    Honours both double- and single-quoted interpreter paths so that a
+    Windows install like `"C:\\Program Files\\Python311\\python.exe" ...`
+    is not truncated at the first space. Unquoted commands are split at
+    the first whitespace, matching the default `shlex`/`CreateProcess`
+    behaviour. The returned `interpreter` is always unquoted; `rest` keeps
+    its original whitespace and quoting so the caller can splice a new
+    interpreter back in without mangling downstream arguments.
+
+    Returns `("", "")` for empty input.
+    """
+    s = cmd.lstrip()
+    if not s:
+        return "", ""
+
+    if s[0] in ('"', "'"):
+        quote = s[0]
+        end = s.find(quote, 1)
+        if end < 0:
+            # Unterminated quote — treat the whole string as the head.
+            return s[1:], ""
+        head = s[1:end]
+        rest = s[end + 1 :].lstrip()
+        return head, rest
+
+    # Unquoted: split on first whitespace run.
+    for i, ch in enumerate(s):
+        if ch.isspace():
+            return s[:i], s[i:].lstrip()
+    return s, ""
 
 
 def _doctor_run_gc(root: Path, *, apply_: bool) -> None:
