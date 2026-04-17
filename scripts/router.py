@@ -107,7 +107,6 @@ _SKILL_RULES: tuple[tuple[str, int, tuple[tuple[str, float], ...]], ...] = (
     ("team",    30, (
         (r"\bteam mode\b", 0.8),
         (r"\btmux (?:panes?|team)\b", 0.5),
-        (r"\bparallel (?:claude|codex|gemini)\b", 0.4),
     )),
     ("plan",    40, (
         (r"\bwrite (?:me )?a plan\b", 0.7),

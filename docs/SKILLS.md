@@ -17,7 +17,6 @@ Use `omni list skills` to get an always-fresh view directly from the filesystem.
 - `deep-dive` — Trace + deep-interview 2-stage pipeline.
 - `deepinit` — Deep codebase init with hierarchical AGENTS.md.
 - `external-context` — Parallel doc-specialist web/doc lookup.
-- `ask` — Process-first advisor routing.
 
 ## Verification & quality
 - `verify` — Prove a change really works.
@@ -41,6 +40,4 @@ Use `omni list skills` to get an always-fresh view directly from the filesystem.
 - `omni-setup` — Canonical setup flow for the plugin.
 - `omni-doctor` — Diagnose plugin installation.
 - `mcp-setup` — Configure additional MCP servers.
-- `hud` — Configure HUD display options.
 - `omni-reference` — copilot-omni agent catalog reference.
-- `omni-teams` — CLI-team runtime via tmux.

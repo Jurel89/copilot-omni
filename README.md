@@ -16,7 +16,7 @@
   <a href="https://modelcontextprotocol.io/"><img alt="MCP" src="https://img.shields.io/badge/MCP-JSON--RPC%202.0-10b981"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-22c55e"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-64748b">
-  <img alt="Skills" src="https://img.shields.io/badge/skills-30-6366f1">
+  <img alt="Skills" src="https://img.shields.io/badge/skills-27-6366f1">
   <img alt="Agents" src="https://img.shields.io/badge/agents-19-8b5cf6">
   <img alt="MCP tools" src="https://img.shields.io/badge/MCP%20tools-20-a855f7">
   <a href="CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-d946ef"></a>
@@ -53,7 +53,7 @@ copilot plugin install copilot-omni@copilot-omni
 
 ```bash
 # 1. Prerequisites: GitHub Copilot CLI + Python ≥ 3.9
-npm install -g @github/copilot-cli            # skip if already installed
+npm install -g @github/copilot                # skip if already installed
 python3 --version                             # POSIX
 py -3 --version                               # Windows — either works
 
@@ -104,9 +104,9 @@ copilot -p "team run wave-3 plan" --allow-all
 <tr>
 <td width="50%" valign="top">
 
-### 30 skills
+### 27 skills
 
-**30 skills** — ai-slop-cleaner, ask, autopilot, cancel, configure-notifications, debug, deep-dive, deep-interview, deepinit, external-context, hud, mcp-setup, omni-doctor, omni-reference, omni-setup, omni-teams, plan, ralph, ralplan, release, remember, setup, skill, skillify, team, trace, ultraqa, ultrawork, verify, wiki.
+**27 skills** — ai-slop-cleaner, autopilot, cancel, configure-notifications, debug, deep-dive, deep-interview, deepinit, external-context, mcp-setup, omni-doctor, omni-reference, omni-setup, plan, ralph, ralplan, release, remember, setup, skill, skillify, team, trace, ultraqa, ultrawork, verify, wiki.
 
 Run `omni list skills` for the live catalogue.
 
@@ -139,7 +139,7 @@ Storage: WAL-mode SQLite with `UNIQUE(mode, session_id)`.
 ```
 GitHub Copilot CLI
  ├─ reads .claude-plugin/plugin.json         ← plugin manifest
- ├─ discovers skills/ (30), agents/ (19), commands/ (10)
+ ├─ discovers skills/ (27), agents/ (19), commands/ (10)
  ├─ wires hooks/hooks.json  → python3 hooks/*.py
  │    ├─ session_start.py       banner, policy checks, metrics
  │    ├─ pre_tool_use.py        policy guard, shlex-safe parse
@@ -167,6 +167,7 @@ Dive deeper: [ARCHITECTURE](docs/ARCHITECTURE.md) · [ROUTER](docs/ROUTER.md) ·
 - **Five kill-switches** — `OMNI_SKIP_HOOKS`, `DISABLE_OMNI`, plus per-hook `OMNI_SKIP_PRE_TOOL_USE`, `OMNI_SKIP_POST_TOOL_USE`, `OMNI_SKIP_SESSION_START`, `OMNI_SKIP_USER_PROMPT_SUBMIT`.
 - **Policy engine** — `policies/{strict,standard,permissive}.json` permission-checked on session start.
 - **~520 tests** — unit · integration · MCP-smoke · discovery-smoke · per-module coverage gates (`mcp/` ≥ 80 %, `hooks/` ≥ 70 %, `scripts/` ≥ 60 %).
+- **Local integration test (never runs in CI)** — `./scripts/itest` installs the `copilot` CLI if missing, runs `omni doctor`, the MCP stdio roundtrip, the discovery probe, and the full `verify_plugin_contract.py --all` gate (which includes `--check-external-cli` to block reintroduction of Claude/Codex/Gemini CLI calls and `hud` statusline residue). If a `copilot` auth session exists, it adds a trial-mode plugin load and a trivial slash-command invocation. Results go to `.omni/integration-test/last-run.log`. Corporate auth flows and npm install paths vary between laptops, so this test is intentionally excluded from `ci.yml`, `full-suite.yml`, and `copilot-nightly.yml` — it runs on your machine, against the `copilot` you actually use, to catch bugs CI cannot reproduce.
 
 ## 📚 Documentation
 
@@ -197,7 +198,7 @@ Dive deeper: [ARCHITECTURE](docs/ARCHITECTURE.md) · [ROUTER](docs/ROUTER.md) ·
 
 ```bash
 # Marketplace install (recommended, forward-compatible)
-npm install -g @github/copilot-cli            # if needed
+npm install -g @github/copilot                # if needed
 copilot plugin marketplace add https://github.com/Jurel89/copilot-omni
 copilot plugin install copilot-omni@copilot-omni
 

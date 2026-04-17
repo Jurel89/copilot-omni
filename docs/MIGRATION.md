@@ -89,7 +89,7 @@ All slash-commands moved to the `copilot-omni` namespace.
 | `/oh-my-claudecode:omc-doctor` | `/copilot-omni:omni-doctor` |
 | `/oh-my-claudecode:omc-setup` | `/copilot-omni:omni-setup` |
 | `/oh-my-claudecode:omc-reference` | `/copilot-omni:omni-reference` |
-| `/oh-my-claudecode:omc-teams` | `/copilot-omni:omni-teams` |
+| `/oh-my-claudecode:omc-teams` | *(deleted in v2.1 — see section 4b)* |
 | `/oh-my-claudecode:autopilot` | `/copilot-omni:autopilot` |
 | `/oh-my-claudecode:ralph` | `/copilot-omni:ralph` |
 | `/oh-my-claudecode:team` | `/copilot-omni:team` |
@@ -116,6 +116,33 @@ Seven Claude-Code-only skills were deleted. If you relied on any, see the git hi
 
 `configure-notifications` was deferred (not deleted) — it lives in
 `.omni/deferred/configure-notifications/` and is retrievable from git history.
+
+---
+
+### 4b. Skills removed in v2.1 (April 2026)
+
+Three additional skills shipped in v2.0 but violated the same ADR-0000 decisions
+that drove the Phase-B cleanup. They were deleted in v2.1 because they only
+surfaced runtime failures for users on Copilot-only corporate machines (no
+Claude Code, no external AI CLIs installed) — exactly the audience the plugin
+promises to serve.
+
+| Deleted skill | Reason | Alternative |
+|---------------|--------|-------------|
+| `hud` | Violated decision 1 — configured Claude Code's `~/.claude/settings.json` `statusLine` and copied a wrapper to `~/.claude/hud/omni-hud.mjs`. Neither path exists in GitHub Copilot CLI. | None shipped. If Copilot CLI adds a statusline surface upstream, a Copilot-native skill can be proposed. |
+| `ask` | Violated decision 7 — wrapped `omc ask <claude\|codex\|gemini>`, which spawns external AI CLI binaries. The wrapper failed on every corporate machine without those CLIs installed. | Use `copilot -p "..."` directly, or `python3 scripts/subagent.py <agent> "..."` for a specialist. |
+| `omni-teams` | Violated decision 7 — spawned N tmux panes running `claude` / `codex` / `gemini` workers. | Use the surviving `team` skill (Copilot-native; `scripts/omni_team.py` remains, but only wired to the surviving `team` skill). |
+
+Two follow-on cleanups landed alongside: the `plan` skill lost its
+`--architect codex` / `--critic codex` delegation flags (dormant dead code
+that only failed under load), and `scripts/router.py` lost its
+`parallel (claude|codex|gemini)` scoring pattern (misleading in a Copilot-only
+environment). `scripts/verify_plugin_contract.py --all` now includes
+`--check-external-cli` to block reintroduction via PR.
+
+The local integration test harness (`./scripts/itest` /
+`pytest -m integration_local`) was added in the same cycle so future
+corporate-machine bugs surface before landing rather than in production.
 
 ---
 

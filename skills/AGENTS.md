@@ -3,7 +3,7 @@
 
 # skills
 
-29 skill directories for workflow automation and specialized behaviors.
+27 skill directories for workflow automation and specialized behaviors.
 
 ## Purpose
 
@@ -44,10 +44,8 @@ Skills are reusable workflow templates that can be invoked via `/copilot-omni:sk
 | File | Skill | Purpose |
 |-----------|-------|---------|
 | `ai-slop-cleaner/SKILL.md` | ai-slop-cleaner | Regression-safe cleanup workflow for AI-generated code slop |
-| `ask/SKILL.md` | ask | Ask Claude, Codex, or Gemini via `omc ask` and capture an artifact |
 | `note/SKILL.md` | note | Save notes for compaction resilience |
 | `cancel/SKILL.md` | cancel | Cancel any active copilot-omni mode |
-| `hud/SKILL.md` | hud | Configure HUD display |
 | `omni-doctor/SKILL.md` | omni-doctor | Diagnose installation issues |
 | `setup/SKILL.md` | setup | Unified setup entrypoint for install, diagnostics, and MCP configuration |
 | `omni-setup/SKILL.md` | omni-setup | One-time setup wizard |
@@ -169,7 +167,7 @@ None - pure markdown files.
 | Cleanup | ai-slop-cleaner | "deslop", "anti-slop", cleanup/refactor + slop smells |
 | Planning | omni-plan, ralplan, deep-interview, ralph-init | "plan this", "interview me", "ouroboros" |
 | Exploration | deepinit, external-context | "deepinit", "research" |
-| Utility | note, cancel, hud, setup, omni-doctor, omni-setup, omni-help, mcp-setup | "stop", "cancel" |
+| Utility | note, cancel, setup, omni-doctor, omni-setup, omni-help, mcp-setup | "stop", "cancel" |
 | Domain | release | release context |
 
 ## Auto-Activation

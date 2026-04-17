@@ -8,6 +8,7 @@ __pycache__/
 .omni/autopilot/
 .omni/cache/
 .omni/deferred/
+.omni/integration-test/
 .omni/plans/
 .omni/research/
 .omni/runs/

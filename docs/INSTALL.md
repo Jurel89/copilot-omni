@@ -82,7 +82,7 @@ to persist the change. Re-run after a plugin upgrade if MCP starts failing again
 python3 scripts/omni.py doctor
 ```
 
-Expected output: `OK` on every line, plus `skills: 30`, `agents: 19`, `commands: 10`, `mcp tools: 20`.
+Expected output: `OK` on every line, plus `skills: 27`, `agents: 19`, `commands: 10`, `mcp tools: 20`.
 
 ```bash
 copilot -p "list available skills" --allow-all

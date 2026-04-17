@@ -42,16 +42,13 @@ Prefix: `copilot-omni:`. See `agents/*.md` for full prompts.
 
 ### External AI / orchestration
 - `/team N:executor "task"`
-- `omc team N:codex|gemini "..."`
-- `omc ask <claude|codex|gemini>`
-- `/ccg`
 
 ### copilot-omni state
 - `state_read`, `state_write`, `state_clear`, `state_list`, `state_get_status`
 
 ### Team runtime (Copilot CLI — via scripts/subagent.py or omni_team.py)
 - `python3 scripts/subagent.py <agent> "<prompt>"` — spawn a single agent
-- `python3 scripts/omni_team.py` — team lifecycle (WS6 will implement; until then, use sequential subagent invocations)
+- `python3 scripts/omni_team.py` — team lifecycle for native Copilot team skill
 
 ### Notepad
 - `notepad_read`, `notepad_write_priority`, `notepad_write_working`, `notepad_write_manual`
@@ -82,13 +79,12 @@ Invoke built-in workflows via `/copilot-omni:<name>`.
 - `ai-slop-cleaner` — regression-safe cleanup workflow
 
 ### Utility skills
-- `ask`, `cancel`, `note`, `omni-setup`, `mcp-setup`, `hud`, `omni-doctor`, `trace`, `release`, `skill`
+- `cancel`, `note`, `omni-setup`, `mcp-setup`, `omni-doctor`, `trace`, `release`, `skill`
 
 ### Keyword triggers kept compact in CLAUDE.md
 - `"autopilot"→autopilot`
 - `"ralph"→ralph`
 - `"ulw"→ultrawork`
-- `"ccg"→ccg`
 - `"ralplan"→ralplan`
 - `"deep interview"→deep-interview`
 - `"deslop" / "anti-slop"→ai-slop-cleaner`

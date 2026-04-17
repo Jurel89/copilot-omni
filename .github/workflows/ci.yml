@@ -68,6 +68,7 @@ jobs:
       - name: Run fast unit tests
         run: |
           python3 -m pytest -q \
+            --ignore=tests/integration \
             --ignore=tests/test_pipeline_e2e.py \
             --ignore=tests/test_pipeline_e2e_ultra.py \
             --ignore=tests/test_pipeline_e2e_ralplan.py \
@@ -76,6 +77,8 @@ jobs:
             --ignore=tests/test_subagent_background.py \
             --ignore=tests/test_subagent_backpressure.py \
             --ignore=tests/test_integration_phase_b.py
+          # tests/integration/ is the local-only itest harness wrapper —
+          # requires copilot auth + npm install, excluded from every CI workflow.
 
   mcp-smoke:
     name: MCP stdio smoke

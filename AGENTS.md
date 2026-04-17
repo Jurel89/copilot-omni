@@ -7,7 +7,7 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 
 | Area | Count | Location |
 |------|-------|----------|
-| Skills | 30 | `skills/<name>/SKILL.md` |
+| Skills | 27 | `skills/<name>/SKILL.md` |
 | Agents | 19 | `agents/<name>.md` |
 | Slash commands | 10 | `commands/<name>.md` |
 | MCP tools | 20 | served by `mcp/server.py` |
@@ -46,7 +46,7 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 | UI / UX design | `designer` |
 | Data / research workflows | `scientist` |
 
-## Skill catalog (29 skills)
+## Skill catalog (27 skills)
 
 | Skill | Purpose |
 |-------|---------|
@@ -65,7 +65,6 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 | `remember` | Persist a note to `.omni/` notepad or shared memory |
 | `wiki` | Read / write / query the wiki MCP store |
 | `external-context` | Fetch and summarise external documentation |
-| `ask` | Single-question interactive prompt |
 | `ai-slop-cleaner` | Detect and remove AI-generated filler language |
 | `skill` | Invoke any other skill by name |
 | `skillify` | Convert a raw prompt into a skill template |
@@ -73,12 +72,10 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 | `omni-setup` | Plugin-level setup and configuration |
 | `omni-doctor` | Diagnose plugin health and environment |
 | `omni-reference` | Look up plugin internals and docs |
-| `omni-teams` | Manage multi-team configurations |
 | `mcp-setup` | Configure the MCP server connection |
 | `release` | Prepare a release artifact and preflight |
 | `cancel` | Cancel a running mode / pipeline with cascade |
 | `deepinit` | Deep project initialisation with full scan |
-| `hud` | Display current mode / state HUD |
 | `configure-notifications` | Wire Telegram / Slack / Discord webhooks for run events |
 
 ## MCP tools (20 tools, schema-validated)

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Thin shim so the user can run `./scripts/itest` from anywhere in the repo.
+set -euo pipefail
+DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "${DIR}/integration_test_local.py" "$@"

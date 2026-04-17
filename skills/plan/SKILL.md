@@ -70,11 +70,6 @@ Jumping into code without understanding requirements leads to rework, scope cree
 
 **RALPLAN-DR modes**: **Short** (default, bounded structure) and **Deliberate** (for `--deliberate` or explicit high-risk requests). Both modes keep the same Planner -> Architect -> Critic sequence and the same plain-chat interactive gates.
 
-**Provider overrides (supported when the provider CLI is installed):**
-- `--architect codex` — replace the Claude Architect pass with `omc ask codex --agent-prompt architect "..."` for implementation-heavy architecture review
-- `--critic codex` — replace the Claude Critic pass with `omc ask codex --agent-prompt critic "..."` for an external review pass before execution
-- If the requested provider is unavailable, briefly note that and continue with the default Claude Architect/Critic step for that stage
-
 **State lifecycle**: The persistent-mode stop hook uses `ralplan-state.json` to enforce continuation during the consensus loop. The skill **MUST** manage this state:
 - **On entry**: Call `state_write(mode="ralplan", active=true, session_id=<current_session_id>)` before step 1
 - **On handoff to execution** (approval → ralph/team): Call `state_write(mode="ralplan", active=false, session_id=<current_session_id>)`. Do NOT use `state_clear` here — `state_clear` writes a 30-second cancel signal that disables stop-hook enforcement for ALL modes, leaving the newly launched execution mode unprotected.

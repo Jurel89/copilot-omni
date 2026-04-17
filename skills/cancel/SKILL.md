@@ -55,9 +55,8 @@ autopilot→ralph/ultraqa) must be cleared separately by running the fallback on
 
 Replace `MODE` with the specific mode (e.g. `ralplan`, `ralph`, `ultrawork`, `ultraqa`).
 
-**WARNING:** Do NOT use this fallback for `autopilot` or `omni-teams`. Autopilot requires
-`state_write(active=false)` to preserve resume data. omni-teams requires tmux session
-cleanup that cannot be done via file deletion alone.
+**WARNING:** Do NOT use this fallback for `autopilot`. Autopilot requires
+`state_write(active=false)` to preserve resume data.
 
 ```bash
 # Fallback: direct file removal when state_clear MCP tool is unavailable
@@ -112,9 +111,8 @@ Active modes are still cancelled in dependency order:
 6. Ultrapilot (standalone)
 7. Pipeline (standalone)
 8. Team (Claude Code native)
-9. copilot-omni Teams (tmux CLI workers)
-10. Plan Consensus (standalone)
-11. Self-Improve (standalone — clear state, clean orphaned worktrees, preserve iteration_state for resume, set status: "user_stopped" in .omni/self-improve/state/agent-settings.json)
+9. Plan Consensus (standalone)
+10. Self-Improve (standalone — clear state, clean orphaned worktrees, preserve iteration_state for resume, set status: "user_stopped" in .omni/self-improve/state/agent-settings.json)
 
 ## Force Clear All
 
@@ -133,7 +131,7 @@ Steps under the hood:
 2. `state_clear` runs once per session to drop that session’s files.
 3. A global `state_clear` without `session_id` removes legacy files under `.omni/state/*.json`, `.omni/state/swarm*.db`, and compatibility artifacts (see list).
 4. Team artifacts (`~/.claude/teams/*/`, `~/.claude/tasks/*/`, `.omni/state/team-state.json`) are best-effort cleared as part of the legacy fallback.
-   - Cancel for native team does NOT affect omni-teams state, and vice versa.
+   - Cancel for native team clears team state files.
 
 Every `state_clear` command honors the `session_id` argument, so even force mode still uses the session-aware paths first before deleting legacy files.
 
@@ -152,11 +150,9 @@ Legacy compatibility list (removed only under `--force`/`--all`):
 - `.omni/state/ultrapilot-state.json`
 - `.omni/state/ultrapilot-ownership.json`
 - `.omni/state/pipeline-state.json`
-- `.omni/state/omni-teams-state.json`
 - `.omni/state/plan-consensus.json`
 - `.omni/state/ralplan-state.json`
 - `.omni/state/boulder.json`
-- `.omni/state/hud-state.json`
 - `.omni/state/subagent-tracking.json`
 - `.omni/state/subagent-tracker.lock`
 - `.omni/state/rate-limit-daemon.pid`

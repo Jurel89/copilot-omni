@@ -25,7 +25,9 @@ jobs:
       - name: Install pytest
         run: python3 -m pip install --quiet pytest
       - name: Run full pytest suite (including heavy e2e)
-        run: python3 -m pytest -q
+        # tests/integration/ is the local-only Copilot CLI install harness —
+        # requires copilot auth + npm install, never runs in CI even here.
+        run: python3 -m pytest -q --ignore=tests/integration
 
   coverage:
     name: per-module coverage gate
