@@ -500,9 +500,32 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
 def check_writable_frontmatter() -> CheckResult:
-    """Verify that reviewer agent files have `writable: false` in their frontmatter."""
+    """Verify that reviewer agent files declare read-only access.
+
+    Historically this required the Claude-Code-specific ``writable: false``
+    field. Since v2.1.0 the plugin is hosted by GitHub Copilot CLI, whose
+    equivalent contract is a positive ``tools:`` allowlist that omits
+    write-capable tools (``edit``, ``write``, ``bash``, ``execute``).
+
+    Either form satisfies the check:
+    - Claude-Code legacy: ``writable: false``
+    - Copilot-CLI native: ``tools: [...]`` where no entry is a write tool.
+    """
     messages: list[str] = []
     ok = True
+
+    _WRITE_TOOLS = {"edit", "write", "bash", "execute", "*"}
+
+    def _tools_allowlist_is_read_only(frontmatter: str) -> bool:
+        m = re.search(r"^\s*tools\s*:\s*\[(.*)\]\s*$", frontmatter, re.MULTILINE)
+        if not m:
+            return False
+        body = m.group(1)
+        entries = [e.strip().strip("'").strip('"').lower()
+                   for e in body.split(",") if e.strip()]
+        if not entries:
+            return False
+        return all(e not in _WRITE_TOOLS for e in entries)
 
     for rel in _REVIEWER_AGENTS:
         path = ROOT / rel
@@ -525,11 +548,20 @@ def check_writable_frontmatter() -> CheckResult:
             continue
 
         frontmatter = m.group(1)
-        if not re.search(r"^\s*writable\s*:\s*false\s*$", frontmatter, re.MULTILINE):
-            ok = False
-            messages.append(f"FAIL: {rel} missing 'writable: false' in frontmatter")
+        writable_false = bool(re.search(
+            r"^\s*writable\s*:\s*false\s*$", frontmatter, re.MULTILINE
+        ))
+        tools_ro = _tools_allowlist_is_read_only(frontmatter)
+
+        if writable_false or tools_ro:
+            form = "writable: false" if writable_false else "tools: read-only allowlist"
+            messages.append(f"  ok: {rel} ({form})")
         else:
-            messages.append(f"  ok: {rel} has writable: false")
+            ok = False
+            messages.append(
+                f"FAIL: {rel} missing read-only declaration "
+                f"('writable: false' or a tools: allowlist without edit/write/bash/execute)"
+            )
 
     if ok:
         messages.insert(0, "writable-frontmatter check passed")
