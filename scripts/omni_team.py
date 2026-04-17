@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""omni_team.py — WS6 team orchestrator.
+"""omni_team.py — WS6 team orchestrator (Copilot-native team skill only).
 
-Manages the full lifecycle of a multi-worker team:
+Manages the full lifecycle of a native Copilot team:
   create → plan → dispatch → execute → verify → collect → cleanup
+
+NOTE: This script supports only the native `team` skill (skills/team/SKILL.md).
+The external-CLI `omni-teams` skill (tmux workers for claude/codex/gemini) has
+been removed. Do not add external-CLI worker support here.
 
 Run-directory layout:
   .omni/runs/team-<id>/

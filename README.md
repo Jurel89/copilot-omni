@@ -104,9 +104,9 @@ copilot -p "team run wave-3 plan" --allow-all
 <tr>
 <td width="50%" valign="top">
 
-### 28 skills
+### 27 skills
 
-**28 skills** — ai-slop-cleaner, autopilot, cancel, configure-notifications, debug, deep-dive, deep-interview, deepinit, external-context, mcp-setup, omni-doctor, omni-reference, omni-setup, omni-teams, plan, ralph, ralplan, release, remember, setup, skill, skillify, team, trace, ultraqa, ultrawork, verify, wiki.
+**27 skills** — ai-slop-cleaner, autopilot, cancel, configure-notifications, debug, deep-dive, deep-interview, deepinit, external-context, mcp-setup, omni-doctor, omni-reference, omni-setup, plan, ralph, ralplan, release, remember, setup, skill, skillify, team, trace, ultraqa, ultrawork, verify, wiki.
 
 Run `omni list skills` for the live catalogue.
 

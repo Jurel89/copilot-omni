@@ -73,7 +73,6 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 | `omni-setup` | Plugin-level setup and configuration |
 | `omni-doctor` | Diagnose plugin health and environment |
 | `omni-reference` | Look up plugin internals and docs |
-| `omni-teams` | Manage multi-team configurations |
 | `mcp-setup` | Configure the MCP server connection |
 | `release` | Prepare a release artifact and preflight |
 | `cancel` | Cancel a running mode / pipeline with cascade |

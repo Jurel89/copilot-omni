@@ -48,7 +48,7 @@ Prefix: `copilot-omni:`. See `agents/*.md` for full prompts.
 
 ### Team runtime (Copilot CLI — via scripts/subagent.py or omni_team.py)
 - `python3 scripts/subagent.py <agent> "<prompt>"` — spawn a single agent
-- `python3 scripts/omni_team.py` — team lifecycle (WS6 will implement; until then, use sequential subagent invocations)
+- `python3 scripts/omni_team.py` — team lifecycle for native Copilot team skill
 
 ### Notepad
 - `notepad_read`, `notepad_write_priority`, `notepad_write_working`, `notepad_write_manual`
