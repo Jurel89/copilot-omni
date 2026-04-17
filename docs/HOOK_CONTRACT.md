@@ -92,12 +92,14 @@ The `<router-decision>` tag is always present. `<skill-trigger-hint>` appears on
 
 | Env var | Scope |
 |---|---|
-| `OMNI_SKIP_HOOKS=1` | Disable all four hooks |
-| `DISABLE_OMNI=1` | Disable all four hooks (alternate form) |
-| `OMNI_SKIP_PRE_TOOL_USE=1` | Disable only `pre_tool_use.py` |
-| `OMNI_SKIP_POST_TOOL_USE=1` | Disable only `post_tool_use.py` |
+| `OMNI_SKIP_HOOKS=1` | Disable all hooks |
+| `DISABLE_OMNI=1` | Disable all hooks (alternate form) |
 | `OMNI_SKIP_SESSION_START=1` | Disable only `session_start.py` |
-| `OMNI_SKIP_USER_PROMPT_SUBMIT=1` | Disable only `user_prompt_submit.py` |
+
+The following are inert (hooks removed in v2.1.0):
+| `OMNI_SKIP_PRE_TOOL_USE=1` | No-op (hook removed) |
+| `OMNI_SKIP_POST_TOOL_USE=1` | No-op (hook removed) |
+| `OMNI_SKIP_USER_PROMPT_SUBMIT=1` | No-op (hook removed) |
 
 When any kill switch is active:
 - Hook exits with code 0
@@ -228,7 +230,7 @@ File lock acquisition is bounded to **1 second** per audit write. If the lock ca
 
 ## 9. Shared Library
 
-All four hooks share `hooks/_hook_lib.py` which provides:
+All hooks share `hooks/_hook_lib.py` which provides:
 
 - `_hook_disabled(hook_name)` — kill-switch check
 - `_deprecation_warn()` — one-shot legacy var warning
