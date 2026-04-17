@@ -2051,7 +2051,11 @@ def check_external_cli(root: Path = ROOT) -> CheckResult:
 
         try:
             raw = path.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        except Exception as exc:
+            violations.append(
+                f"  WARN: could not read {rel} ({exc.__class__.__name__}); "
+                "skipping — investigate if this file should be scanned."
+            )
             continue
 
         lines = raw.splitlines()

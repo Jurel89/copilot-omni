@@ -32,6 +32,12 @@ COPILOT_NPM_PACKAGE = "@github/copilot"
 AUTH_PROBE_TIMEOUT = 30   # seconds
 PLUGIN_LOAD_TIMEOUT = 60  # seconds
 AUTH_MISSING_KEYWORDS = ("login", "authenticate", "unauthorized", "sign in")
+# Copilot CLI surfaces quota exhaustion with phrases like "You have no quota"
+# or "quota exceeded" or "rate limit". When we see these in Tier 2, the user's
+# subscription bucket is empty — not a plugin bug — so we SKIP downstream
+# Tier 2 steps rather than FAIL.
+QUOTA_EXHAUSTED_KEYWORDS = ("no quota", "quota exceeded", "rate limit", "quota limit")
+_quota_exhausted = False
 
 # ---------------------------------------------------------------------------
 # Result tracking
@@ -119,6 +125,12 @@ def preflight_copilot() -> bool:
     # Binary missing — try npm install
     if rc == -2:
         _log("  copilot not found; attempting npm install -g " + COPILOT_NPM_PACKAGE)
+        _log("  WARNING: This will modify npm's global install prefix. On "
+             "corporate machines where the global prefix is a system directory "
+             "(e.g. /usr/lib/node_modules) this will either fail with a "
+             "permission error or require sudo. If the install fails, either "
+             "configure a user-writable prefix (npm config set prefix "
+             "~/.npm-global) or install copilot manually, then re-run.")
         npm = shutil.which("npm")
         if not npm:
             _record(
@@ -325,6 +337,16 @@ def run_skill_probe(repo_root: Path, workdir: Path) -> bool:
     )
     combined = out + err
     _log(f"  exit={rc}  tail: {_tail(combined)}")
+    combined_lower = combined.lower()
+    if any(kw in combined_lower for kw in QUOTA_EXHAUSTED_KEYWORDS):
+        global _quota_exhausted
+        _quota_exhausted = True
+        _record(
+            "skill probe /copilot-omni:omni-status",
+            SKIP,
+            f"Copilot subscription quota exhausted — tail: {_tail(combined, 160)}",
+        )
+        return True
     if rc != 0:
         _record("skill probe /copilot-omni:omni-status", FAIL, f"exit {rc}  tail: {_tail(combined, 200)}")
         return False
@@ -343,6 +365,13 @@ def run_skill_probe(repo_root: Path, workdir: Path) -> bool:
 
 def run_hook_audit_check(workdir: Path) -> bool:
     _log("Tier 2 / Step 12: hook audit check")
+    if _quota_exhausted:
+        _record(
+            "hook audit dir",
+            SKIP,
+            "skipped — skill probe hit quota exhaustion, copilot never reached hook-firing stage",
+        )
+        return True
     audit_dir = workdir / ".omni" / "audit"
     hooks_log = audit_dir / "hooks.jsonl"
     if not audit_dir.exists():
@@ -390,7 +419,6 @@ def _print_summary() -> None:
     print("=" * 60)
     print("  INTEGRATION TEST SUMMARY")
     print("=" * 60)
-    col = 42
     for name, status, note in _steps:
         symbol = {"PASS": "PASS", "FAIL": "FAIL", "SKIP": "SKIP"}.get(status, status)
         line = f"  [{symbol}]  {name}"
