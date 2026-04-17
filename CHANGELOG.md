@@ -142,11 +142,11 @@
 - MCP tool names dropped `omni_` prefix (e.g. `omni_health` → `health`).
 
 ### Added
-- 37 skills (up from 8): autopilot, ralph, ultrawork, team, ralplan, plan, deep-interview, deep-dive, verify, ultraqa, debug, trace, remember, wiki, external-context, ask, ccg, ai-slop-cleaner, sciomni, skill, skillify, learner, self-improve, setup, omni-setup, omni-doctor, mcp-setup, release, cancel, deepinit, configure-notifications, hud, visual-verdict, omni-reference, omni-teams, writer-memory, project-session-manager.
+- 27 skills: autopilot, ralph, ultrawork, team, ralplan, plan, deep-interview, deep-dive, verify, ultraqa, debug, trace, remember, wiki, external-context, ai-slop-cleaner, skill, skillify, setup, omni-setup, omni-doctor, mcp-setup, release, cancel, deepinit, configure-notifications, omni-reference.
 - 19 agents (up from 5): analyst, architect, planner, critic, executor, explore, debugger, tracer, verifier, qa-tester, test-engineer, code-reviewer, security-reviewer, code-simplifier, document-specialist, writer, git-master, designer, scientist.
-- 8 slash commands: `/omni-init`, `/omni-doctor`, `/omni-status`, `/omni-list`, `/omni-plan`, `/omni-ship`, `/omni-verify`, `/omni-memory`.
-- 30 MCP tools across memory, artifacts, runs, policy, wiki, notepad, state, shared_memory, trace, session_search, subtask, workspace, health, doctor, config_resolve, support_bundle.
-- 4 lifecycle hooks as pure Python scripts.
+- Slash commands removed in v2.1.0 — use skills directly via Copilot CLI prompts.
+- 28 MCP tools across memory, wiki, notepad, state, shared_memory, trace, policy, health, doctor, lsp, ast-grep.
+- 1 lifecycle hook (`session_start`) as pure Python script.
 - Three-profile policy engine: `strict`, `standard`, `permissive`.
 - Windows, macOS, and Linux CI matrix on Python 3.9 / 3.11 / 3.12.
 

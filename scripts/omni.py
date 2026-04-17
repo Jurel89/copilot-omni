@@ -953,7 +953,7 @@ def _cmd_memory_search(args: argparse.Namespace) -> int:
             rows = conn.execute(
                 "SELECT id, scope, key, content, tags, project, updated_at"
                 " FROM memory WHERE scope=? AND (content LIKE ? OR key LIKE ?)"
-                " AND (project=? OR project IS NULL)"
+                " AND project=?"
                 " ORDER BY updated_at DESC LIMIT ?",
                 (scope, query, query, project, limit),
             ).fetchall()
@@ -961,7 +961,7 @@ def _cmd_memory_search(args: argparse.Namespace) -> int:
             rows = conn.execute(
                 "SELECT id, scope, key, content, tags, project, updated_at"
                 " FROM memory WHERE (content LIKE ? OR key LIKE ?)"
-                " AND (project=? OR project IS NULL)"
+                " AND project=?"
                 " ORDER BY updated_at DESC LIMIT ?",
                 (query, query, project, limit),
             ).fetchall()
@@ -1008,14 +1008,14 @@ def _cmd_memory_list(args: argparse.Namespace) -> int:
             rows = conn.execute(
                 "SELECT id, scope, key, content, tags, project, updated_at"
                 " FROM memory WHERE scope=?"
-                " AND (project=? OR project IS NULL)"
+                " AND project=?"
                 " ORDER BY updated_at DESC LIMIT ?",
                 (scope, project, limit),
             ).fetchall()
         else:
             rows = conn.execute(
                 "SELECT id, scope, key, content, tags, project, updated_at"
-                " FROM memory WHERE project=? OR project IS NULL"
+                " FROM memory WHERE project=?"
                 " ORDER BY updated_at DESC LIMIT ?",
                 (project, limit),
             ).fetchall()
@@ -1104,27 +1104,23 @@ def _cmd_memory_prune(args: argparse.Namespace) -> int:
             count = conn.execute(
                 "SELECT COUNT(*) FROM memory"
                 " WHERE updated_at < ? AND scope=?"
-                " AND (project=? OR project IS NULL)",
+                " AND project=?",
                 (cutoff, scope, project),
             ).fetchone()[0]
             if not dry_run:
                 conn.execute(
-                    "DELETE FROM memory"
-                    " WHERE updated_at < ? AND scope=?"
-                    " AND (project=? OR project IS NULL)",
+                    "DELETE FROM memory WHERE updated_at < ? AND scope=? AND project=?",
                     (cutoff, scope, project),
                 )
                 conn.commit()
         else:
             count = conn.execute(
-                "SELECT COUNT(*) FROM memory"
-                " WHERE updated_at < ? AND (project=? OR project IS NULL)",
+                "SELECT COUNT(*) FROM memory WHERE updated_at < ? AND project=?",
                 (cutoff, project),
             ).fetchone()[0]
             if not dry_run:
                 conn.execute(
-                    "DELETE FROM memory"
-                    " WHERE updated_at < ? AND (project=? OR project IS NULL)",
+                    "DELETE FROM memory WHERE updated_at < ? AND project=?",
                     (cutoff, project),
                 )
                 conn.commit()
@@ -1157,14 +1153,14 @@ def _cmd_memory_export(args: argparse.Namespace) -> int:
         if scope:
             rows = conn.execute(
                 "SELECT id, scope, key, content, tags, project, created_at, updated_at"
-                " FROM memory WHERE scope=? AND (project=? OR project IS NULL)"
+                " FROM memory WHERE scope=? AND project=?"
                 " ORDER BY updated_at DESC",
                 (scope, project),
             ).fetchall()
         else:
             rows = conn.execute(
                 "SELECT id, scope, key, content, tags, project, created_at, updated_at"
-                " FROM memory WHERE project=? OR project IS NULL"
+                " FROM memory WHERE project=?"
                 " ORDER BY updated_at DESC",
                 (project,),
             ).fetchall()

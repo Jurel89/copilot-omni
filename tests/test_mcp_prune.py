@@ -1,4 +1,5 @@
 """Phase-C C24: memory_prune + notepad_prune TTL tests."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -27,8 +28,11 @@ def _rpc(msgs, env_overrides=None):
         env.update(env_overrides)
     proc = subprocess.Popen(
         [sys.executable, str(SERVER)],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
     )
     out, _err = proc.communicate(
         "\n".join(json.dumps(m) for m in msgs) + "\n", timeout=15
@@ -37,7 +41,6 @@ def _rpc(msgs, env_overrides=None):
 
 
 class TestMemoryPrune(unittest.TestCase):
-
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.env = {"OMNI_HOME": self.tmpdir.name}
@@ -51,13 +54,15 @@ class TestMemoryPrune(unittest.TestCase):
         os.environ["OMNI_HOME"] = self.tmpdir.name
         try:
             import time
+
             past = time.time() - age_days * 86400
             mem_id = srv._new_id()
+            project = srv._current_project()
             with srv._Conn() as conn:
                 conn.execute(
-                    "INSERT INTO memory(id, scope, key, content, tags, created_at, updated_at)"
-                    " VALUES (?, ?, NULL, ?, '', ?, ?)",
-                    (mem_id, scope, content, past, past),
+                    "INSERT INTO memory(id, scope, key, content, tags, project, created_at, updated_at)"
+                    " VALUES (?, ?, NULL, ?, '', ?, ?, ?)",
+                    (mem_id, scope, content, project, past, past),
                 )
         finally:
             pass
@@ -65,9 +70,17 @@ class TestMemoryPrune(unittest.TestCase):
     def test_prune_deletes_stale_entries(self):
         self._seed_memory(age_days=60, content="ancient")
         self._seed_memory(age_days=5, content="recent")
-        resp = _rpc([{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                      "params": {"name": "memory_prune",
-                                 "arguments": {"ttl_days": 30}}}], self.env)
+        resp = _rpc(
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "memory_prune", "arguments": {"ttl_days": 30}},
+                }
+            ],
+            self.env,
+        )
         body = json.loads(resp[0]["result"]["content"][0]["text"])
         self.assertEqual(body["deleted"], 1)
         self.assertEqual(body["ttl_days"], 30)
@@ -76,28 +89,58 @@ class TestMemoryPrune(unittest.TestCase):
     def test_dry_run_returns_count_no_deletion(self):
         self._seed_memory(age_days=60, content="one")
         self._seed_memory(age_days=60, content="two")
-        resp = _rpc([{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                      "params": {"name": "memory_prune",
-                                 "arguments": {"ttl_days": 30, "dry_run": True}}}],
-                    self.env)
+        resp = _rpc(
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "memory_prune",
+                        "arguments": {"ttl_days": 30, "dry_run": True},
+                    },
+                }
+            ],
+            self.env,
+        )
         body = json.loads(resp[0]["result"]["content"][0]["text"])
         self.assertEqual(body["deleted"], 2)
         self.assertTrue(body["dry_run"])
         # Confirm rows still there: second call with dry_run still counts 2.
-        resp2 = _rpc([{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                       "params": {"name": "memory_prune",
-                                  "arguments": {"ttl_days": 30, "dry_run": True}}}],
-                     self.env)
+        resp2 = _rpc(
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "memory_prune",
+                        "arguments": {"ttl_days": 30, "dry_run": True},
+                    },
+                }
+            ],
+            self.env,
+        )
         body2 = json.loads(resp2[0]["result"]["content"][0]["text"])
         self.assertEqual(body2["deleted"], 2)
 
     def test_scope_filter(self):
         self._seed_memory(age_days=60, content="proj", scope="project")
         self._seed_memory(age_days=60, content="user", scope="user")
-        resp = _rpc([{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                      "params": {"name": "memory_prune",
-                                 "arguments": {"ttl_days": 30, "scope": "project"}}}],
-                    self.env)
+        resp = _rpc(
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "memory_prune",
+                        "arguments": {"ttl_days": 30, "scope": "project"},
+                    },
+                }
+            ],
+            self.env,
+        )
         body = json.loads(resp[0]["result"]["content"][0]["text"])
         self.assertEqual(body["deleted"], 1)
         self.assertEqual(body["scope"], "project")
@@ -105,22 +148,37 @@ class TestMemoryPrune(unittest.TestCase):
     def test_ttl_days_env_override(self):
         self._seed_memory(age_days=10, content="x")
         env = {**self.env, "OMNI_MEM_TTL_DAYS": "5"}
-        resp = _rpc([{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                      "params": {"name": "memory_prune",
-                                 "arguments": {}}}], env)
+        resp = _rpc(
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "memory_prune", "arguments": {}},
+                }
+            ],
+            env,
+        )
         body = json.loads(resp[0]["result"]["content"][0]["text"])
         self.assertEqual(body["deleted"], 1)
         self.assertEqual(body["ttl_days"], 5.0)
 
     def test_ttl_days_must_be_positive(self):
-        resp = _rpc([{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                      "params": {"name": "memory_prune",
-                                 "arguments": {"ttl_days": 0}}}], self.env)
+        resp = _rpc(
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "memory_prune", "arguments": {"ttl_days": 0}},
+                }
+            ],
+            self.env,
+        )
         self.assertIn("error", resp[0])
 
 
 class TestNotepadPrune(unittest.TestCase):
-
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.env = {"OMNI_HOME": self.tmpdir.name}
@@ -132,6 +190,7 @@ class TestNotepadPrune(unittest.TestCase):
         srv = _load()
         os.environ["OMNI_HOME"] = self.tmpdir.name
         import time
+
         past = time.time() - age_days * 86400
         note_id = srv._new_id()
         with srv._Conn() as conn:
@@ -143,19 +202,37 @@ class TestNotepadPrune(unittest.TestCase):
     def test_prune_deletes_stale(self):
         self._seed_notepad(age_days=60, body="old")
         self._seed_notepad(age_days=1, body="fresh")
-        resp = _rpc([{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                      "params": {"name": "notepad_prune",
-                                 "arguments": {"ttl_days": 30}}}], self.env)
+        resp = _rpc(
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "notepad_prune", "arguments": {"ttl_days": 30}},
+                }
+            ],
+            self.env,
+        )
         body = json.loads(resp[0]["result"]["content"][0]["text"])
         self.assertEqual(body["deleted"], 1)
 
     def test_kind_filter(self):
         self._seed_notepad(age_days=60, body="w", kind="working")
         self._seed_notepad(age_days=60, body="p", kind="priority")
-        resp = _rpc([{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                      "params": {"name": "notepad_prune",
-                                 "arguments": {"ttl_days": 30, "kind": "working"}}}],
-                    self.env)
+        resp = _rpc(
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "notepad_prune",
+                        "arguments": {"ttl_days": 30, "kind": "working"},
+                    },
+                }
+            ],
+            self.env,
+        )
         body = json.loads(resp[0]["result"]["content"][0]["text"])
         self.assertEqual(body["deleted"], 1)
         self.assertEqual(body["kind"], "working")
@@ -163,9 +240,17 @@ class TestNotepadPrune(unittest.TestCase):
     def test_env_override(self):
         self._seed_notepad(age_days=10, body="x")
         env = {**self.env, "OMNI_NOTEPAD_TTL_DAYS": "5"}
-        resp = _rpc([{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                      "params": {"name": "notepad_prune",
-                                 "arguments": {}}}], env)
+        resp = _rpc(
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "notepad_prune", "arguments": {}},
+                }
+            ],
+            env,
+        )
         body = json.loads(resp[0]["result"]["content"][0]["text"])
         self.assertEqual(body["deleted"], 1)
         self.assertEqual(body["ttl_days"], 5.0)

@@ -176,7 +176,8 @@ MIGRATIONS: List[Tuple[int, str]] = [
     (
         4,
         """
-        ALTER TABLE memory ADD COLUMN project TEXT;
+        ALTER TABLE memory ADD COLUMN project TEXT NOT NULL DEFAULT '';
+        UPDATE memory SET project = '' WHERE project = '';
     """,
     ),
 ]
@@ -484,7 +485,7 @@ def _tool_memory_search(args: Dict[str, Any]) -> Dict[str, Any]:
             rows = conn.execute(
                 "SELECT id, scope, key, content, tags, project, updated_at FROM memory"
                 " WHERE scope=? AND (content LIKE ? OR key LIKE ?)"
-                " AND (project=? OR project IS NULL)"
+                " AND project=?"
                 " ORDER BY updated_at DESC LIMIT ?",
                 (scope, f"%{query}%", f"%{query}%", project, limit),
             ).fetchall()
@@ -492,7 +493,7 @@ def _tool_memory_search(args: Dict[str, Any]) -> Dict[str, Any]:
             rows = conn.execute(
                 "SELECT id, scope, key, content, tags, project, updated_at FROM memory"
                 " WHERE (content LIKE ? OR key LIKE ?)"
-                " AND (project=? OR project IS NULL)"
+                " AND project=?"
                 " ORDER BY updated_at DESC LIMIT ?",
                 (f"%{query}%", f"%{query}%", project, limit),
             ).fetchall()
@@ -508,14 +509,14 @@ def _tool_memory_export(args: Dict[str, Any]) -> Dict[str, Any]:
         if scope:
             rows = conn.execute(
                 "SELECT id, scope, key, content, tags, project, created_at, updated_at FROM memory"
-                " WHERE scope=? AND (project=? OR project IS NULL)"
+                " WHERE scope=? AND project=?"
                 " ORDER BY updated_at DESC",
                 (scope, project),
             ).fetchall()
         else:
             rows = conn.execute(
                 "SELECT id, scope, key, content, tags, project, created_at, updated_at FROM memory"
-                " WHERE project=? OR project IS NULL"
+                " WHERE project=?"
                 " ORDER BY updated_at DESC",
                 (project,),
             ).fetchall()
@@ -1073,28 +1074,25 @@ def _tool_memory_prune(args: Dict[str, Any]) -> Dict[str, Any]:
                 row = conn.execute(
                     "SELECT COUNT(*) AS n FROM memory"
                     " WHERE updated_at < ? AND scope=?"
-                    " AND (project=? OR project IS NULL)",
+                    " AND project=?",
                     (cutoff, scope, project),
                 ).fetchone()
             else:
                 row = conn.execute(
                     "SELECT COUNT(*) AS n FROM memory"
-                    " WHERE updated_at < ? AND (project=? OR project IS NULL)",
+                    " WHERE updated_at < ? AND project=?",
                     (cutoff, project),
                 ).fetchone()
             deleted = int(row["n"] if row else 0)
         else:
             if scope is not None:
                 cur = conn.execute(
-                    "DELETE FROM memory"
-                    " WHERE updated_at < ? AND scope=?"
-                    " AND (project=? OR project IS NULL)",
+                    "DELETE FROM memory WHERE updated_at < ? AND scope=? AND project=?",
                     (cutoff, scope, project),
                 )
             else:
                 cur = conn.execute(
-                    "DELETE FROM memory"
-                    " WHERE updated_at < ? AND (project=? OR project IS NULL)",
+                    "DELETE FROM memory WHERE updated_at < ? AND project=?",
                     (cutoff, project),
                 )
             deleted = cur.rowcount if cur.rowcount is not None else 0
