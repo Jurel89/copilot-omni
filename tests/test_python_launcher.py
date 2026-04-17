@@ -109,7 +109,7 @@ class TestFixPythonRewrite(unittest.TestCase):
                 "copilot-omni": {
                     "type": "stdio",
                     "command": "python3",
-                    "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.py"],
+                    "args": ["${OMNI_PLUGIN_ROOT}/mcp/server.py"],
                 }
             }
         }, indent=2) + "\n", encoding="utf-8")
@@ -119,11 +119,7 @@ class TestFixPythonRewrite(unittest.TestCase):
             "hooks": {
                 "sessionStart": [{
                     "type": "command",
-                    "command": 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py"',
-                }],
-                "preToolUse": [{
-                    "type": "command",
-                    "command": 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use.py"',
+                    "command": 'python3 "${OMNI_PLUGIN_ROOT}/hooks/session_start.py"',
                 }],
             }
         }, indent=2) + "\n", encoding="utf-8")
@@ -238,7 +234,7 @@ class TestFixPythonRewrite(unittest.TestCase):
             "hooks": {
                 "sessionStart": [{
                     "type": "command",
-                    "command": f'"{faux_interp}" "${{CLAUDE_PLUGIN_ROOT}}/hooks/session_start.py"',
+                    "command": f'"{faux_interp}" "${{OMNI_PLUGIN_ROOT}}/hooks/session_start.py"',
                 }],
             },
         }
@@ -254,6 +250,44 @@ class TestFixPythonRewrite(unittest.TestCase):
         # File content is byte-identical — the quoted path was not split
         # on the first space and no spurious rewrite happened.
         self.assertEqual(self._hooks.read_text(), before)
+
+
+class TestWindowsStoreStubRejection(unittest.TestCase):
+    """Regression for the MCP ``-32000 Connection closed`` bug on Windows.
+
+    ``shutil.which("python3")`` happily returns the Microsoft Store reparse
+    stub under ``%LOCALAPPDATA%\\Microsoft\\WindowsApps\\python3.exe``. The
+    stub is a 0-byte redirector that either launches the Store UI or exits
+    silently. Treating it as a valid interpreter is what caused Copilot CLI
+    to log ``MCP error -32000: Connection closed`` on every corporate Windows
+    box that had only the Store stub on PATH.
+
+    ``_is_usable_python`` must reject anything under that directory outright
+    without spawning the stub (which would block for several seconds).
+    """
+
+    def test_rejects_windows_apps_path(self) -> None:
+        fake_stub = (
+            "C:\\Users\\Tester\\AppData\\Local\\Microsoft\\WindowsApps\\python3.exe"
+        )
+        old_windows_apps = omni._WINDOWS_APPS
+        try:
+            omni._WINDOWS_APPS = (
+                "c:\\users\\tester\\appdata\\local\\microsoft\\windowsapps"
+            )
+            self.assertFalse(omni._is_usable_python(fake_stub))
+        finally:
+            omni._WINDOWS_APPS = old_windows_apps
+
+    def test_accepts_real_interpreter(self) -> None:
+        self.assertTrue(omni._is_usable_python(sys.executable))
+
+    def test_rejects_empty_and_none(self) -> None:
+        self.assertFalse(omni._is_usable_python(""))
+        self.assertFalse(omni._is_usable_python(None))
+
+    def test_rejects_nonexistent_path(self) -> None:
+        self.assertFalse(omni._is_usable_python("/no/such/python"))
 
 
 class TestSplitCmdHead(unittest.TestCase):

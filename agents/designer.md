@@ -1,8 +1,6 @@
 ---
 name: designer
 description: UI/UX Designer-Developer for stunning interfaces (Sonnet)
-category: deep
-level: 2
 ---
 
 <Agent_Prompt>

@@ -544,7 +544,10 @@ def check_writable_frontmatter() -> CheckResult:
 # Minimum counts for frontmatter schema check (ported from validate_plugin.py)
 _MIN_SKILLS = 25
 _MIN_AGENTS = 15
-_MIN_COMMANDS = 6
+# v2.1.0: commands/ directory removed — Copilot CLI does not load custom slash
+# commands from plugins. All former slash-command entrypoints are either
+# exposed as skills or MCP tools.
+_MIN_COMMANDS = 0
 
 
 def check_frontmatter_schema(root: Path = ROOT) -> CheckResult:

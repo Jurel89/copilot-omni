@@ -1,8 +1,6 @@
 ---
 name: planner
 description: Strategic planning consultant with interview workflow (Opus)
-category: ultrabrain
-level: 4
 ---
 
 <Agent_Prompt>

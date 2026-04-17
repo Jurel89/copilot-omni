@@ -1,4 +1,9 @@
-"""Security regression tests for high-severity findings."""
+"""Security regression tests for high-severity findings.
+
+Post v2.1.0: pre_tool_use.py was deleted (Claude-Code-only hook event). All
+policy-decision coverage now targets the MCP ``policy_check`` tool, which is
+the live enforcement path for Copilot CLI.
+"""
 from __future__ import annotations
 
 import json
@@ -10,17 +15,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-HOOK = ROOT / "hooks" / "pre_tool_use.py"
 SERVER = ROOT / "mcp" / "server.py"
-
-
-def _run_hook(payload):
-    result = subprocess.run(
-        [sys.executable, str(HOOK)],
-        input=json.dumps(payload),
-        capture_output=True, text=True, timeout=10,
-    )
-    return json.loads(result.stdout)
 
 
 def _rpc(msgs, env_overrides=None):
@@ -38,53 +33,6 @@ def _rpc(msgs, env_overrides=None):
     return [json.loads(l) for l in out.strip().splitlines() if l]
 
 
-class TestPolicyTokenization(unittest.TestCase):
-
-    def test_extra_spaces_still_blocked(self):
-        d = _run_hook({"tool_name": "shell",
-                       "tool_args": {"command": "  sudo  ls"}})
-        self.assertEqual(d["permissionDecision"], "deny")
-
-    def test_case_insensitive_sudo(self):
-        d = _run_hook({"tool_name": "shell",
-                       "tool_args": {"command": "SUDO rm -rf /tmp/ok"}})
-        self.assertEqual(d["permissionDecision"], "deny")
-
-    def test_full_path_sudo(self):
-        d = _run_hook({"tool_name": "shell",
-                       "tool_args": {"command": "/usr/bin/sudo ls"}})
-        self.assertEqual(d["permissionDecision"], "deny")
-
-    def test_rm_rf_tmp_is_not_rm_rf_root(self):
-        # The pattern 'rm -rf /' in standard policy uses space-suffix so
-        # 'rm -rf /tmp/foo' should still be denied because it matches the
-        # substring "rm -rf /". That is acceptable corporate-safe behavior.
-        d = _run_hook({"tool_name": "shell",
-                       "tool_args": {"command": "rm -rf /tmp/foo"}})
-        self.assertEqual(d["permissionDecision"], "deny")
-
-    def test_ls_allowed(self):
-        d = _run_hook({"tool_name": "shell",
-                       "tool_args": {"command": "ls -la"}})
-        self.assertEqual(d["permissionDecision"], "allow")
-
-
-class TestProtectedPathCase(unittest.TestCase):
-
-    def test_uppercase_variant_blocked(self):
-        d = _run_hook({"tool_name": "write",
-                       "tool_args": {"file_path": ".CLAUDE-PLUGIN/plugin.json"}})
-        self.assertEqual(d["permissionDecision"], "deny")
-
-    def test_multiedit_tool_blocked(self):
-        d = _run_hook({"tool_name": "MultiEdit",
-                       "tool_args": {"file_path": ".omni/config.json"}})
-        # pre_tool_use.py uses substring matches so it does not catch arbitrary
-        # casing on tool_name. Instead we test mcp/server.py policy_check
-        # which we broadened for tool variants.
-        self.assertIn(d["permissionDecision"], ("allow", "deny"))
-
-
 class TestMcpPolicyCheck(unittest.TestCase):
 
     def test_edit_file_tool_denied_on_protected_path(self):
@@ -93,7 +41,7 @@ class TestMcpPolicyCheck(unittest.TestCase):
                 {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                  "params": {"name": "policy_check",
                             "arguments": {"tool": "edit_file",
-                                          "args": {"file_path": ".claude-plugin/plugin.json"}}}},
+                                          "args": {"file_path": "plugin.json"}}}},
             ], {"OMNI_HOME": td})
             body = json.loads(resp[0]["result"]["content"][0]["text"])
             self.assertEqual(body["decision"], "deny")

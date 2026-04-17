@@ -82,9 +82,9 @@ def _skip_copilot(cli_offline: bool) -> bool:
 def probe_layout(_: Any) -> ProbeResult:
     failures: list[str] = []
 
-    manifest = ROOT / ".claude-plugin" / "plugin.json"
+    manifest = ROOT / "plugin.json"
     if not manifest.exists():
-        failures.append("missing .claude-plugin/plugin.json")
+        failures.append("missing plugin.json")
     else:
         data = json.loads(manifest.read_text(encoding="utf-8"))
         for field in ("name", "version", "description"):

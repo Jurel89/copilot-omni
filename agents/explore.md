@@ -1,9 +1,7 @@
 ---
 name: explore
 description: Codebase search specialist for finding files and code patterns
-category: quick
-level: 3
-disallowedTools: Write, Edit
+tools: ["read", "grep", "glob", "bash(git:*)", "bash(rg:*)"]
 ---
 
 <Agent_Prompt>

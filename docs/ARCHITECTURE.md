@@ -9,17 +9,16 @@ Copilot Omni is a **Copilot CLI plugin** — a directory with a manifest. Copilo
 │ GitHub Copilot CLI │
 └────────┬───────────┘
          │
-         │ reads .claude-plugin/plugin.json
+         │ reads plugin.json (at plugin root)
          ▼
 ┌─────────────────────────────────────────────────────────┐
 │ copilot-omni plugin                                      │
 │                                                          │
 │  skills/       27 SKILL.md files (LLM instructions)      │
 │  agents/       19 agent prompts                          │
-│  commands/    10 slash commands                          │
 │                                                          │
-│  hooks.json ──▶ hooks/*.py (sessionStart, preToolUse …)  │
-│  .mcp.json  ──▶ python3 mcp/server.py (stdio JSON-RPC)   │
+│  hooks.json ──▶ hooks/session_start.py (sessionStart)    │
+│  .mcp.json  ──▶ python mcp/server.py (stdio JSON-RPC)    │
 │                                                          │
 └─────────────────────────┬────────────────────────────────┘
                           │

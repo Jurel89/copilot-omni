@@ -188,5 +188,5 @@ Or by running `/copilot-omni:omni-setup --force` and choosing to enable teams.
 
 ```bash
 CONFIG_TYPE=$(jq -r '.configType // "unknown"' ".omni/state/setup-state.json" 2>/dev/null || echo "unknown")
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-progress.sh" save 6 "$CONFIG_TYPE"
+bash "${OMNI_PLUGIN_ROOT}/scripts/setup-progress.sh" save 6 "$CONFIG_TYPE"
 ```

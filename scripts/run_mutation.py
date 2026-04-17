@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Phase-C C29: mutation testing wrapper.
 
-Runs mutmut against the high-value modules only (router, subagent_pool,
+Runs mutmut against the high-value modules only (subagent_pool and
 category_resolver) so wall time stays bounded on CI. mutmut is an
 optional dev dependency; when it's not installed the script prints an
 install hint and exits 0 so it never blocks the fast lane.
@@ -21,7 +21,6 @@ from pathlib import Path
 
 
 DEFAULT_TARGETS = (
-    "scripts/router.py",
     "scripts/subagent_pool.py",
     "scripts/category_resolver.py",
 )

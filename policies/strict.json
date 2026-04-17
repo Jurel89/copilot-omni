@@ -25,9 +25,8 @@
   "protected_paths": [
     ".omni/",
     ".github/",
-    ".claude-plugin/",
+    "plugin.json",
     "AGENTS.md",
-    "CLAUDE.md",
     ".git/",
     "hooks/",
     "mcp/",

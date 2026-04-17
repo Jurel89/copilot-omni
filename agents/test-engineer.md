@@ -1,8 +1,6 @@
 ---
 name: test-engineer
 description: Test strategy, integration/e2e coverage, flaky test hardening, TDD workflows
-category: deep
-level: 3
 ---
 
 <Agent_Prompt>

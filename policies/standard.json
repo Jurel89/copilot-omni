@@ -13,7 +13,7 @@
   "protected_paths": [
     ".omni/config.json",
     ".github/copilot-instructions.md",
-    ".claude-plugin/plugin.json",
+    "plugin.json",
     "AGENTS.md"
   ]
 }

@@ -57,11 +57,10 @@ _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
 _append_audit = _mod._append_audit
 _write_metric = _mod._write_metric
 
-# Plugin root: OMNI_PLUGIN_ROOT (primary) > CLAUDE_PLUGIN_ROOT (legacy fallback) > file-relative default.
+# Plugin root: OMNI_PLUGIN_ROOT (primary) > file-relative default.
 # NOTE: Path("") == Path(".") which is truthy, so we must NOT use `or` with Path("").
 _PLUGIN_ROOT = (
     Path(os.environ["OMNI_PLUGIN_ROOT"]) if os.environ.get("OMNI_PLUGIN_ROOT")
-    else Path(os.environ["CLAUDE_PLUGIN_ROOT"]) if os.environ.get("CLAUDE_PLUGIN_ROOT")
     else Path(__file__).resolve().parent.parent
 )
 
@@ -130,21 +129,11 @@ def _compute_tree_hash(root: Path) -> str:
 
 def _read_version(root: Path) -> str:
     """Read version from plugin.json or fall back to 'unknown'."""
-    for p in [
-        root / ".claude-plugin" / "plugin.json",
-        root / "plugin.json",
-    ]:
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            return str(data.get("version", "unknown"))
-        except Exception:
-            continue
-    return "unknown"
-
-
-def _router_status(root: Path) -> str:
-    """Return 'on' if scripts/router.py exists, else 'off'."""
-    return "on" if (root / "scripts" / "router.py").exists() else "off"
+    try:
+        data = json.loads((root / "plugin.json").read_text(encoding="utf-8"))
+        return str(data.get("version", "unknown"))
+    except Exception:
+        return "unknown"
 
 
 def _pool_cap(root: Path) -> str:
@@ -181,26 +170,12 @@ def _compute_banner(root: Path) -> str:
                 n_agents = len(re.findall(r'^##\s+\w', text, re.MULTILINE))
             except Exception:
                 pass
-    # Count slash commands from plugin.json
-    n_commands = 0
-    for p in [root / ".claude-plugin" / "plugin.json", root / "plugin.json"]:
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            commands = data.get("commands", [])
-            n_commands = len(commands) if isinstance(commands, list) else 0
-            break
-        except Exception:
-            continue
-
-    router = _router_status(root)
     pool = _pool_cap(root)
 
     return (
         f"copilot-omni v{version} | "
         f"{n_skills} skills | "
         f"{n_agents} agents | "
-        f"{n_commands} commands | "
-        f"router={router} | "
         f"pool={pool}"
     )
 

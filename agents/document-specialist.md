@@ -1,9 +1,7 @@
 ---
 name: document-specialist
 description: External Documentation & Reference Specialist
-category: deep
-level: 2
-disallowedTools: Write, Edit
+tools: ["read", "grep", "glob", "bash(git:*)", "bash(rg:*)"]
 ---
 
 <Agent_Prompt>

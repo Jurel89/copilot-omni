@@ -108,7 +108,7 @@ copilot-omni includes rule templates you can copy to your project's `.claude/rul
 Copy with:
 ```bash
 mkdir -p .claude/rules
-cp "${CLAUDE_PLUGIN_ROOT}/templates/rules/"*.md .claude/rules/
+cp "${OMNI_PLUGIN_ROOT}/templates/rules/"*.md .claude/rules/
 ```
 
 See `templates/rules/README.md` for details.
@@ -180,5 +180,5 @@ if [ -z "$OMC_VERSION" ]; then
   OMC_VERSION="unknown"
 fi
 
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-progress.sh" complete "$OMC_VERSION"
+bash "${OMNI_PLUGIN_ROOT}/scripts/setup-progress.sh" complete "$OMC_VERSION"
 ```

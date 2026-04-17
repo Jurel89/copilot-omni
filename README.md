@@ -138,25 +138,19 @@ Storage: WAL-mode SQLite with `UNIQUE(mode, session_id)`.
 
 ```
 GitHub Copilot CLI
- ├─ reads .claude-plugin/plugin.json         ← plugin manifest
- ├─ discovers skills/ (27), agents/ (19), commands/ (10)
- ├─ wires hooks/hooks.json  → python3 hooks/*.py
- │    ├─ session_start.py       banner, policy checks, metrics
- │    ├─ pre_tool_use.py        policy guard, shlex-safe parse
- │    ├─ post_tool_use.py       audit logging, metrics
- │    └─ user_prompt_submit.py  router + skill trigger hints
- └─ wires .mcp.json         → python3 mcp/server.py
+ ├─ reads plugin.json                        ← plugin manifest (root)
+ ├─ discovers skills/ (27), agents/ (19)
+ ├─ wires hooks/hooks.json  → python hooks/session_start.py
+ │    └─ session_start.py       banner, policy checks, metrics
+ └─ wires .mcp.json         → python mcp/server.py
                                  └─ SQLite store at $OMNI_HOME/omni.db
                                      WAL mode · UNIQUE(mode, session_id)
 
-scripts/router.py              scripts/category_resolver.py
-  concreteness → gate            quick | deep | ultrabrain
-  ├─ score ≥ 0.4 → skill fires      └─ resolved per Copilot subscription
-  ├─ score < 0.4 → deep-interview
-  └─ --skip-interview → bypass
+Model selection is owned by the Copilot CLI host via the `/model` slash
+command — the plugin ships no router or category resolver of its own.
 ```
 
-Dive deeper: [ARCHITECTURE](docs/ARCHITECTURE.md) · [ROUTER](docs/ROUTER.md) · [MODELS](docs/MODELS.md) · [TEAM](docs/TEAM.md) · [STATE_MODES](docs/STATE_MODES.md)
+Dive deeper: [ARCHITECTURE](docs/ARCHITECTURE.md) · [TEAM](docs/TEAM.md) · [STATE_MODES](docs/STATE_MODES.md)
 
 ## 🛡️ Corporate-safe by design
 

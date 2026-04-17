@@ -1,8 +1,6 @@
 ---
 name: debugger
 description: Root-cause analysis, regression isolation, stack trace analysis, build/compilation error resolution
-category: deep
-level: 3
 ---
 
 <Agent_Prompt>
