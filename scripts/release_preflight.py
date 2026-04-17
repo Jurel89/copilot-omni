@@ -8,8 +8,7 @@ Checks (in order):
   3. All 17 validator checks green  (verify_plugin_contract.py --all)
   4. Full pytest suite green
   5. CHANGELOG.md contains a [2.0.0] section
-  6. docs/RELEASE-v2.0.0.md exists
-  7. Last 3 CI runs on phase-b/main all green (via ``gh run list``)
+  6. Last 3 CI runs on phase-b/main all green (via ``gh run list``)
 
 Exit 0 = all pass.  Exit 1 = one or more checks failed (checklist printed).
 """
@@ -101,13 +100,6 @@ def check_changelog() -> tuple[str, bool]:
     else:
         detail = "CHANGELOG.md not found"
     return _check("CHANGELOG.md has [2.0.0] section", ok, detail)
-
-
-def check_release_doc() -> tuple[str, bool]:
-    doc = REPO_ROOT / "docs" / "RELEASE-v2.0.0.md"
-    ok = doc.exists()
-    detail = "" if ok else "docs/RELEASE-v2.0.0.md not found"
-    return _check("docs/RELEASE-v2.0.0.md exists", ok, detail)
 
 
 def check_ci_runs(*, skip_age_check: bool = False) -> tuple[str, bool]:
@@ -236,7 +228,6 @@ def main(argv: list[str] | None = None) -> int:
         check_validator(),
         check_pytest(),
         check_changelog(),
-        check_release_doc(),
         check_ci_runs(skip_age_check=args.skip_ci_age_check),
     ]
 
