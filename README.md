@@ -43,8 +43,10 @@ concreteness-scored front-door router, gets a named plan, runs on a typed pipeli
 behind a durable audit trail under `.omni/runs/`. You keep Copilot; you get planning, parallelism, policy, and proof.
 
 ```bash
-# One line to install. No compiler. No venv. No network-hostile binaries.
-copilot plugin install Jurel89/copilot-omni
+# Register the marketplace, then install the plugin by name — the
+# forward-compatible flow (direct `owner/repo` installs are being deprecated).
+copilot plugin marketplace add https://github.com/Jurel89/copilot-omni
+copilot plugin install copilot-omni@copilot-omni
 ```
 
 ## ⚡ 60-second quickstart
@@ -52,28 +54,37 @@ copilot plugin install Jurel89/copilot-omni
 ```bash
 # 1. Prerequisites: GitHub Copilot CLI + Python ≥ 3.9
 npm install -g @github/copilot-cli            # skip if already installed
-python3 --version                             # should print 3.9+
+python3 --version                             # POSIX
+py -3 --version                               # Windows — either works
 
-# 2. Install the plugin
-copilot plugin install Jurel89/copilot-omni
+# 2. Register the marketplace and install the plugin by name
+copilot plugin marketplace add https://github.com/Jurel89/copilot-omni
+copilot plugin install copilot-omni@copilot-omni
 
-# 3. Sanity-check the environment (policies, MCP, hooks, Python)
-python3 scripts/omni.py doctor
+# 3. Windows corporate only — calibrate the Python interpreter so the MCP
+#    server + hooks spawn correctly. No-op on POSIX where `python3` is on PATH.
+scripts/omni.cmd doctor --fix-python --fix-python-apply
 
-# 4. Scaffold a project — creates .omni/ state directory
+# 4. Sanity-check the environment (policies, MCP, hooks, Python)
+python3 scripts/omni.py doctor          # or: scripts/omni.cmd doctor on Windows
+
+# 5. Scaffold a project — creates .omni/ state directory
 python3 scripts/omni.py init
 
-# 5. Let the router decide — vague prompts are auto-refined by deep-interview
+# 6. Let the router decide — vague prompts are auto-refined by deep-interview
 copilot -p "autopilot build a habit-tracker CLI with streaks" --allow-all
 
-# 6. Already know what you want? Bypass the interview gate.
+# 7. Already know what you want? Bypass the interview gate.
 copilot -p "autopilot refactor scripts/router.py to use dataclasses --skip-interview" --allow-all
 
-# 7. Run the team orchestrator (tmux on POSIX, subprocess fallback elsewhere)
+# 8. Run the team orchestrator (tmux on POSIX, subprocess fallback elsewhere)
 copilot -p "team run wave-3 plan" --allow-all
 ```
 
 > **Trial-mode, no install:** `copilot --plugin-dir ./copilot-omni -p "list all skills" --allow-all`
+
+> **Deprecated direct install** (still works but warns):
+> `copilot plugin install Jurel89/copilot-omni` — use the marketplace flow above.
 
 ## 🎯 Why copilot-omni?
 
@@ -185,19 +196,38 @@ Dive deeper: [ARCHITECTURE](docs/ARCHITECTURE.md) · [ROUTER](docs/ROUTER.md) ·
 ## 🛠️ Install options
 
 ```bash
-# Copilot CLI plugin install (recommended)
+# Marketplace install (recommended, forward-compatible)
 npm install -g @github/copilot-cli            # if needed
-copilot plugin install Jurel89/copilot-omni
+copilot plugin marketplace add https://github.com/Jurel89/copilot-omni
+copilot plugin install copilot-omni@copilot-omni
 
-# Clone + install locally
+# Clone + install from local path (useful with mirrored repos / air-gapped)
 git clone https://github.com/Jurel89/copilot-omni.git
 copilot plugin install ./copilot-omni
 
 # Trial without installing (no side effects)
 copilot --plugin-dir ./copilot-omni -p "list all skills" --allow-all
+
+# Legacy direct install — DEPRECATED in current Copilot CLI releases
+copilot plugin install Jurel89/copilot-omni
 ```
 
 No `go build`. No `pip install`. Only Python ≥ 3.9 and the `copilot` CLI on `PATH`.
+
+### Windows — one post-install calibration
+
+Corporate Windows boxes frequently ship `py` or `python` but not `python3`. Run this once
+after installing the plugin so the MCP server + hooks spawn against the interpreter you
+actually have:
+
+```cmd
+:: from the plugin directory (one-time)
+scripts\omni.cmd doctor --fix-python --fix-python-apply
+```
+
+The command rewrites `.mcp.json` and `hooks\hooks.json` in place with the absolute path
+to your Python interpreter. Idempotent — re-run after a plugin upgrade if MCP starts
+failing with `-32000 connection closed`.
 
 ## 🔁 Migrating from v1.x
 

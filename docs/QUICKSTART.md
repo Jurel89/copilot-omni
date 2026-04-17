@@ -16,13 +16,26 @@ Python 3.9 is available out-of-the-box on RHEL 8+, Ubuntu 20.04+, macOS 12+, and
 ## 2. Install the plugin
 
 ```bash
-copilot plugin install Jurel89/copilot-omni
+copilot plugin marketplace add https://github.com/Jurel89/copilot-omni
+copilot plugin install copilot-omni@copilot-omni
 ```
 
-Prefer a local clone (mirrored repo, air-gapped network, etc.)? See
-[INSTALL.md](INSTALL.md) for four supported install paths including air-gapped.
+The marketplace flow is the forward-compatible path — Copilot CLI is deprecating direct
+`owner/repo` installs. Prefer a local clone or air-gapped path? See
+[INSTALL.md](INSTALL.md) for all five supported install paths.
 
-## 3. Verify the environment
+## 3. (Windows only) Calibrate the Python interpreter
+
+If you're on a corporate Windows box where `python3` isn't on `PATH`, run this once
+so the MCP server + hooks spawn against `py` / `python` instead:
+
+```cmd
+scripts\omni.cmd doctor --fix-python --fix-python-apply
+```
+
+Idempotent; no-op when already calibrated. Skip on POSIX.
+
+## 4. Verify the environment
 
 ```bash
 python3 scripts/omni.py doctor
@@ -33,7 +46,7 @@ Expect `OK` on every line, with `skills: 30`, `agents: 19`, `commands: 10`, `mcp
 If `doctor` flags a missing hook file, policy directory, or MCP binding, open an
 issue with the redacted output — it is the most useful single diagnostic we have.
 
-## 4. Scaffold your project
+## 5. Scaffold your project
 
 ```bash
 python3 scripts/omni.py init
@@ -46,7 +59,7 @@ Creates `.omni/` in the current directory with:
 - `.omni/runs/`        — per-run artifacts (gitignored by default).
 - `.omni/audit/`       — atomic append-only tool audit log (gitignored).
 
-## 5. Your first Copilot Omni command
+## 6. Your first Copilot Omni command
 
 Let the front-door [router](ROUTER.md) decide:
 
@@ -64,7 +77,7 @@ Known exactly what you want? Bypass the gate:
 copilot -p "autopilot refactor scripts/router.py to use dataclasses --skip-interview" --allow-all
 ```
 
-## 6. Run work in parallel
+## 7. Run work in parallel
 
 ```bash
 copilot -p "team run wave-3 plan" --allow-all
@@ -75,7 +88,7 @@ tmux session with one pane each. Windows hosts use the subprocess worker host
 fallback (no multiplexer UI — set `OMNI_EXPERIMENTAL_TEAM=1` to opt into native
 tmux when available). See [TEAM.md](TEAM.md) and [TEAM-WINDOWS.md](TEAM-WINDOWS.md).
 
-## 7. Cancel anything, cleanly
+## 8. Cancel anything, cleanly
 
 ```bash
 copilot -p "cancel" --allow-all        # via the cancel skill
@@ -99,7 +112,8 @@ orphan worktrees.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `doctor` reports MCP unhealthy | `python3` not on `PATH` or blocked by policy | `which python3` → fix PATH / allow-list |
+| MCP fails with `-32000 connection closed` (Windows) | `python3` not on `PATH` | `scripts\omni.cmd doctor --fix-python --fix-python-apply` |
+| `doctor` reports MCP unhealthy | `python3` not on `PATH` or blocked by policy | `which python3` → fix PATH / allow-list, or run `--fix-python` |
 | Prompt always redirects to `deep-interview` | Prompt score < 0.4 | Add anchors (file paths, function names) or use `--skip-interview` |
 | `team` falls back to subprocess on Linux | `tmux` not on `PATH` | `apt install tmux` / `brew install tmux` |
 | Hooks silently stop running | Kill-switch env var set | `env | grep OMNI_SKIP` and unset |

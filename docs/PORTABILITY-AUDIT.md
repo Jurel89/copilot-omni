@@ -31,7 +31,20 @@ be caught at review time rather than by a Windows CI user.
 - Subprocess spawning is exclusively through `subprocess.Popen` / `run`.
 - `shell=False` is the default and never overridden.
 - Shebangs appear only in `scripts/omni` (the POSIX launcher). The Windows
-  counterpart is `scripts/omni.cmd` — a thin batch file that execs `python3`.
+  counterpart is `scripts/omni.cmd`. Both shims probe PATH in priority order
+  and fail loudly when no Python 3.9+ is found. Every candidate is
+  version-probed (`-c "...sys.version_info>=(3,9)"`) *before* dispatch so a
+  present-but-broken launcher (e.g. `py` with no `-3` registered, or a
+  `python` that is still Python 2) falls through to the next candidate
+  instead of propagating its failure:
+  - `scripts/omni.cmd`: `py -3` → `python` → `python3`
+  - `scripts/omni`    : `python3` → `python`
+- Copilot CLI invokes `.mcp.json` and `hooks/hooks.json` directly, before any
+  Python is running, so the `command` field cannot use `sys.executable`. On
+  Windows corporate installs where `python3` is absent, run
+  `scripts\omni.cmd doctor --fix-python --fix-python-apply` once after
+  installation — it detects the current interpreter and rewrites both JSON
+  files in place with the absolute interpreter path (idempotent).
 
 ## Known non-portabilities (documented, not fixed)
 
