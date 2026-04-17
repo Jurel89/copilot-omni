@@ -107,13 +107,12 @@ ls -la "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/skills/ 2>/dev/null
 - If custom files exist that do NOT match plugin names: OK - these are user custom content, do not flag them
 
 **Known plugin agent names** (check agents/ for these):
-`architect.md`, `document-specialist.md`, `explore.md`, `executor.md`, `debugger.md`, `planner.md`, `analyst.md`, `critic.md`, `verifier.md`, `test-engineer.md`, `designer.md`, `writer.md`, `qa-tester.md`, `scientist.md`, `security-reviewer.md`, `code-reviewer.md`, `git-master.md`, `code-simplifier.md`
+`analyst`, `architect`, `code-reviewer`, `code-simplifier`, `critic`, `debugger`, `designer`, `document-specialist`, `executor`, `explore`, `git-master`, `planner`, `qa-tester`, `scientist`, `security-reviewer`, `test-engineer`, `tracer`, `verifier`, `writer`
 
 **Known plugin skill names** (check skills/ for these):
-`ai-slop-cleaner`, `autopilot`, `cancel`, `configure-notifications`, `deep-interview`, `deepinit`, `external-context`, `learner`, `mcp-setup`, `omni-doctor`, `omni-setup`, `plan`, `project-session-manager`, `ralph`, `ralplan`, `release`, `sciomni`, `setup`, `skill`, `team`, `ultraqa`, `ultrawork`, `visual-verdict`, `writer-memory`
+`ai-slop-cleaner`, `autopilot`, `cancel`, `configure-notifications`, `debug`, `deep-dive`, `deep-interview`, `deepinit`, `external-context`, `mcp-setup`, `omni-doctor`, `omni-reference`, `omni-setup`, `plan`, `ralph`, `ralplan`, `release`, `remember`, `setup`, `skill`, `skillify`, `team`, `trace`, `ultraqa`, `ultrawork`, `verify`, `wiki`
 
-**Known plugin command names** (check commands/ for these):
-`ultrawork.md`, `deepsearch.md`
+**Commands**: removed in v2.1.0 (the commands/ directory no longer exists).
 
 ---
 

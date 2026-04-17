@@ -175,14 +175,18 @@ The `.omni/config.json` models block below was used in v2.0.0 and is also obsole
 
 ---
 
-### 6. MCP tools — surface change (30 → 22)
+### 6. MCP tools — surface change (30 → 28)
 
-Two tools were removed; use the equivalents below.
+Several tools were removed; use the equivalents below.
 
 | Removed tool | v2.0.0 equivalent |
 |-------------|-------------------|
 | `subtask` | `state_write` + `scripts/subagent.py` |
 | `workspace` | `scripts/omni_worktree.py` + team state |
+| `artifact_write` / `artifact_read` | Filesystem is canonical store (ADR-0007) |
+| `run_status` | Filesystem is canonical store (ADR-0007) |
+| `support_bundle` | `omni doctor` |
+| `config_resolve` | `.omni/config.json` read directly |
 
 All remaining tools now validate their input payload against a JSON schema.
 Invalid `tools/call` requests return a structured error instead of silently failing.
@@ -214,7 +218,7 @@ upgrading from the original Go-based release.
 | `plugin/plugin.json` | `.claude-plugin/plugin.json` |
 | `plugin/.mcp.json` | `.mcp.json` at repo root |
 | `plugin/hooks.json` (inline bash) | `hooks/hooks.json` + `hooks/*.py` |
-| 5 agents, 8 skills | 19 agents, 37 skills |
+| 5 agents, 8 skills | 19 agents, 27 skills |
 | SQLite via Go `modernc.org/sqlite` | SQLite via Python stdlib `sqlite3` |
 | `go build` to install | `git clone`, done |
 
@@ -224,20 +228,19 @@ upgrading from the original Go-based release.
 |-------------|-------------|
 | `omni_health` | `health` |
 | `omni_doctor` | `doctor` |
-| `omni_artifact_write` | `artifact_write` |
-| `omni_artifact_read` | `artifact_read` |
-| `omni_run_status` | `run_status` |
-| `omni_resume_context` | `resume_context` |
 | `omni_memory_capture` | `memory_capture` |
 | `omni_memory_search` | `memory_search` |
+| `omni_memory_prune` | `memory_prune` |
 | `omni_policy_check` | `policy_check` |
-| `omni_support_bundle` | `support_bundle` |
 
-### Removed in v1.0.0
+### Removed in v1.0.0 / Phase-C
 
 - **Signed release bundles + SBOM** — no binaries, so nothing to sign.
 - **`omni_guarded_patch`** — covered by native Copilot edit + `preToolUse` policy hook.
 - **`omni_release_bundle`**, **`omni_benchmark`**, **`omni_enterprise_diagnose`** — removed.
+- **`artifact_write`**, **`artifact_read`**, **`run_status`** — filesystem is canonical store (ADR-0007).
+- **`support_bundle`** — folded into `omni doctor`.
+- **Slash commands** removed in v2.1.0 — use skills directly via Copilot CLI prompts.
 
 ### Uninstalling v0.1.0
 

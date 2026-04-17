@@ -34,7 +34,7 @@
 - **`configure-notifications` deferred** — moved to `.omni/deferred/configure-notifications/`. Retrievable from git. Phase-C.
 - **`CLAUDE.md` deleted** — `AGENTS.md` is the sole agent entrypoint.
 - **`CLAUDE_PLUGIN_ROOT` → `COPILOT_PLUGIN_ROOT`** — env-var used in skill bodies updated.
-- **MCP tool surface shrank from 30 → 20** — removed `subtask`, `workspace`, `memory_prune`, and several legacy helpers. `run_status` and `artifact_write` were also marked UNUSED-OUTSIDE-TESTS and are removed in Phase-C C23; `state_*` is the supported orchestration API. (Phase-C C17/C18/C24 subsequently re-introduced `memory_prune`, `notepad_prune`, `wiki_ingest`, `wiki_graph`, and `lsp_*` / `ast_grep_*` — net surface at end of Phase C is 27 tools.)
+- **MCP tool surface shrank from 30 → 20** — removed `subtask`, `workspace`, `memory_prune`, and several legacy helpers. `run_status` and `artifact_write` were also marked UNUSED-OUTSIDE-TESTS and are removed in Phase-C C23; `state_*` is the supported orchestration API. (Phase-C C17/C18/C24 subsequently re-introduced `memory_prune`, `notepad_prune`, `wiki_ingest`, `wiki_graph`, `lsp_*`, `ast_grep_*`, and `memory_export` — net surface is 28 tools.)
 - **`model: claude-*`** frontmatter dropped — use `category: quick|deep|ultrabrain` in agent files.
 
 ### Added — Wave 1: rename + decontamination (WS1, WS2, WS9)
@@ -142,11 +142,11 @@
 - MCP tool names dropped `omni_` prefix (e.g. `omni_health` → `health`).
 
 ### Added
-- 37 skills (up from 8): autopilot, ralph, ultrawork, team, ralplan, plan, deep-interview, deep-dive, verify, ultraqa, debug, trace, remember, wiki, external-context, ask, ccg, ai-slop-cleaner, sciomni, skill, skillify, learner, self-improve, setup, omni-setup, omni-doctor, mcp-setup, release, cancel, deepinit, configure-notifications, hud, visual-verdict, omni-reference, omni-teams, writer-memory, project-session-manager.
+- 27 skills: autopilot, ralph, ultrawork, team, ralplan, plan, deep-interview, deep-dive, verify, ultraqa, debug, trace, remember, wiki, external-context, ai-slop-cleaner, skill, skillify, setup, omni-setup, omni-doctor, mcp-setup, release, cancel, deepinit, configure-notifications, omni-reference.
 - 19 agents (up from 5): analyst, architect, planner, critic, executor, explore, debugger, tracer, verifier, qa-tester, test-engineer, code-reviewer, security-reviewer, code-simplifier, document-specialist, writer, git-master, designer, scientist.
-- 8 slash commands: `/omni-init`, `/omni-doctor`, `/omni-status`, `/omni-list`, `/omni-plan`, `/omni-ship`, `/omni-verify`, `/omni-memory`.
-- 30 MCP tools across memory, artifacts, runs, policy, wiki, notepad, state, shared_memory, trace, session_search, subtask, workspace, health, doctor, config_resolve, support_bundle.
-- 4 lifecycle hooks as pure Python scripts.
+- Slash commands removed in v2.1.0 — use skills directly via Copilot CLI prompts.
+- 28 MCP tools across memory, wiki, notepad, state, shared_memory, trace, policy, health, doctor, lsp, ast-grep.
+- 1 lifecycle hook (`session_start`) as pure Python script.
 - Three-profile policy engine: `strict`, `standard`, `permissive`.
 - Windows, macOS, and Linux CI matrix on Python 3.9 / 3.11 / 3.12.
 

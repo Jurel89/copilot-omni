@@ -25,6 +25,7 @@ Config JSON schema:
 For OMNI_SUBAGENT_FAKE mode the invoker sets _F_SLEEP/_F_STDERR/_F_STDOUT/_F_EXIT
 env vars; the cmd already contains the inline Python that reads those vars.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -32,8 +33,11 @@ import json
 import os
 import subprocess
 import sys
+import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 
 def _now_iso() -> str:
@@ -47,6 +51,56 @@ def _write_json_atomic(path: str, data: dict) -> None:
     os.replace(tmp, path)
 
 
+def _current_project() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return os.getcwd()
+
+
+def _mcp_memory_capture_best_effort(
+    scope: str,
+    content: str,
+    key: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+) -> None:
+    """Write a row to MCP memory table (best-effort; never raises)."""
+    try:
+        import sqlite3
+
+        home = Path(os.environ.get("OMNI_HOME") or (Path.home() / ".omni"))
+        db_path = home / "omni.db"
+        if not db_path.exists():
+            return
+        now = time.time()
+        project = _current_project()
+        with sqlite3.connect(str(db_path), timeout=5) as conn:
+            conn.execute(
+                "INSERT INTO memory(id, scope, key, content, tags, project, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    uuid.uuid4().hex,
+                    scope,
+                    key,
+                    content,
+                    ",".join(tags or []),
+                    project,
+                    now,
+                    now,
+                ),
+            )
+    except Exception as exc:
+        print(f"warning: MCP memory capture failed (non-fatal): {exc}", file=sys.stderr)
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print("usage: _subagent_wrapper.py <config.json>", file=sys.stderr)
@@ -57,8 +111,10 @@ def main() -> int:
         with open(config_path, encoding="utf-8") as f:
             cfg = json.load(f)
     except Exception as exc:
-        print(f"_subagent_wrapper: failed to read config {config_path!r}: {exc}",
-              file=sys.stderr)
+        print(
+            f"_subagent_wrapper: failed to read config {config_path!r}: {exc}",
+            file=sys.stderr,
+        )
         return 1
 
     cmd: list = cfg["cmd"]
@@ -68,7 +124,7 @@ def main() -> int:
     job_id: str = cfg["job_id"]
     run_id: str = cfg["run_id"]
     agent: str = cfg["agent"]
-    session_id: str | None = cfg.get("session_id")
+    prompt_excerpt: str = cfg.get("prompt_excerpt", "")
     timeout_secs: int = cfg.get("timeout_secs", 1800)
     scripts_dir: str = cfg.get("scripts_dir", "")
 
@@ -82,8 +138,10 @@ def main() -> int:
     exit_code = 1
     error_text = None
     try:
-        with open(stdout_log, "w", encoding="utf-8") as fout, \
-             open(stderr_log, "w", encoding="utf-8") as ferr:
+        with (
+            open(stdout_log, "w", encoding="utf-8") as fout,
+            open(stderr_log, "w", encoding="utf-8") as ferr,
+        ):
             proc = subprocess.run(
                 cmd,
                 stdout=fout,
@@ -100,9 +158,24 @@ def main() -> int:
         exit_code = 1
 
     final_state = "done" if exit_code == 0 else "failed"
-    status.update(state=final_state, ended_at=_now_iso(),
-                  exit_code=exit_code, error=error_text)
+    status.update(
+        state=final_state, ended_at=_now_iso(), exit_code=exit_code, error=error_text
+    )
     _write_json_atomic(status_path, status)
+    _mcp_memory_capture_best_effort(
+        scope="subagent",
+        content=json.dumps(
+            {
+                "agent": agent,
+                "exit_code": exit_code,
+                "error": (error_text or "")[:500],
+                "prompt_excerpt": prompt_excerpt[:200],
+                "run_id": run_id,
+            }
+        ),
+        key=f"subagent:{agent}:{run_id}",
+        tags=["subagent", agent],
+    )
 
     # Release pool slot
     if scripts_dir:
@@ -110,7 +183,8 @@ def main() -> int:
             pool_path = Path(scripts_dir) / "subagent_pool.py"
             if pool_path.exists():
                 spec = importlib.util.spec_from_file_location(
-                    "subagent_pool", str(pool_path))
+                    "subagent_pool", str(pool_path)
+                )
                 if spec and spec.loader:
                     mod = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(mod)  # type: ignore[union-attr]

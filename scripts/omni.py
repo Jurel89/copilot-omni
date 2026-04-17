@@ -5,10 +5,12 @@ Pure-Python, stdlib-only. Provides:
   omni init           Scaffold .omni/ in the current project
   omni doctor         Check environment (python, copilot CLI, MCP server)
   omni status         Show current run and mode state
+  omni memory         Interact with the memory store (search, list, capture, prune, export)
   omni plugin-install Install the plugin into the local Copilot CLI
   omni mcp            Launch the MCP server in the foreground (stdio)
   omni version        Print version
 """
+
 from __future__ import annotations
 
 import argparse
@@ -16,8 +18,11 @@ import json
 import os
 import platform
 import shutil
+import sqlite3
 import subprocess
 import sys
+import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -37,21 +42,24 @@ def _cmd_version(_args: argparse.Namespace) -> int:
 def _cmd_doctor(args: argparse.Namespace) -> int:
     ok = True
     py_ok = sys.version_info >= (3, 9)
-    print(f"python:        {sys.version.split()[0]:<12} "
-          + ("OK" if py_ok else "FAIL (need >=3.9)"))
+    print(
+        f"python:        {sys.version.split()[0]:<12} "
+        + ("OK" if py_ok else "FAIL (need >=3.9)")
+    )
     ok = ok and py_ok
 
     copilot = shutil.which("copilot")
     copilot_ok = copilot is not None
-    print(f"copilot CLI:   {copilot or 'NOT FOUND':<40} "
-          + ("OK" if copilot_ok else "FAIL (install @github/copilot or add to PATH)"))
+    print(
+        f"copilot CLI:   {copilot or 'NOT FOUND':<40} "
+        + ("OK" if copilot_ok else "FAIL (install @github/copilot or add to PATH)")
+    )
     ok = ok and copilot_ok
 
     root = _plugin_root()
     manifest = root / "plugin.json"
     manifest_ok = manifest.exists()
-    print(f"plugin.json:   {str(manifest):<40} "
-          + ("OK" if manifest_ok else "FAIL"))
+    print(f"plugin.json:   {str(manifest):<40} " + ("OK" if manifest_ok else "FAIL"))
     ok = ok and manifest_ok
 
     mcp = root / "mcp" / "server.py"
@@ -129,16 +137,16 @@ def _doctor_fix_python(root: Path, *, apply_: bool) -> bool:
     """
     targets: list[tuple[Path, str, list[str]]] = [
         # (path, label, list of JSON-pointer-ish selectors for audit output)
-        (root / ".mcp.json", ".mcp.json",
-         ["$.mcpServers.*.command"]),
-        (root / "hooks" / "hooks.json", "hooks/hooks.json",
-         ["$.hooks.*[*].command"]),
+        (root / ".mcp.json", ".mcp.json", ["$.mcpServers.*.command"]),
+        (root / "hooks" / "hooks.json", "hooks/hooks.json", ["$.hooks.*[*].command"]),
     ]
     current = sys.executable
     print("")
     print(f"fix-python:    current interpreter -> {current}")
-    print(f"fix-python:    mode               -> "
-          + ("APPLY (in-place rewrite)" if apply_ else "DRY-RUN"))
+    print(
+        f"fix-python:    mode               -> "
+        + ("APPLY (in-place rewrite)" if apply_ else "DRY-RUN")
+    )
 
     all_ok = True
     for path, label, _selectors in targets:
@@ -211,8 +219,11 @@ def _is_usable_python(cmd_path: Optional[str]) -> bool:
         return False
     try:
         result = subprocess.run(
-            [cmd_path, "-c",
-             "import sys; sys.exit(0 if sys.version_info>=(3,9) else 1)"],
+            [
+                cmd_path,
+                "-c",
+                "import sys; sys.exit(0 if sys.version_info>=(3,9) else 1)",
+            ],
             capture_output=True,
             timeout=3,
         )
@@ -259,9 +270,7 @@ def _rewrite_python_in_config(
                 # the first space (which would break Windows installs).
                 head, rest = _split_cmd_head(cmd)
                 if head and _needs_rewrite(head):
-                    new_cmd = (
-                        f'"{interpreter}" {rest}' if rest else interpreter
-                    )
+                    new_cmd = f'"{interpreter}" {rest}' if rest else interpreter
                     node[field] = new_cmd
                     changed.append((cmd, new_cmd))
             for v in node.values():
@@ -274,9 +283,7 @@ def _rewrite_python_in_config(
     return changed, data
 
 
-def _expand_plugin_root_vars(
-    data: object, plugin_root: Path
-) -> list[tuple[str, str]]:
+def _expand_plugin_root_vars(data: object, plugin_root: Path) -> list[tuple[str, str]]:
     """Expand ``${OMNI_PLUGIN_ROOT}`` / ``${CLAUDE_PLUGIN_ROOT}`` to *plugin_root*.
 
     Copilot CLI auto-exports ``COPILOT_PLUGIN_ROOT`` / ``CLAUDE_PLUGIN_ROOT`` /
@@ -298,9 +305,9 @@ def _expand_plugin_root_vars(
             return s
         return (
             s.replace("${COPILOT_PLUGIN_ROOT}", root_str)
-             .replace("${CLAUDE_PLUGIN_ROOT}", root_str)
-             .replace("${PLUGIN_ROOT}", root_str)
-             .replace("${OMNI_PLUGIN_ROOT}", root_str)
+            .replace("${CLAUDE_PLUGIN_ROOT}", root_str)
+            .replace("${PLUGIN_ROOT}", root_str)
+            .replace("${OMNI_PLUGIN_ROOT}", root_str)
         )
 
     def _recurse(node: object) -> None:
@@ -373,6 +380,7 @@ def _doctor_run_gc(root: Path, *, apply_: bool) -> None:
         return
     try:
         import importlib.util as _ilu
+
         spec = _ilu.spec_from_file_location("runs_gc", gc_path)
         if spec is None or spec.loader is None:
             print("gc:           could not load runs_gc — skipping")
@@ -392,8 +400,6 @@ def _doctor_run_gc(root: Path, *, apply_: bool) -> None:
     mod.run_gc(root, ttl_days=ttl_days, apply_=apply_)
 
 
-
-
 def _doctor_subagent_pool(root: Path, *, strict: bool = False) -> bool:
     """WS5a: show subagent pool state (cap, acquired slots)."""
     pool_path = root / "scripts" / "subagent_pool.py"
@@ -403,6 +409,7 @@ def _doctor_subagent_pool(root: Path, *, strict: bool = False) -> bool:
 
     try:
         import importlib.util as _ilu
+
         spec = _ilu.spec_from_file_location("subagent_pool", pool_path)
         if spec is None or spec.loader is None:
             print("subagent pool: could not load subagent_pool — skipping")
@@ -427,9 +434,11 @@ def _doctor_subagent_pool(root: Path, *, strict: bool = False) -> bool:
 
         if strict:
             import time
+
             now = time.time()
             orphaned = [
-                e for e in acquired
+                e
+                for e in acquired
                 if now - e.get("ts", now) > 1800  # 30 min
             ]
             if orphaned:
@@ -465,13 +474,15 @@ def _doctor_ralplan_runs(root: Path, *, strict: bool = False) -> bool:
                 continue
             try:
                 data = _json.loads(sp.read_text(encoding="utf-8"))
-                ralplan_runs.append({
-                    "name": run_dir.name,
-                    "state": data.get("state", "unknown"),
-                    "cycle": data.get("current_cycle", 0),
-                    "verdict": data.get("last_verdict"),
-                    "mtime": sp.stat().st_mtime,
-                })
+                ralplan_runs.append(
+                    {
+                        "name": run_dir.name,
+                        "state": data.get("state", "unknown"),
+                        "cycle": data.get("current_cycle", 0),
+                        "verdict": data.get("last_verdict"),
+                        "mtime": sp.stat().st_mtime,
+                    }
+                )
             except Exception:
                 pass
     except Exception as exc:
@@ -482,10 +493,16 @@ def _doctor_ralplan_runs(root: Path, *, strict: bool = False) -> bool:
         print("ralplan runs:  (none)")
         return True
 
-    active = [r for r in ralplan_runs if r["state"] not in ("converged", "unconverged", "rejected", "cancelled")]
+    active = [
+        r
+        for r in ralplan_runs
+        if r["state"] not in ("converged", "unconverged", "rejected", "cancelled")
+    ]
     print(f"ralplan runs:  {len(ralplan_runs)} total, {len(active)} active")
     for r in ralplan_runs[-5:]:
-        print(f"  {r['name']}: state={r['state']}, cycle={r['cycle']}, verdict={r['verdict']}")
+        print(
+            f"  {r['name']}: state={r['state']}, cycle={r['cycle']}, verdict={r['verdict']}"
+        )
 
     if not strict:
         return True
@@ -493,7 +510,8 @@ def _doctor_ralplan_runs(root: Path, *, strict: bool = False) -> bool:
     # --strict: warn if any run has been awaiting-input for >24h
     now = _time.time()
     stale = [
-        r for r in ralplan_runs
+        r
+        for r in ralplan_runs
         if r["state"] == "awaiting-input" and (now - r["mtime"]) > 86400
     ]
     if stale:
@@ -528,6 +546,7 @@ def _doctor_recent_runs(root: Path) -> None:
             return
 
         import json as _json
+
         print("recent runs:")
         for run_dir in run_dirs:
             counts: dict = {}
@@ -576,14 +595,18 @@ def _doctor_team_runs(root: Path, *, strict: bool = False) -> bool:
                 continue
             try:
                 status_data = _json.loads(sp.read_text(encoding="utf-8"))
-                manifest_data = _json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else {}
+                manifest_data = (
+                    _json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else {}
+                )
                 workers = manifest_data.get("workers", [])
-                team_runs.append({
-                    "name": run_dir.name,
-                    "state": status_data.get("state", "unknown"),
-                    "worker_count": len(workers),
-                    "mtime": sp.stat().st_mtime,
-                })
+                team_runs.append(
+                    {
+                        "name": run_dir.name,
+                        "state": status_data.get("state", "unknown"),
+                        "worker_count": len(workers),
+                        "mtime": sp.stat().st_mtime,
+                    }
+                )
             except Exception:
                 pass
     except Exception as exc:
@@ -594,7 +617,9 @@ def _doctor_team_runs(root: Path, *, strict: bool = False) -> bool:
         print("team runs:     (none)")
         return True
 
-    active = [r for r in team_runs if r["state"] not in ("cleaned", "cancelled", "done")]
+    active = [
+        r for r in team_runs if r["state"] not in ("cleaned", "cancelled", "done")
+    ]
     print(f"team runs:     {len(team_runs)} total, {len(active)} active")
     for r in team_runs[-5:]:
         print(f"  {r['name']}: state={r['state']}, workers={r['worker_count']}")
@@ -605,7 +630,8 @@ def _doctor_team_runs(root: Path, *, strict: bool = False) -> bool:
     # --strict: warn if any team has been in state='dispatched' for >24h
     now = _time.time()
     stale = [
-        r for r in team_runs
+        r
+        for r in team_runs
         if r["state"] == "dispatched" and (now - r["mtime"]) > 86400
     ]
     if stale:
@@ -615,7 +641,9 @@ def _doctor_team_runs(root: Path, *, strict: bool = False) -> bool:
         )
         for r in stale:
             age_h = (now - r["mtime"]) / 3600
-            print(f"  {r['name']}: dispatched for {age_h:.1f}h, workers={r['worker_count']}")
+            print(
+                f"  {r['name']}: dispatched for {age_h:.1f}h, workers={r['worker_count']}"
+            )
         return False
 
     return True
@@ -627,12 +655,18 @@ def _cmd_init(args: argparse.Namespace) -> int:
     target.mkdir(parents=True, exist_ok=True)
     config = target / "config.json"
     if not config.exists() or args.force:
-        config.write_text(json.dumps({
-            "version": 1,
-            "project_name": cwd.name,
-            "profile": args.profile,
-            "memory_scope": "project",
-        }, indent=2), encoding="utf-8")
+        config.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "project_name": cwd.name,
+                    "profile": args.profile,
+                    "memory_scope": "project",
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
     for sub in ("runs", "specs", "plans", "decisions", "audit", "support"):
         (target / sub).mkdir(parents=True, exist_ok=True)
     # Write scaffolded AGENTS.md for the target project if missing
@@ -683,7 +717,7 @@ def _cmd_mcp(_args: argparse.Namespace) -> int:
 
 _ARTIFACT_REQUIRED: dict[str, tuple[str, ...]] = {
     "execute": ("spec.json",),
-    "verify":  ("plan.md",),
+    "verify": ("plan.md",),
 }
 
 
@@ -692,6 +726,7 @@ def _load_state_machine():
     if not path.exists():
         return None
     import importlib.util as _ilu
+
     spec = _ilu.spec_from_file_location("state_machine", path)
     if spec is None or spec.loader is None:
         return None
@@ -711,8 +746,7 @@ def _resolve_run_dir(raw: str) -> Path:
 def _enforce_artifacts(run_dir: Path, gate: str) -> list[str]:
     """Return a list of missing-artifact paths for *gate*; empty on success."""
     required = _ARTIFACT_REQUIRED.get(gate, ())
-    return [str(run_dir / name) for name in required
-            if not (run_dir / name).exists()]
+    return [str(run_dir / name) for name in required if not (run_dir / name).exists()]
 
 
 _GATE_ARTIFACT_REQUIRED: dict[str, tuple[str, ...]] = {
@@ -721,10 +755,10 @@ _GATE_ARTIFACT_REQUIRED: dict[str, tuple[str, ...]] = {
     # but `omni verify` should still require spec.json at the implicit
     # execute step so we never silently jump through a gate without its
     # artifact being present.
-    "plan":    ("spec.json",),   # plan lands once a spec exists
+    "plan": ("spec.json",),  # plan lands once a spec exists
     "execute": ("spec.json",),
-    "verify":  ("plan.md",),
-    "done":    ("plan.md",),
+    "verify": ("plan.md",),
+    "done": ("plan.md",),
 }
 
 
@@ -758,7 +792,7 @@ def _walk_gates(sm, run_dir: Path, target: str, note: str) -> None:
     if current_idx >= target_idx:
         sm.advance(run_dir, target, note=note)
         return
-    for intermediate in order[current_idx + 1:target_idx + 1]:
+    for intermediate in order[current_idx + 1 : target_idx + 1]:
         required = _GATE_ARTIFACT_REQUIRED.get(intermediate, ())
         missing = [name for name in required if not (run_dir / name).exists()]
         if missing:
@@ -776,15 +810,19 @@ def _cmd_execute(args: argparse.Namespace) -> int:
         return 2
     missing = _enforce_artifacts(run_dir, "execute")
     if missing:
-        print("error: artifact-first lifecycle — missing required artifacts:",
-              file=sys.stderr)
+        print(
+            "error: artifact-first lifecycle — missing required artifacts:",
+            file=sys.stderr,
+        )
         for m in missing:
             print(f"  - {m}", file=sys.stderr)
         return 2
     sm = _load_state_machine()
     if sm is None:
-        print("warn: state_machine.py unavailable — skipping gate advance",
-              file=sys.stderr)
+        print(
+            "warn: state_machine.py unavailable — skipping gate advance",
+            file=sys.stderr,
+        )
     else:
         try:
             _walk_gates(sm, run_dir, "execute", note="omni execute")
@@ -802,15 +840,19 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         return 2
     missing = _enforce_artifacts(run_dir, "verify")
     if missing:
-        print("error: artifact-first lifecycle — missing required artifacts:",
-              file=sys.stderr)
+        print(
+            "error: artifact-first lifecycle — missing required artifacts:",
+            file=sys.stderr,
+        )
         for m in missing:
             print(f"  - {m}", file=sys.stderr)
         return 2
     sm = _load_state_machine()
     if sm is None:
-        print("warn: state_machine.py unavailable — skipping gate advance",
-              file=sys.stderr)
+        print(
+            "warn: state_machine.py unavailable — skipping gate advance",
+            file=sys.stderr,
+        )
     else:
         try:
             _walk_gates(sm, run_dir, "verify", note="omni verify")
@@ -843,43 +885,357 @@ def _cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _omni_home() -> Path:
+    return Path(os.environ.get("OMNI_HOME") or (Path.home() / ".omni"))
+
+
+def _current_project() -> str:
+    """Return a project identifier (git repo root or cwd hash)."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return os.getcwd()
+
+
+def _ensure_memory_project_column(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("PRAGMA table_info(memory)").fetchall()
+    if not rows or any(row[1] == "project" for row in rows):
+        return
+    try:
+        conn.execute("ALTER TABLE memory ADD COLUMN project TEXT NOT NULL DEFAULT ''")
+        conn.commit()
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
+
+
+def _memory_db():
+    db_path = _omni_home() / "omni.db"
+    if not db_path.exists():
+        return None
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    _ensure_memory_project_column(conn)
+    return conn
+
+
+def _print_table(headers: list[str], rows: list[list[str]]) -> None:
+    if not rows:
+        print("No entries.")
+        return
+    all_rows = [headers] + [[str(c) for c in row] for row in rows]
+    widths = [max(len(row[i]) for row in all_rows) for i in range(len(headers))]
+    print("  ".join(h.ljust(w) for h, w in zip(headers, widths)))
+    print("  ".join("-" * w for w in widths))
+    for row in all_rows[1:]:
+        print("  ".join(cell.ljust(w) for cell, w in zip(row, widths)))
+
+
+def _cmd_memory_search(args: argparse.Namespace) -> int:
+    conn = _memory_db()
+    if conn is None:
+        print("Memory database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        query = f"%{args.query}%"
+        project = _current_project()
+        scope = getattr(args, "scope", None)
+        limit = getattr(args, "limit", 20)
+        if scope:
+            rows = conn.execute(
+                "SELECT id, scope, key, content, tags, project, updated_at"
+                " FROM memory WHERE scope=? AND (content LIKE ? OR key LIKE ?)"
+                " AND project=?"
+                " ORDER BY updated_at DESC LIMIT ?",
+                (scope, query, query, project, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, scope, key, content, tags, project, updated_at"
+                " FROM memory WHERE (content LIKE ? OR key LIKE ?)"
+                " AND project=?"
+                " ORDER BY updated_at DESC LIMIT ?",
+                (query, query, project, limit),
+            ).fetchall()
+        entries = [dict(r) for r in rows]
+        if getattr(args, "json", False):
+            json.dump(
+                {"results": entries, "count": len(entries)},
+                sys.stdout,
+                indent=2,
+                default=str,
+            )
+            print()
+            return 0
+        if not entries:
+            print("No matches found.")
+            return 0
+        _print_table(
+            ["Scope", "Key", "Content", "Updated"],
+            [
+                [
+                    e["scope"],
+                    e["key"] or "-",
+                    e["content"][:60],
+                    time.strftime("%Y-%m-%d %H:%M", time.localtime(e["updated_at"])),
+                ]
+                for e in entries
+            ],
+        )
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_memory_list(args: argparse.Namespace) -> int:
+    conn = _memory_db()
+    if conn is None:
+        print("Memory database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        project = _current_project()
+        scope = getattr(args, "scope", None)
+        limit = getattr(args, "limit", 20)
+        if scope:
+            rows = conn.execute(
+                "SELECT id, scope, key, content, tags, project, updated_at"
+                " FROM memory WHERE scope=?"
+                " AND project=?"
+                " ORDER BY updated_at DESC LIMIT ?",
+                (scope, project, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, scope, key, content, tags, project, updated_at"
+                " FROM memory WHERE project=?"
+                " ORDER BY updated_at DESC LIMIT ?",
+                (project, limit),
+            ).fetchall()
+        entries = [dict(r) for r in rows]
+        if getattr(args, "json", False):
+            json.dump(
+                {"entries": entries, "count": len(entries)},
+                sys.stdout,
+                indent=2,
+                default=str,
+            )
+            print()
+            return 0
+        if not entries:
+            print("No memory entries.")
+            return 0
+        _print_table(
+            ["Scope", "Key", "Content", "Updated"],
+            [
+                [
+                    e["scope"],
+                    e["key"] or "-",
+                    e["content"][:60],
+                    time.strftime("%Y-%m-%d %H:%M", time.localtime(e["updated_at"])),
+                ]
+                for e in entries
+            ],
+        )
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_memory_capture(args: argparse.Namespace) -> int:
+    db_path = _omni_home() / "omni.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS memory"
+            " (id TEXT PRIMARY KEY, scope TEXT NOT NULL, key TEXT,"
+            " content TEXT NOT NULL, tags TEXT, created_at REAL NOT NULL,"
+            " updated_at REAL NOT NULL)"
+        )
+        _ensure_memory_project_column(conn)
+        now = time.time()
+        entry_id = uuid.uuid4().hex
+        project = _current_project()
+        scope = getattr(args, "scope", "project")
+        key = getattr(args, "key", None)
+        tags = ",".join(getattr(args, "tags", []) or [])
+        conn.execute(
+            "INSERT INTO memory(id, scope, key, content, tags, project, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (entry_id, scope, key, args.content, tags, project, now, now),
+        )
+        conn.commit()
+        entry = {
+            "id": entry_id,
+            "scope": scope,
+            "key": key,
+            "content": args.content,
+            "project": project,
+        }
+        if getattr(args, "json", False):
+            json.dump(entry, sys.stdout, indent=2, default=str)
+            print()
+            return 0
+        print(f"Captured: [{scope}] {key or args.content[:40]}")
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_memory_prune(args: argparse.Namespace) -> int:
+    conn = _memory_db()
+    if conn is None:
+        print("Memory database not found.", file=sys.stderr)
+        return 1
+    try:
+        cutoff = time.time() - getattr(args, "older_than", 30) * 86400
+        project = _current_project()
+        scope = getattr(args, "scope", None)
+        dry_run = getattr(args, "dry_run", False)
+        if scope:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM memory"
+                " WHERE updated_at < ? AND scope=?"
+                " AND project=?",
+                (cutoff, scope, project),
+            ).fetchone()[0]
+            if not dry_run:
+                conn.execute(
+                    "DELETE FROM memory WHERE updated_at < ? AND scope=? AND project=?",
+                    (cutoff, scope, project),
+                )
+                conn.commit()
+        else:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM memory WHERE updated_at < ? AND project=?",
+                (cutoff, project),
+            ).fetchone()[0]
+            if not dry_run:
+                conn.execute(
+                    "DELETE FROM memory WHERE updated_at < ? AND project=?",
+                    (cutoff, project),
+                )
+                conn.commit()
+        result = {
+            "deleted": count,
+            "dry_run": dry_run,
+            "older_than_days": getattr(args, "older_than", 30),
+        }
+        if getattr(args, "json", False):
+            json.dump(result, sys.stdout, indent=2)
+            print()
+            return 0
+        action = "Would prune" if dry_run else "Pruned"
+        print(
+            f"{action} {count} entries older than {getattr(args, 'older_than', 30)} days."
+        )
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_memory_export(args: argparse.Namespace) -> int:
+    conn = _memory_db()
+    if conn is None:
+        print("Memory database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        project = _current_project()
+        scope = getattr(args, "scope", None)
+        if scope:
+            rows = conn.execute(
+                "SELECT id, scope, key, content, tags, project, created_at, updated_at"
+                " FROM memory WHERE scope=? AND project=?"
+                " ORDER BY updated_at DESC",
+                (scope, project),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, scope, key, content, tags, project, created_at, updated_at"
+                " FROM memory WHERE project=?"
+                " ORDER BY updated_at DESC",
+                (project,),
+            ).fetchall()
+        entries = [dict(r) for r in rows]
+        output = json.dumps(
+            {"entries": entries, "count": len(entries)}, indent=2, default=str
+        )
+        output_path = getattr(args, "output", None)
+        if output_path:
+            Path(output_path).write_text(output + "\n", encoding="utf-8")
+            print(f"Exported {len(entries)} entries to {output_path}")
+        else:
+            print(output)
+        return 0
+    finally:
+        conn.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="omni", description="Copilot Omni CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("version").set_defaults(func=_cmd_version)
     doctor = sub.add_parser("doctor")
-    doctor.add_argument("--strict", action="store_true",
-                        help="Fail on any environment drift (stale team runs, pool caps, etc.)")
-    doctor.add_argument("--gc", action="store_true",
-                        help="Garbage-collect .omni/runs/ directories older than TTL (dry-run)")
-    doctor.add_argument("--gc-apply", action="store_true",
-                        help="With --gc, actually delete stale runs (default is dry-run)")
-    doctor.add_argument("--fix-python", action="store_true",
-                        help="Calibrate .mcp.json + hooks/hooks.json to the "
-                             "current Python interpreter. Dry-run by default; "
-                             "use --fix-python-apply to persist. Fix for "
-                             "Windows corporate boxes where `python3` is not "
-                             "on PATH.")
-    doctor.add_argument("--fix-python-apply", action="store_true",
-                        help="With --fix-python, actually rewrite the config "
-                             "files (default is dry-run).")
+    doctor.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail on any environment drift (stale team runs, pool caps, etc.)",
+    )
+    doctor.add_argument(
+        "--gc",
+        action="store_true",
+        help="Garbage-collect .omni/runs/ directories older than TTL (dry-run)",
+    )
+    doctor.add_argument(
+        "--gc-apply",
+        action="store_true",
+        help="With --gc, actually delete stale runs (default is dry-run)",
+    )
+    doctor.add_argument(
+        "--fix-python",
+        action="store_true",
+        help="Calibrate .mcp.json + hooks/hooks.json to the "
+        "current Python interpreter. Dry-run by default; "
+        "use --fix-python-apply to persist. Fix for "
+        "Windows corporate boxes where `python3` is not "
+        "on PATH.",
+    )
+    doctor.add_argument(
+        "--fix-python-apply",
+        action="store_true",
+        help="With --fix-python, actually rewrite the config "
+        "files (default is dry-run).",
+    )
     doctor.set_defaults(func=_cmd_doctor)
 
     init = sub.add_parser("init", help="Scaffold .omni/ in the current project")
     init.add_argument("--path", default=None)
-    init.add_argument("--profile", default="standard",
-                      choices=["strict", "standard", "permissive"])
+    init.add_argument(
+        "--profile", default="standard", choices=["strict", "standard", "permissive"]
+    )
     init.add_argument("--force", action="store_true")
     init.add_argument("--no-agents-md", action="store_true")
     init.set_defaults(func=_cmd_init)
 
     sub.add_parser("status").set_defaults(func=_cmd_status)
 
-    plug = sub.add_parser("plugin-install",
-                          help="Install this plugin into the local Copilot CLI")
-    plug.add_argument("--source", default=None,
-                      help="Source path or owner/repo (default: this checkout)")
+    plug = sub.add_parser(
+        "plugin-install", help="Install this plugin into the local Copilot CLI"
+    )
+    plug.add_argument(
+        "--source",
+        default=None,
+        help="Source path or owner/repo (default: this checkout)",
+    )
     plug.set_defaults(func=_cmd_plugin_install)
 
     mcp = sub.add_parser("mcp", help="Run the MCP server in stdio mode")
@@ -890,22 +1246,69 @@ def build_parser() -> argparse.ArgumentParser:
         "execute",
         help="Enforce the execute gate: require spec.json, advance state machine",
     )
-    execute.add_argument("run_id",
-                         help="run-id or absolute path to the run directory")
+    execute.add_argument("run_id", help="run-id or absolute path to the run directory")
     execute.set_defaults(func=_cmd_execute)
 
     verify = sub.add_parser(
         "verify",
         help="Enforce the verify gate: require plan.md, advance state machine",
     )
-    verify.add_argument("run_id",
-                        help="run-id or absolute path to the run directory")
+    verify.add_argument("run_id", help="run-id or absolute path to the run directory")
     verify.set_defaults(func=_cmd_verify)
 
     lst = sub.add_parser("list", help="List installed skills and agents")
-    lst.add_argument("kind", choices=["skills", "agents", "all"],
-                     nargs="?", default="all")
+    lst.add_argument(
+        "kind", choices=["skills", "agents", "all"], nargs="?", default="all"
+    )
     lst.set_defaults(func=_cmd_list)
+
+    mem = sub.add_parser("memory", help="Interact with the memory store")
+    mem_sub = mem.add_subparsers(dest="memory_cmd", required=True)
+
+    mem_search = mem_sub.add_parser("search", help="Search memory entries")
+    mem_search.add_argument("query", help="Search query")
+    mem_search.add_argument("--scope", default=None, help="Filter by scope")
+    mem_search.add_argument(
+        "--limit", type=int, default=20, help="Max results (default: 20)"
+    )
+    mem_search.add_argument("--json", action="store_true", help="JSON output")
+    mem_search.set_defaults(func=_cmd_memory_search)
+
+    mem_list = mem_sub.add_parser("list", help="List recent memory entries")
+    mem_list.add_argument("--scope", default=None, help="Filter by scope")
+    mem_list.add_argument(
+        "--limit", type=int, default=20, help="Max results (default: 20)"
+    )
+    mem_list.add_argument("--json", action="store_true", help="JSON output")
+    mem_list.set_defaults(func=_cmd_memory_list)
+
+    mem_capture = mem_sub.add_parser("capture", help="Capture a memory entry")
+    mem_capture.add_argument("content", help="Content to store")
+    mem_capture.add_argument(
+        "--scope", default="project", help="Scope (default: project)"
+    )
+    mem_capture.add_argument("--key", default=None, help="Optional key")
+    mem_capture.add_argument("--tags", nargs="*", default=None, help="Optional tags")
+    mem_capture.add_argument("--json", action="store_true", help="JSON output")
+    mem_capture.set_defaults(func=_cmd_memory_capture)
+
+    mem_prune = mem_sub.add_parser("prune", help="Prune old memory entries")
+    mem_prune.add_argument(
+        "--older-than", type=int, default=30, help="Days threshold (default: 30)"
+    )
+    mem_prune.add_argument("--scope", default=None, help="Filter by scope")
+    mem_prune.add_argument(
+        "--dry-run", action="store_true", help="Show count without deleting"
+    )
+    mem_prune.add_argument("--json", action="store_true", help="JSON output")
+    mem_prune.set_defaults(func=_cmd_memory_prune)
+
+    mem_export = mem_sub.add_parser("export", help="Export memory entries as JSON")
+    mem_export.add_argument("--scope", default=None, help="Filter by scope")
+    mem_export.add_argument(
+        "--output", "-o", default=None, help="Output file (default: stdout)"
+    )
+    mem_export.set_defaults(func=_cmd_memory_export)
 
     return parser
 

@@ -44,22 +44,22 @@ Prefix: `copilot-omni:`. See `agents/*.md` for full prompts.
 - `/team N:executor "task"`
 
 ### copilot-omni state
-- `state_read`, `state_write`, `state_clear`, `state_list`, `state_get_status`
+- `state_read`, `state_write`, `state_clear`
 
 ### Team runtime (Copilot CLI — via scripts/subagent.py or omni_team.py)
 - `python3 scripts/subagent.py <agent> "<prompt>"` — spawn a single agent
 - `python3 scripts/omni_team.py` — team lifecycle for native Copilot team skill
 
 ### Notepad
-- `notepad_read`, `notepad_write_priority`, `notepad_write_working`, `notepad_write_manual`
+- `notepad_read`, `notepad_write`, `notepad_prune`
 
 ### Project memory
-- `project_memory_read`, `project_memory_write`, `project_memory_add_note`, `project_memory_add_directive`
+- `memory_capture`, `memory_search`, `memory_prune`, `memory_export`
+- CLI: `omni memory search "query"`, `omni memory list`, `omni memory capture "text"`, `omni memory prune`, `omni memory export`
 
 ### Code intelligence
-- LSP: `lsp_hover`, `lsp_goto_definition`, `lsp_find_references`, `lsp_diagnostics`, and related helpers
+- LSP: `lsp_hover`, `lsp_goto_definition`, `lsp_find_references`
 - AST: `ast_grep_search`, `ast_grep_replace`
-- Utility: `python_repl`
 
 ## Skills Registry
 
@@ -79,7 +79,7 @@ Invoke built-in workflows via `/copilot-omni:<name>`.
 - `ai-slop-cleaner` — regression-safe cleanup workflow
 
 ### Utility skills
-- `cancel`, `note`, `omni-setup`, `mcp-setup`, `omni-doctor`, `trace`, `release`, `skill`
+- `cancel`, `remember`, `omni-setup`, `mcp-setup`, `omni-doctor`, `omni-reference`, `trace`, `release`, `skill`
 
 ### Keyword triggers kept compact in CLAUDE.md
 - `"autopilot"→autopilot`

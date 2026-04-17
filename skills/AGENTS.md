@@ -28,10 +28,9 @@ Skills are reusable workflow templates that can be invoked via `/copilot-omni:sk
 
 | File | Skill | Purpose |
 |-----------|-------|---------|
-| `plan/SKILL.md` | omni-plan | Strategic planning with interview workflow |
+| `plan/SKILL.md` | plan | Strategic planning with interview workflow |
 | `ralplan/SKILL.md` | ralplan | Iterative planning (Planner+Architect+Critic) with RALPLAN-DR structured deliberation (`--deliberate` for high-risk) |
 | `deep-interview/SKILL.md` | deep-interview | Socratic deep interview with mathematical ambiguity gating (Ouroboros-inspired) |
-| `ralph-init/SKILL.md` | ralph-init | Initialize PRD for structured ralph |
 
 ### Exploration Skills
 
@@ -44,14 +43,17 @@ Skills are reusable workflow templates that can be invoked via `/copilot-omni:sk
 | File | Skill | Purpose |
 |-----------|-------|---------|
 | `ai-slop-cleaner/SKILL.md` | ai-slop-cleaner | Regression-safe cleanup workflow for AI-generated code slop |
-| `note/SKILL.md` | note | Save notes for compaction resilience |
 | `cancel/SKILL.md` | cancel | Cancel any active copilot-omni mode |
+| `debug/SKILL.md` | debug | Structured debugging loop with tracer integration |
 | `omni-doctor/SKILL.md` | omni-doctor | Diagnose installation issues |
+| `omni-reference/SKILL.md` | omni-reference | Look up plugin internals and docs |
 | `setup/SKILL.md` | setup | Unified setup entrypoint for install, diagnostics, and MCP configuration |
 | `omni-setup/SKILL.md` | omni-setup | One-time setup wizard |
-| `omni-help/SKILL.md` | omni-help | Usage guide |
 | `mcp-setup/SKILL.md` | mcp-setup | Configure MCP servers |
+| `remember/SKILL.md` | remember | Persist notes to .omni/ notepad or shared memory |
 | `skill/SKILL.md` | skill | Manage local skills |
+| `trace/SKILL.md` | trace | Causal trace across runs / state / audit log |
+| `wiki/SKILL.md` | wiki | Read / write / query the wiki MCP store |
 
 ### Domain Skills
 
@@ -116,9 +118,7 @@ Any configurable options.
 2. Define purpose, workflow, and usage
 3. Add to skill registry (auto-detected from frontmatter)
 4. Optionally add activation triggers
-5. Create corresponding `commands/new-skill.md` file (mirror)
-6. Update `docs/REFERENCE.md` (Skills section, count)
-7. If execution mode skill, also create `src/hooks/new-skill/` hook
+5. Update `docs/REFERENCE.md` (Skills section, count)
 
 ### Common Patterns
 
@@ -152,9 +152,9 @@ If `pipeline` / `next-skill` metadata is present, copilot-omni appends a standar
 ## Dependencies
 
 ### Internal
-- Loaded by skill bridge (`scripts/build-skill-bridge.mjs`)
+- Auto-discovered from `skills/*/SKILL.md` by the plugin manifest
 - References agents from `agents/`
-- Uses hooks from `src/hooks/`
+- Invoked via `/copilot-omni:<name>` plugin skill mechanism
 
 ### External
 None - pure markdown files.
@@ -165,9 +165,9 @@ None - pure markdown files.
 |----------|--------|------------------|
 | Execution | autopilot, ultrawork, ralph, team, ultraqa | "autopilot", "ulw", "ralph", "team" |
 | Cleanup | ai-slop-cleaner | "deslop", "anti-slop", cleanup/refactor + slop smells |
-| Planning | omni-plan, ralplan, deep-interview, ralph-init | "plan this", "interview me", "ouroboros" |
-| Exploration | deepinit, external-context | "deepinit", "research" |
-| Utility | note, cancel, setup, omni-doctor, omni-setup, omni-help, mcp-setup | "stop", "cancel" |
+| Planning | plan, ralplan, deep-interview | "plan this", "interview me", "ouroboros" |
+| Exploration | deepinit, external-context, deep-dive | "deepinit", "research", "deep dive" |
+| Utility | remember, cancel, setup, omni-doctor, omni-setup, omni-reference, mcp-setup, skill, skillify, trace, wiki | "stop", "cancel", "remember", "wiki" |
 | Domain | release | release context |
 
 ## Auto-Activation

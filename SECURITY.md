@@ -13,8 +13,8 @@ Copilot Omni is a **development-time orchestration layer** for GitHub Copilot CL
 - Protecting plugin-managed files (`.omni/config.json`, `.claude-plugin/plugin.json`, `AGENTS.md`, …) from accidental modification by the LLM.
 - Defense-in-depth against obviously-dangerous shell commands (`sudo`, `rm -rf /`, `mkfs`, fork bombs, `dd if=/dev/zero`).
 - Keeping the runtime footprint EDR-compatible: pure Python stdlib, no compiled artifacts, no third-party imports.
-- Path-traversal protection for MCP tools that write to disk (`workspace`, `wiki_write`). The shared `_safe_identifier` / `_safe_child_path` helpers in `mcp/server.py` reject absolute paths, `..` segments, and non-alphanumeric run IDs. (The legacy `artifact_write` tool was removed in Phase-C C23; its traversal guards remain covered by `tests/test_security.py::TestPathTraversalHelpers`.)
-- Stdlib-only discipline enforced at CI-time by `scripts/check_stdlib_only.py`.
+- Path-traversal protection for MCP tools that write to disk (`wiki_write`). The shared `_safe_identifier` / `_safe_child_path` helpers in `mcp/server.py` reject absolute paths, `..` segments, and non-alphanumeric run IDs. (The legacy `artifact_write` and `workspace` tools were removed in Phase-C C23; their traversal guards remain covered by `tests/test_security.py::TestPathTraversalHelpers`.)
+- Stdlib-only discipline enforced at CI-time by `scripts/verify_plugin_contract.py --check-stdlib-only-imports`.
 
 ### Out of scope (explicit non-goals)
 

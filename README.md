@@ -18,7 +18,7 @@
   <img alt="Platform" src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-64748b">
   <img alt="Skills" src="https://img.shields.io/badge/skills-27-6366f1">
   <img alt="Agents" src="https://img.shields.io/badge/agents-19-8b5cf6">
-  <img alt="MCP tools" src="https://img.shields.io/badge/MCP%20tools-20-a855f7">
+  <img alt="MCP tools" src="https://img.shields.io/badge/MCP%20tools-28-a855f7">
   <a href="CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-d946ef"></a>
 </p>
 
@@ -95,7 +95,7 @@ copilot -p "team run wave-3 plan" --allow-all
 | Parallelise long builds safely | `team` orchestrator with tmux + git worktrees, back-pressured subagents, cancel-cascade |
 | Pass corporate EDR / security review | Pure Python stdlib. No binaries. No pip installs. `file mcp/server.py` → `ASCII text` |
 | Mix fast/deep/ultrabrain reasoning | Semantic [model categories](docs/MODELS.md) resolved per Copilot subscription at runtime |
-| Prove the plugin is sound in CI | 18-check [contract validator](scripts/verify_plugin_contract.py) gates every merge |
+| Prove the plugin is sound in CI | 19-check [contract validator](scripts/verify_plugin_contract.py) gates every merge |
 | Roll back cleanly | `scripts/omni_migrate_v1_to_v2.py --rollback` + idempotent forward migration |
 
 ## 📦 What's in the box
@@ -121,9 +121,9 @@ Routing cheatsheet in [AGENTS.md](AGENTS.md).
 ### 0 slash commands
 Slash commands were removed in v2.1.0. Use skills directly via Copilot CLI prompts.
 
-### 20 MCP tools
+### 28 MCP tools
 Over stdio JSON-RPC 2.0, schema-validated on every call:
-`memory` · `wiki` · `notepad` · `state` · `shared-memory` · `trace` · `session` · `policy` · `health` · `doctor` · `config` · `support-bundle`.
+`memory` · `wiki` · `notepad` · `state` · `shared-memory` · `trace` · `policy` · `health` · `doctor` · `lsp` · `ast-grep`.
 
 Storage: WAL-mode SQLite with `UNIQUE(mode, session_id)`.
 
@@ -158,7 +158,7 @@ Dive deeper: [ARCHITECTURE](docs/ARCHITECTURE.md) · [TEAM](docs/TEAM.md) · [ST
 - **MCP server** — one Python file, stdio JSON-RPC 2.0, schema-validated. `file mcp/server.py` → `ASCII text`.
 - **No binaries** — nothing to compile, nothing to sign, nothing for EDRs to flag.
 - **Audit trail** — every tool invocation + hook event appended atomically (`fcntl.flock` / `msvcrt.locking`) under `.omni/audit/`.
-- **Five kill-switches** — `OMNI_SKIP_HOOKS`, `DISABLE_OMNI`, plus per-hook `OMNI_SKIP_PRE_TOOL_USE`, `OMNI_SKIP_POST_TOOL_USE`, `OMNI_SKIP_SESSION_START`, `OMNI_SKIP_USER_PROMPT_SUBMIT`.
+- **Three kill-switches** — `OMNI_SKIP_HOOKS=1`, `DISABLE_OMNI=1`, `OMNI_SKIP_SESSION_START=1` (per-hook overrides for removed hooks are inert). See deprecated aliases in `AGENTS.md`.
 - **Policy engine** — `policies/{strict,standard,permissive}.json` permission-checked on session start.
 - **~520 tests** — unit · integration · MCP-smoke · discovery-smoke · per-module coverage gates (`mcp/` ≥ 80 %, `hooks/` ≥ 70 %, `scripts/` ≥ 60 %).
 - **Local integration test (never runs in CI)** — `./scripts/itest` installs the `copilot` CLI if missing, runs `omni doctor`, the MCP stdio roundtrip, the discovery probe, and the full `verify_plugin_contract.py --all` gate (which includes `--check-external-cli` to block reintroduction of Claude/Codex/Gemini CLI calls and `hud` statusline residue). If a `copilot` auth session exists, it adds a trial-mode plugin load and a trivial slash-command invocation. Results go to `.omni/integration-test/last-run.log`. Corporate auth flows and npm install paths vary between laptops, so this test is intentionally excluded from `ci.yml`, `full-suite.yml`, and `copilot-nightly.yml` — it runs on your machine, against the `copilot` you actually use, to catch bugs CI cannot reproduce.
@@ -241,7 +241,7 @@ Full guide: [docs/MIGRATION.md](docs/MIGRATION.md). Rollback path: [docs/MIGRATI
 
 Pull requests welcome. Before you open one:
 
-1. Run the 18-check contract validator — it is the merge gate.
+1. Run the 19-check contract validator — it is the merge gate.
    ```bash
    python3 scripts/verify_plugin_contract.py --all
    ```

@@ -18,37 +18,37 @@ Copilot Omni uses several persistent stores that have grown organically across P
 
 | Data Class | Canonical Store | Location | API Surface |
 |---|---|---|---|
-| Agent memory (long-term facts) | MCP SQLite `memory` table | `$OMNI_HOME/omni.db` | `memory_capture`, `memory_search` |
-| Run artifacts (specs, plans, reports) | Filesystem + SQLite mirror | `.omni/runs/<run_id>/` + `artifacts` table | `artifact_write` (writes both) |
-| Run metadata (status, phase) | MCP SQLite `runs` table | `$OMNI_HOME/omni.db` | `run_status`, `subtask` |
+| Agent memory (long-term facts) | MCP SQLite `memory` table | `$OMNI_HOME/omni.db` | `memory_capture`, `memory_search`, `memory_export` |
+| Run artifacts (specs, plans, reports) | Filesystem only | `.omni/runs/<run_id>/` | Direct file I/O (skills/agents) |
+| Run metadata (status, phase) | MCP SQLite `runs` table | `$OMNI_HOME/omni.db` | Internal only (no MCP tool) |
 | Skill/mode runtime state | MCP SQLite `state` table | `$OMNI_HOME/omni.db` | `state_write`, `state_read`, `state_clear` |
 | Router decision artifacts | MCP SQLite `state` table, mode=`router` | `$OMNI_HOME/omni.db` | `state_write`, `state_read` |
-| Wiki entries | MCP SQLite `wiki` table | `$OMNI_HOME/omni.db` | `wiki_write`, `wiki_read`, `wiki_query`, `wiki_list` |
-| Notepad entries | MCP SQLite `notepad` table | `$OMNI_HOME/omni.db` | `notepad_write`, `notepad_read` |
+| Wiki entries | MCP SQLite `wiki` table | `$OMNI_HOME/omni.db` | `wiki_write`, `wiki_read`, `wiki_query`, `wiki_list`, `wiki_ingest`, `wiki_graph` |
+| Notepad entries | MCP SQLite `notepad` table | `$OMNI_HOME/omni.db` | `notepad_write`, `notepad_read`, `notepad_prune` |
 | Cross-agent shared memory | MCP SQLite `shared_memory` table | `$OMNI_HOME/omni.db` | `shared_memory_write`, `shared_memory_read` |
 | Debug/hypothesis traces | MCP SQLite `trace` table | `$OMNI_HOME/omni.db` | `trace_summary`, `trace_timeline` |
-| Session metadata | MCP SQLite `sessions` table | `$OMNI_HOME/omni.db` | `session_search` |
+| Session metadata | MCP SQLite `sessions` table | `$OMNI_HOME/omni.db` | Internal only (no MCP tool) |
 | Plan artifacts | Filesystem only | `.omni/plans/` | Direct file I/O (skills/agents) |
 | Research artifacts | Filesystem only | `.omni/research/` | Direct file I/O |
 | Spec artifacts | Filesystem only | `.omni/specs/` | Direct file I/O |
-| Workspace dirs | Filesystem only | `.omni/workspaces/<name>/` | `workspace` MCP tool |
+| Workspace dirs | Filesystem only | `.omni/workspaces/<name>/` | Direct file I/O |
 | Audit logs | Filesystem only | `.omni/audit/` | Direct file I/O |
 | Deferred work | Filesystem only | `.omni/deferred/` | Direct file I/O (skills) |
 | Cache | Filesystem only | `.omni/cache/` | Direct file I/O |
-| Plugin config | Filesystem only | `.omni/config.json` | `config_resolve` (read-only) |
+| Plugin config | Filesystem only | `.omni/config.json` | Direct file I/O |
 
 ### 2. Read/Write API Surface
 
 **MCP tool API (via `mcp/server.py`):**
-- `memory_capture`, `memory_search` — sole writers/readers of `memory` table
-- `artifact_write` — writes `artifacts` table AND mirrors to `.omni/runs/<id>/`
-- `run_status`, `subtask` — read/write `runs` table
+- `memory_capture`, `memory_search`, `memory_prune`, `memory_export` — writers/readers of `memory` table
 - `state_write`, `state_read`, `state_clear` — sole writers/readers of `state` table
-- `wiki_write`, `wiki_read`, `wiki_query`, `wiki_list` — sole writers/readers of `wiki` table
-- `notepad_write`, `notepad_read` — sole writers/readers of `notepad` table
+- `wiki_write`, `wiki_read`, `wiki_query`, `wiki_list`, `wiki_ingest`, `wiki_graph` — writers/readers of `wiki` table
+- `notepad_write`, `notepad_read`, `notepad_prune` — writers/readers of `notepad` table
 - `shared_memory_write`, `shared_memory_read` — sole writers/readers of `shared_memory` table
-- `trace_summary`, `trace_timeline` — readers of `trace` table (writers: future WS)
-- `workspace` — filesystem create/remove/list under `.omni/workspaces/`
+- `trace_summary`, `trace_timeline` — readers of `trace` table
+- `lsp_hover`, `lsp_goto_definition`, `lsp_find_references` — LSP code intelligence
+- `ast_grep_search`, `ast_grep_replace` — AST-aware code search/replace
+- `policy_check`, `health`, `doctor` — policy enforcement and diagnostics
 
 **Filesystem-only stores** (no MCP tool wraps them):
 - `.omni/plans/`, `.omni/research/`, `.omni/specs/` — plan/research/spec artifacts written by skills/agents directly
@@ -84,9 +84,9 @@ The following data classes were found to have dual-write patterns or overlap tha
 
 | Data Class | Current split | Resolution |
 |---|---|---|
-| Run artifacts | Written to both `artifacts` table AND `.omni/runs/` by `artifact_write` | **Canonical = filesystem**. SQLite `artifacts` table is a derived index for search. Phase C can deprecate the mirror. |
-| Plan artifacts | Skills write directly to `.omni/plans/` AND may call `artifact_write` with kind=plan | **Canonical = filesystem**. `artifact_write` calls for plans are redundant. Phase C TODO: remove artifact_write for plan kind. |
-| Plugin config | `.omni/config.json` is read by `config_resolve` tool AND directly by skills | **Canonical = filesystem**. `config_resolve` is read-only; no split-brain. |
+| Run artifacts | Written directly to `.omni/runs/` filesystem | **Canonical = filesystem**. No MCP tool wraps run artifacts. |
+| Plan artifacts | Skills write directly to `.omni/plans/` | **Canonical = filesystem**. No MCP tool wraps plan artifacts. |
+| Plugin config | `.omni/config.json` is read directly by skills | **Canonical = filesystem**. No MCP tool wraps config. |
 
 ### 6. mode=router State Slot
 

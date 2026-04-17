@@ -60,24 +60,24 @@ That's it! Just use Claude Code normally.
 ```
 copilot-omni Setup Complete! (Upgraded from 2.x)
 
-GOOD NEWS: Your existing commands still work!
-- /ralph, /ultrawork, /omni-plan, etc. all still function
+GOOD NEWS: Your existing skills still work!
+- /copilot-omni:ralph, /copilot-omni:ultrawork, /copilot-omni:plan, etc. all still function
 
 WHAT'S NEW in 3.0:
-You no longer NEED those commands. Everything is automatic now:
-- Just say "don't stop until done" instead of /ralph
-- Just say "fast" or "parallel" instead of /ultrawork
-- Just say "plan this" instead of /omni-plan
-- Just say "stop" instead of /cancel
+You no longer NEED to type skill invocations. Everything is automatic now:
+- Just say "don't stop until done" instead of /copilot-omni:ralph
+- Just say "fast" or "parallel" instead of /copilot-omni:ultrawork
+- Just say "plan this" instead of /copilot-omni:plan
+- Just say "stop" instead of /copilot-omni:cancel
 
 MAGIC KEYWORDS (power-user shortcuts):
-| Keyword | Same as old... | Example |
-|---------|----------------|---------|
-| ralph | /ralph | "ralph: fix the bug" |
-| ralplan | /ralplan | "ralplan this feature" |
-| ulw | /ultrawork | "ulw refactor API" |
-| omni-plan | /omni-plan | "plan the endpoints" |
-| team | (new!) | "/team 3:executor fix errors" |
+| Keyword | Same as... | Example |
+|---------|------------|---------|
+| ralph | /copilot-omni:ralph | "ralph: fix the bug" |
+| ralplan | /copilot-omni:ralplan | "ralplan this feature" |
+| ulw | /copilot-omni:ultrawork | "ulw refactor API" |
+| plan | /copilot-omni:plan | "plan the endpoints" |
+| team | /copilot-omni:team | "/copilot-omni:team 3:executor fix errors" |
 
 TEAMS (NEW!):
 Spawn coordinated agents with shared task lists and real-time messaging:
