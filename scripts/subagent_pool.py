@@ -27,11 +27,22 @@ if sys.platform == "win32":
     try:
         import msvcrt as _msvcrt  # type: ignore[import]
 
+        # msvcrt.locking locks a byte range starting at the CURRENT file
+        # position. _read_state / _write_state move that position via
+        # os.lseek + os.ftruncate, so we must reset to byte 0 before every
+        # lock / unlock call. Failing to do so leaves the lock byte offset
+        # shifted and causes PermissionError on release.
         def _flock_exclusive(fd: int) -> None:
+            os.lseek(fd, 0, os.SEEK_SET)
             _msvcrt.locking(fd, _msvcrt.LK_NBLCK, 1)
 
         def _flock_unlock(fd: int) -> None:
-            _msvcrt.locking(fd, _msvcrt.LK_UNLCK, 1)
+            try:
+                os.lseek(fd, 0, os.SEEK_SET)
+                _msvcrt.locking(fd, _msvcrt.LK_UNLCK, 1)
+            except OSError:
+                # Already unlocked or never locked — defensive only.
+                pass
 
         _FLOCK_AVAILABLE = True
     except ImportError:

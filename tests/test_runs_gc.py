@@ -79,6 +79,8 @@ class TestRunsGC(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("DRY", result.stdout)
 
+    @unittest.skipIf(sys.platform == "win32",
+                     "utime(follow_symlinks=False) unavailable on Windows")
     def test_symlinks_are_skipped(self):
         mod = _load_gc()
         target = Path(self._tmp.name) / "outside"
@@ -89,7 +91,7 @@ class TestRunsGC(unittest.TestCase):
         except (OSError, NotImplementedError):
             self.skipTest("symlinks not supported on this platform")
         past = time.time() - 30 * 86400
-        os.utime(link, (past, past), follow_symlinks=False) if hasattr(os, "utime") else None
+        os.utime(link, (past, past), follow_symlinks=False)
         results = list(mod.collect_stale(self.runs, ttl_days=14))
         paths = [p for p, _ in results]
         self.assertNotIn(link, paths, "symlinks must not be GC targets")
