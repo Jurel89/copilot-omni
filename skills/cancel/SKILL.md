@@ -156,7 +156,6 @@ Legacy compatibility list (removed only under `--force`/`--all`):
 - `.omni/state/plan-consensus.json`
 - `.omni/state/ralplan-state.json`
 - `.omni/state/boulder.json`
-- `.omni/state/hud-state.json`
 - `.omni/state/subagent-tracking.json`
 - `.omni/state/subagent-tracker.lock`
 - `.omni/state/rate-limit-daemon.pid`

@@ -41,6 +41,5 @@ Use `omni list skills` to get an always-fresh view directly from the filesystem.
 - `omni-setup` — Canonical setup flow for the plugin.
 - `omni-doctor` — Diagnose plugin installation.
 - `mcp-setup` — Configure additional MCP servers.
-- `hud` — Configure HUD display options.
 - `omni-reference` — copilot-omni agent catalog reference.
 - `omni-teams` — CLI-team runtime via tmux.

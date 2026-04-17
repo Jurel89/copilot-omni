@@ -2,34 +2,13 @@
 
 **Skip condition**: If resuming and `lastCompletedStep >= 4`, skip this entire phase.
 
-## Step 2.1: Setup HUD Statusline
-
-**Note**: If resuming and `lastCompletedStep >= 3`, skip to Step 2.2.
-
-The HUD shows real-time status in Claude Code's status bar. Delegate all HUD/statusLine setup to the `hud` skill:
-
-Use the Skill tool to invoke: `hud` with args: `setup`
-
-Do not generate, normalize, or patch `statusLine` paths inline in this phase. This is especially important on Windows, where backslash path handling must stay inside the `hud` skill.
-
-This will:
-1. Install the HUD wrapper script to `~/.claude/hud/omni-hud.mjs`
-2. Configure `statusLine` in `~/.claude/settings.json`
-3. Report status and prompt to restart if needed
-
-After HUD setup completes, save progress:
-```bash
-CONFIG_TYPE=$(jq -r '.configType // "unknown"' ".omni/state/setup-state.json" 2>/dev/null || echo "unknown")
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-progress.sh" save 3 "$CONFIG_TYPE"
-```
-
-## Step 2.2: Clear Stale Plugin Cache
+## Step 2.1: Clear Stale Plugin Cache
 
 ```bash
 node -e "const p=require('path'),f=require('fs'),h=require('os').homedir(),d=process.env.CLAUDE_CONFIG_DIR||p.join(h,'.claude'),b=p.join(d,'plugins','cache','omc','copilot-omni');try{const v=f.readdirSync(b).filter(x=>/^\d/.test(x)).sort((a,c)=>a.localeCompare(c,void 0,{numeric:true}));if(v.length<=1){console.log('Cache is clean');process.exit()}v.slice(0,-1).forEach(x=>{f.rmSync(p.join(b,x),{recursive:true,force:true})});console.log('Cleared',v.length-1,'stale cache version(s)')}catch{console.log('No cache directory found (normal for new installs)')}"
 ```
 
-## Step 2.3: Check for Updates
+## Step 2.2: Check for Updates
 
 Notify user if a newer version is available:
 
@@ -68,7 +47,7 @@ elif [ -n "$LATEST_VERSION" ]; then
 fi
 ```
 
-## Step 2.4: Set Default Execution Mode
+## Step 2.3: Set Default Execution Mode
 
 Emit as plain chat and wait for the user's reply:
 
@@ -96,9 +75,9 @@ echo "Default execution mode set to: USER_CHOICE"
 
 **Note**: This preference ONLY affects generic keywords ("fast", "parallel"). Explicit keywords ("ulw") always override this preference.
 
-## Step 2.5: Install copilot-omni CLI Tool
+## Step 2.4: Install copilot-omni CLI Tool
 
-The copilot-omni CLI (`omc` command) provides standalone helper commands such as `omc hud`, `omc teleport`, and `omc team ...`.
+The copilot-omni CLI (`omc` command) provides standalone helper commands such as `omc teleport` and `omc team ...`.
 
 First, check if the CLI is already installed:
 
@@ -116,7 +95,7 @@ If `OMC_CLI_INSTALLED` is `"true"`, skip the rest of this step.
 
 If `OMC_CLI_INSTALLED` is `"false"`, emit as plain chat and wait for the user's reply:
 
-**Question:** "Would you like to install the copilot-omni CLI globally for standalone helper commands? (`omc`, `omc hud`, `omc teleport`)"
+**Question:** "Would you like to install the copilot-omni CLI globally for standalone helper commands? (`omc`, `omc teleport`, `omc team`)"
 
 **Options:**
 1. **Yes (Recommended)** - Install `oh-my-claude-sisyphus` via `npm install -g`
@@ -147,7 +126,7 @@ fi
 
 **Note**: The CLI is optional. All core functionality is also available through the plugin system.
 
-## Step 2.6: Select Task Management Tool
+## Step 2.5: Select Task Management Tool
 
 First, detect available task tools:
 

@@ -47,7 +47,6 @@ Skills are reusable workflow templates that can be invoked via `/copilot-omni:sk
 | `ask/SKILL.md` | ask | Ask Claude, Codex, or Gemini via `omc ask` and capture an artifact |
 | `note/SKILL.md` | note | Save notes for compaction resilience |
 | `cancel/SKILL.md` | cancel | Cancel any active copilot-omni mode |
-| `hud/SKILL.md` | hud | Configure HUD display |
 | `omni-doctor/SKILL.md` | omni-doctor | Diagnose installation issues |
 | `setup/SKILL.md` | setup | Unified setup entrypoint for install, diagnostics, and MCP configuration |
 | `omni-setup/SKILL.md` | omni-setup | One-time setup wizard |
@@ -169,7 +168,7 @@ None - pure markdown files.
 | Cleanup | ai-slop-cleaner | "deslop", "anti-slop", cleanup/refactor + slop smells |
 | Planning | omni-plan, ralplan, deep-interview, ralph-init | "plan this", "interview me", "ouroboros" |
 | Exploration | deepinit, external-context | "deepinit", "research" |
-| Utility | note, cancel, hud, setup, omni-doctor, omni-setup, omni-help, mcp-setup | "stop", "cancel" |
+| Utility | note, cancel, setup, omni-doctor, omni-setup, omni-help, mcp-setup | "stop", "cancel" |
 | Domain | release | release context |
 
 ## Auto-Activation

@@ -82,7 +82,7 @@ Invoke built-in workflows via `/copilot-omni:<name>`.
 - `ai-slop-cleaner` — regression-safe cleanup workflow
 
 ### Utility skills
-- `ask`, `cancel`, `note`, `omni-setup`, `mcp-setup`, `hud`, `omni-doctor`, `trace`, `release`, `skill`
+- `ask`, `cancel`, `note`, `omni-setup`, `mcp-setup`, `omni-doctor`, `trace`, `release`, `skill`
 
 ### Keyword triggers kept compact in CLAUDE.md
 - `"autopilot"→autopilot`

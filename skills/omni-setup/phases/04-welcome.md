@@ -47,11 +47,7 @@ Teams use `python3 scripts/subagent.py` for agent invocation (WS5b will add full
 MCP SERVERS:
 Run /copilot-omni:mcp-setup to add tools like web search, GitHub, etc.
 
-HUD STATUSLINE:
-The status bar now shows copilot-omni state. Restart Claude Code to see it.
-
 copilot-omni CLI HELPERS (if installed):
-- omc hud         - Render the current HUD statusline
 - omc teleport    - Create an isolated git worktree
 - omc team status - Inspect a running team job
 - Session summaries are written to `.omni/sessions/*.json`
@@ -88,11 +84,7 @@ Spawn coordinated agents with shared task lists and real-time messaging:
 - /copilot-omni:team 3:executor "fix all TypeScript errors"
 - Uses `python3 scripts/subagent.py` for agent invocation (WS5b will add full team orchestration)
 
-HUD STATUSLINE:
-The status bar now shows copilot-omni state. Restart Claude Code to see it.
-
 copilot-omni CLI HELPERS (if installed):
-- omc hud         - Render the current HUD statusline
 - omc teleport    - Create an isolated git worktree
 - omc team status - Inspect a running team job
 - Session summaries are written to `.omni/sessions/*.json`
