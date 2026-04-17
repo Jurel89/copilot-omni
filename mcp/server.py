@@ -2,9 +2,8 @@
 """
 Copilot Omni MCP server — pure stdlib, stdio JSON-RPC 2.0, MCP 2024-11-05.
 
-Exposes tools across memory, artifacts, runs, policy, wiki, notepad,
-state, shared_memory, trace, session_search, support, health, doctor,
-config, subtask, and workspace families.
+Exposes tools across memory, state, wiki, notepad,
+shared_memory, trace, policy, health, doctor, LSP, and ast-grep families.
 
 Runtime contract:
 - Python >= 3.9

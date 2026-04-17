@@ -1,7 +1,7 @@
 <!-- omni:managed:start -->
 ## Copilot Omni Integration
 
-This repository is augmented by the [copilot-omni](https://github.com/Jurel89/copilot-omni) plugin. It provides 37 skills, 19 agents, 8 slash commands, and 30 MCP tools to structure Copilot CLI sessions.
+This repository is augmented by the [copilot-omni](https://github.com/Jurel89/copilot-omni) plugin. It provides 27 skills, 19 agents, and 28 MCP tools to structure Copilot CLI sessions.
 
 ### Workflow
 1. **Discuss / Spec** — use the `plan` or `deep-interview` skill to crystallize requirements.
