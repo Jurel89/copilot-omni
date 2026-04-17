@@ -11,7 +11,6 @@
 
 <p align="center">
   <a href="https://github.com/Jurel89/copilot-omni/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Jurel89/copilot-omni/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/Jurel89/copilot-omni/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Jurel89/copilot-omni?include_prereleases&color=8b5cf6&label=release"></a>
   <a href="https://www.python.org/downloads/"><img alt="Python" src="https://img.shields.io/badge/python-%E2%89%A53.9-3776AB?logo=python&logoColor=white"></a>
   <a href="https://github.com/github/gh-copilot"><img alt="Copilot CLI" src="https://img.shields.io/badge/GitHub-Copilot%20CLI-0d1117?logo=github&logoColor=white"></a>
   <a href="https://modelcontextprotocol.io/"><img alt="MCP" src="https://img.shields.io/badge/MCP-JSON--RPC%202.0-10b981"></a>
@@ -20,7 +19,6 @@
   <img alt="Skills" src="https://img.shields.io/badge/skills-30-6366f1">
   <img alt="Agents" src="https://img.shields.io/badge/agents-19-8b5cf6">
   <img alt="MCP tools" src="https://img.shields.io/badge/MCP%20tools-20-a855f7">
-  <a href="https://github.com/Jurel89/copilot-omni/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/Jurel89/copilot-omni?style=flat&color=fbbf24"></a>
   <a href="CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-d946ef"></a>
 </p>
 
