@@ -215,16 +215,19 @@ class TestFixPythonRewrite(unittest.TestCase):
         self.assertEqual(self._hooks.read_text(), hooks_before)
 
     def test_expands_plugin_root_token(self) -> None:
-        # fix-python must expand ${OMNI_PLUGIN_ROOT} (and the legacy
-        # ${CLAUDE_PLUGIN_ROOT}) to the absolute plugin-root path so the
-        # spawned child doesn't receive a literal shell-variable token when
-        # Copilot CLI has not set the variable in the environment.
+        # fix-python must expand every supported plugin-root token —
+        # ${COPILOT_PLUGIN_ROOT} (Copilot-native), ${CLAUDE_PLUGIN_ROOT}
+        # (alias Copilot CLI also auto-exports), ${PLUGIN_ROOT} (alias), and
+        # ${OMNI_PLUGIN_ROOT} (legacy) — to the absolute plugin-root path so
+        # the spawned child doesn't receive a literal shell-variable token
+        # when the env var isn't set (e.g. corporate shell profiles that
+        # strip plugin-host variables).
         self._mcp.write_text(json.dumps({
             "mcpServers": {
                 "copilot-omni": {
                     "type": "stdio",
                     "command": sys.executable,  # absolute, real interpreter
-                    "args": ["${OMNI_PLUGIN_ROOT}/mcp/server.py"],
+                    "args": ["${COPILOT_PLUGIN_ROOT}/mcp/server.py"],
                 }
             }
         }, indent=2) + "\n", encoding="utf-8")
@@ -234,6 +237,14 @@ class TestFixPythonRewrite(unittest.TestCase):
                 "sessionStart": [{
                     "type": "command",
                     "command": f'"{sys.executable}" "${{CLAUDE_PLUGIN_ROOT}}/hooks/session_start.py"',
+                }],
+                "preToolUse": [{
+                    "type": "command",
+                    "command": f'"{sys.executable}" "${{PLUGIN_ROOT}}/hooks/pre_tool_use.py"',
+                }],
+                "sessionEnd": [{
+                    "type": "command",
+                    "command": f'"{sys.executable}" "${{OMNI_PLUGIN_ROOT}}/hooks/legacy.py"',
                 }],
             }
         }, indent=2) + "\n", encoding="utf-8")

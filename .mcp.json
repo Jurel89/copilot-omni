@@ -3,7 +3,7 @@
     "copilot-omni": {
       "type": "stdio",
       "command": "python",
-      "args": ["${OMNI_PLUGIN_ROOT}/mcp/server.py"]
+      "args": ["${COPILOT_PLUGIN_ROOT}/mcp/server.py"]
     }
   }
 }

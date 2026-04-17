@@ -118,7 +118,12 @@ def _load_policy() -> Dict[str, Any]:
     profile = os.environ.get("OMNI_POLICY_PROFILE", "standard")
     cwd = Path(os.getcwd())
     candidates.append(cwd / ".omni" / f"policy-{profile}.json")
-    plugin_root = os.environ.get("OMNI_PLUGIN_ROOT")
+    plugin_root = (
+        os.environ.get("COPILOT_PLUGIN_ROOT")
+        or os.environ.get("CLAUDE_PLUGIN_ROOT")
+        or os.environ.get("PLUGIN_ROOT")
+        or os.environ.get("OMNI_PLUGIN_ROOT")
+    )
     if plugin_root:
         candidates.append(Path(plugin_root) / "policies" / f"{profile}.json")
     for p in candidates:
