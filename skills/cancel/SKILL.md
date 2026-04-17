@@ -39,7 +39,7 @@ Or say: "cancelomc", "stopomc"
 ## Critical: Deferred Tool Handling
 
 The state management tools (`state_clear`, `state_read`, `state_write`) may be registered as **deferred tools** by Claude Code. Before calling
-any state tool, you MUST first load all of them via `ToolSearch`:
+any state tool, you MUST first load all of them:
 
 ```bash
 # Load state MCP tools before calling any state_* function
@@ -126,7 +126,7 @@ Use `--force` or `--all` when you need to erase every session plus legacy artifa
 ```
 
 Steps under the hood:
-1. `state_list` enumerates `.omni/state/sessions/{sessionId}/…` to find every known session.
+1. `state_read` enumerates `.omni/state/sessions/{sessionId}/…` to find every known session.
 2. `state_clear` runs once per session to drop that session’s files.
 3. A global `state_clear` without `session_id` removes legacy files under `.omni/state/*.json`, `.omni/state/swarm*.db`, and compatibility artifacts (see list).
 4. Team artifacts (`~/.claude/teams/*/`, `~/.claude/tasks/*/`, `.omni/state/team-state.json`) are best-effort cleared as part of the legacy fallback.
@@ -176,7 +176,7 @@ fi
 ### 2. Detect Active Modes
 
 The skill now relies on the session-aware state contract rather than hard-coded file paths:
-1. Call `state_list` to enumerate `.omni/state/sessions/{sessionId}/…` and discover every active session.
+1. Call `state_read` to enumerate `.omni/state/sessions/{sessionId}/…` and discover every active session.
 2. For each session id, call `state_read` to learn which mode is running (`autopilot`, `ralph`, `ultrawork`, etc.) and whether dependent modes exist.
 3. If a `session_id` was supplied to `/copilot-omni:cancel`, skip legacy fallback entirely and operate solely within that session path; otherwise, consult legacy files in `.omni/state/*.json` only if the state tools report no active session. Swarm remains a shared SQLite/marker mode outside session scoping.
 4. Any cancellation logic in this doc mirrors the dependency order discovered via state tools (autopilot → ralph → …).

@@ -58,9 +58,8 @@ Prefix: `copilot-omni:`. See `agents/*.md` for full prompts.
 - CLI: `omni memory search "query"`, `omni memory list`, `omni memory capture "text"`, `omni memory prune`, `omni memory export`
 
 ### Code intelligence
-- LSP: `lsp_hover`, `lsp_goto_definition`, `lsp_find_references`, `lsp_diagnostics`, and related helpers
+- LSP: `lsp_hover`, `lsp_goto_definition`, `lsp_find_references`
 - AST: `ast_grep_search`, `ast_grep_replace`
-- Utility: `python_repl`
 
 ## Skills Registry
 

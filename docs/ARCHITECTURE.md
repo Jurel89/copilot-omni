@@ -46,7 +46,7 @@ The hook accepts its event payload on stdin and returns JSON on stdout. Budget: 
 
 ### `scripts/omni.py`
 
-User-facing CLI. Subcommands: `version`, `doctor`, `init`, `status`, `plugin-install`, `mcp`, `list`. Pure stdlib, no subprocess outside of optionally invoking `copilot` itself for `plugin-install` and `mcp`.
+User-facing CLI. Subcommands: `version`, `doctor`, `init`, `status`, `plugin-install`, `mcp`, `list`, `memory`, `execute`, `verify`. Pure stdlib, no subprocess outside of optionally invoking `copilot` itself for `plugin-install` and `mcp`. The `memory` subcommand provides `search`, `list`, `capture`, `prune`, and `export` operations against the SQLite memory store.
 
 ### `scripts/subagent.py`
 
@@ -69,9 +69,7 @@ before any skill fires. Bypass explicitly with `--skip-interview`.
 
 ### `scripts/category_resolver.py`
 
-Resolves semantic model categories (`quick`, `deep`, `ultrabrain`) to the best concrete model in the
-current Copilot subscription (ADR-0003). Agent frontmatter uses the category; `.omni/config.json`
-overrides allow per-project pinning.
+Passthrough script — model selection is owned by the Copilot CLI host via `/model`. Agent frontmatter has no `category`, `level`, or `disallowedTools` fields.
 
 ## Data model (SQLite)
 
