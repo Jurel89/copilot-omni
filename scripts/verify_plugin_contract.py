@@ -1950,6 +1950,130 @@ def check_skill_catalog_consistency(root: Path = ROOT) -> CheckResult:
     return ok, messages
 
 
+# ---------------------------------------------------------------------------
+# ADR-0000 Decision 1 & 7 gate: no external-CLI residue
+# ---------------------------------------------------------------------------
+
+# Forbidden token patterns enforcing ADR-0000 decisions 1 (Copilot-CLI host
+# only) and 7 (no external CLIs invoked).
+_EXTERNAL_CLI_PATTERNS: tuple[str, ...] = (
+    r":hud",                                          # Claude Code statusline marker
+    r"statusLine",                                    # Claude Code config key (case-sensitive)
+    r"omni-hud",                                      # deleted HUD wrapper
+    r"/copilot-omni:hud",                             # deleted slash command
+    r"/copilot-omni:ask",                             # deleted slash command
+    r"/copilot-omni:omni-teams",                      # deleted slash command
+    r"\bccg\b",                                       # deleted CCG orchestration skill
+    r"@openai/codex",                                 # npm package for external Codex CLI
+    r"@google/gemini-cli",                            # npm package for external Gemini CLI
+    r"claude\s+--",                                   # invoking claude binary with flag
+    r"codex\s+--",                                    # invoking codex binary with flag
+    r"gemini\s+--",                                   # invoking gemini binary with flag
+    r"\bomc ask\s+(claude|codex|gemini)\b",           # old wrapper pattern
+    r"omni-teams",                                    # deleted skill name (hyphen form only)
+    r"parallel\s+\(?(claude|codex|gemini)",           # router scoring pattern
+)
+
+# Paths excluded from the external-CLI check (false-positive zone).
+_EXTERNAL_CLI_EXCLUDED: tuple[str, ...] = (
+    "CHANGELOG.md",
+    "docs/ADR/",
+    "MIGRATION.md",
+    "tests/",
+    ".omc/",
+    ".omni/",
+    ".planning/",
+    ".planning-archive/",
+    "scripts/verify_plugin_contract.py",
+    "scripts/omni_team.py",
+)
+
+# Surface to scan for the external-CLI check.
+_EXTERNAL_CLI_SCAN_DIRS: tuple[str, ...] = (
+    "skills/",
+    "commands/",
+    "agents/",
+    "scripts/",
+    "hooks/",
+    "mcp/",
+)
+_EXTERNAL_CLI_SCAN_FILES: tuple[str, ...] = (
+    "AGENTS.md",
+    "README.md",
+    "docs/SKILLS.md",
+)
+
+_EXTERNAL_CLI_SCAN_EXTS: frozenset[str] = frozenset({
+    ".md", ".py", ".json", ".yaml", ".yml", ".toml", ".txt",
+    ".sh", ".bash", ".zsh", ".ps1", ".cmd", ".bat", ".js", ".ts",
+})
+
+
+def _is_external_cli_excluded(rel: str) -> bool:
+    """Return True if rel is in the excluded zone for the external-cli check."""
+    for prefix in _EXTERNAL_CLI_EXCLUDED:
+        if rel == prefix or rel.startswith(prefix):
+            return True
+    return False
+
+
+def check_external_cli(root: Path = ROOT) -> CheckResult:
+    """Enforce ADR-0000 decisions 1 and 7: no external-CLI residue.
+
+    Decision 1: host = GitHub Copilot CLI only (no Claude Code primitives
+                like statusLine-based HUD).
+    Decision 7: no external CLIs invoked (no codex/gemini/claude binaries,
+                no ccg orchestration).
+
+    Scans the shipped plugin surface for forbidden tokens. Fails (non-zero
+    exit + clear message) if any are found outside the excluded paths.
+    """
+    compiled = [re.compile(p) for p in _EXTERNAL_CLI_PATTERNS]
+    violations: list[str] = []
+
+    # Collect candidate files: specific top-level files + scanned directories.
+    candidate_paths: list[Path] = []
+    for rel_file in _EXTERNAL_CLI_SCAN_FILES:
+        p = root / rel_file
+        if p.is_file():
+            candidate_paths.append(p)
+    for rel_dir in _EXTERNAL_CLI_SCAN_DIRS:
+        d = root / rel_dir
+        if d.is_dir():
+            for p in sorted(d.rglob("*")):
+                if p.is_file() and p.suffix in _EXTERNAL_CLI_SCAN_EXTS:
+                    candidate_paths.append(p)
+
+    for path in candidate_paths:
+        rel = str(path.relative_to(root)).replace("\\", "/")
+        if _is_external_cli_excluded(rel):
+            continue
+
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+
+        lines = raw.splitlines()
+        for line_idx, line in enumerate(lines):
+            for pattern in compiled:
+                if pattern.search(line):
+                    violations.append(
+                        f"  FAIL: {pattern.pattern!r} found in {rel}:{line_idx + 1}: "
+                        f"{line.strip()[:120]}"
+                    )
+                    break
+
+    messages: list[str] = []
+    if violations:
+        messages.append(f"external-cli check: {len(violations)} violation(s):")
+        messages.extend(violations)
+        return False, messages
+
+    messages.append("external-cli check passed: no forbidden tokens found")
+    return True, messages
+
+
 CHECKS: dict = {
     "rename": check_rename,
     "rename-stub": check_rename_stub,
@@ -1969,6 +2093,7 @@ CHECKS: dict = {
     "team-modes-declared": check_team_modes_declared,
     "worktree-hygiene": check_worktree_hygiene,
     "skill-catalog-consistency": check_skill_catalog_consistency,
+    "external-cli": check_external_cli,
 }
 
 
