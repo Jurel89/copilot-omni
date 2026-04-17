@@ -452,7 +452,7 @@ Deep-dive's output (`.omni/specs/deep-dive-{slug}.md`) feeds into the standard o
   → Trace (3 parallel lanes) + Interview (Socratic Q&A)
   → Spec: .omni/specs/deep-dive-{slug}.md
 
-  → /omni-plan --consensus --direct (spec as input)
+  → /copilot-omni:plan --consensus --direct (spec as input)
     → Planner/Architect/Critic consensus
     → Plan: .omni/plans/ralplan-*.md
 

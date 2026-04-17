@@ -585,7 +585,7 @@ The recommended execution path chains three quality gates:
   → Socratic Q&A until ambiguity ≤ 20%
   → Spec written to .omni/specs/deep-interview-{slug}.md
   → User selects "Ralplan → Autopilot"
-  → /omni-plan --consensus --direct (spec as input, skip interview)
+  → /copilot-omni:plan --consensus --direct (spec as input, skip interview)
     → Planner creates implementation plan from spec
     → Architect reviews for architectural soundness
     → Critic validates quality and testability
