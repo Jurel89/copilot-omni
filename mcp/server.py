@@ -809,7 +809,9 @@ def _tool_wiki_ingest(args: Dict[str, Any]) -> Dict[str, Any]:
     })
 
 
-_WIKI_LINK_RE = re.compile(r"\[\[\s*([^\]|]+?)\s*(?:\|[^\]]*)?\]\]")
+# [[slug]] or [[Title|slug]] — when a pipe is present we capture the slug
+# (the segment AFTER the pipe), not the display title. Codex P2 fix.
+_WIKI_LINK_RE = re.compile(r"\[\[\s*(?:[^\]|]*\|)?\s*([^\]|]+?)\s*\]\]")
 _MD_LINK_RE = re.compile(r"\[[^\]]*?\]\(\s*([^)\s]+?)\s*\)")
 
 

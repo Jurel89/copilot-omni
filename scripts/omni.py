@@ -597,6 +597,18 @@ def _walk_gates(sm, run_dir: Path, target: str, note: str) -> None:
     order = list(sm.GATES)
     state = sm.read_state(run_dir)
     current = state.get("gate", "discuss")
+    # Codex P2: corrupt or manually-edited state.json can carry an unknown
+    # gate value. Raise a controlled StateMachineError instead of the bare
+    # ValueError that order.index would throw.
+    if current not in order:
+        raise sm.StateMachineError(
+            f"unknown gate {current!r} in {run_dir / 'state.json'}; "
+            f"valid: {', '.join(order)}"
+        )
+    if target not in order:
+        raise sm.StateMachineError(
+            f"unknown target gate {target!r}; valid: {', '.join(order)}"
+        )
     target_idx = order.index(target)
     current_idx = order.index(current)
     if current_idx >= target_idx:

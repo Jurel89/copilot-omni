@@ -79,6 +79,23 @@ class TestNoSkipThroughGates(unittest.TestCase):
                             f"bypass NOT rejected; stdout={result.stdout!r}")
         self.assertIn("spec.json", result.stderr + result.stdout)
 
+    def test_corrupt_gate_value_raises_controlled_error(self):
+        """Codex P2: state.json with an unknown gate value must surface a
+        StateMachineError, not a ValueError traceback from order.index."""
+        (self.run_dir / "spec.json").write_text("{}")
+        (self.run_dir / "plan.md").write_text("# Plan")
+        (self.run_dir / "state.json").write_text(json.dumps({
+            "gate": "totally-invalid-gate",
+            "history": [],
+        }))
+        result = _run(["verify", self.run_id], self.root)
+        self.assertNotEqual(result.returncode, 0)
+        # The error must cite 'unknown gate', not bubble up a bare ValueError.
+        combined = result.stderr + result.stdout
+        self.assertIn("unknown gate", combined.lower(),
+                      f"expected controlled error; got {combined!r}")
+        self.assertNotIn("Traceback", combined)
+
 
 class TestVerifyGate(unittest.TestCase):
 

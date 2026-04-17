@@ -182,6 +182,56 @@ class TestRouterEnforcementGate(unittest.TestCase):
         body = json.loads(result.stdout)
         self.assertEqual(body["permissionDecision"], "allow")
 
+    def test_per_session_scope_mismatch_does_not_block(self):
+        """Codex P1: a sentinel tagged with session A must NOT block a
+        pre_tool_use call carrying session B."""
+        self.sentinel.write_text(json.dumps({
+            "decision": "redirect",
+            "redirect_to": "deep-interview",
+            "score": 0.1,
+            "ts": "2026-04-17T00:00:00Z",
+            "prompt_excerpt": "build me something",
+            "session_id": "session-alpha",
+        }))
+        env = self._env(OMNI_ROUTER_ENFORCE="1")
+        result = subprocess.run(
+            [sys.executable, str(HOOKS / "pre_tool_use.py")],
+            input=json.dumps({
+                "tool_name": "write",
+                "tool_args": {"file_path": "README.md"},
+                "session_id": "session-beta",
+            }),
+            capture_output=True, text=True, timeout=10,
+            env=env, cwd=str(self.cwd),
+        )
+        body = json.loads(result.stdout)
+        self.assertEqual(body["permissionDecision"], "allow",
+                         "cross-session sentinel must not deny")
+
+    def test_per_session_scope_match_still_blocks(self):
+        """Session A sentinel + session A caller still denies."""
+        self.sentinel.write_text(json.dumps({
+            "decision": "redirect",
+            "redirect_to": "deep-interview",
+            "score": 0.1,
+            "ts": "2026-04-17T00:00:00Z",
+            "prompt_excerpt": "build me something",
+            "session_id": "session-alpha",
+        }))
+        env = self._env(OMNI_ROUTER_ENFORCE="1")
+        result = subprocess.run(
+            [sys.executable, str(HOOKS / "pre_tool_use.py")],
+            input=json.dumps({
+                "tool_name": "write",
+                "tool_args": {"file_path": "README.md"},
+                "session_id": "session-alpha",
+            }),
+            capture_output=True, text=True, timeout=10,
+            env=env, cwd=str(self.cwd),
+        )
+        body = json.loads(result.stdout)
+        self.assertEqual(body["permissionDecision"], "deny")
+
 
 class TestUserPromptSubmitWritesSentinel(unittest.TestCase):
 

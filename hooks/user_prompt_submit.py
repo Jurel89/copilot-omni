@@ -276,8 +276,10 @@ def main() -> int:
     except Exception as exc:
         print(f"[user_prompt_submit] warn: emit_router_state failed: {exc}", file=sys.stderr)
 
-    # Phase-C C25: persist last decision to a sentinel file so
+    # Phase-C C25 + C34: persist last decision to a sentinel file so
     # hooks/pre_tool_use.py can enforce it when OMNI_ROUTER_ENFORCE=1.
+    # The session_id is embedded in the payload (Codex P1 finding) so
+    # concurrent sessions in the same cwd cannot block each other.
     try:
         sentinel_dir = Path(os.getcwd()) / ".omni" / "cache"
         sentinel_dir.mkdir(parents=True, exist_ok=True)
@@ -288,6 +290,7 @@ def main() -> int:
             "score": decision.get("score", 0.0),
             "ts": decision.get("ts", ""),
             "prompt_excerpt": decision.get("prompt_excerpt", ""),
+            "session_id": session_id or "",
         }, indent=2), encoding="utf-8")
     except Exception as exc:
         print(f"[user_prompt_submit] warn: could not persist router sentinel: {exc}",

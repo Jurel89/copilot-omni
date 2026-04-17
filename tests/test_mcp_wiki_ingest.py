@@ -126,6 +126,22 @@ class TestWikiGraph(unittest.TestCase):
         self.assertEqual(body["edges"], [])
         self.assertEqual(body["dangling"], [])
 
+    def test_piped_wiki_link_uses_slug_not_title(self):
+        """Codex P2: [[Title|slug]] must resolve to 'slug', not 'title'."""
+        _call("wiki_ingest", {"slug": "home",
+                              "body": "go [[Home Page|about]]"}, self.env)
+        _call("wiki_ingest", {"slug": "about", "body": "about"}, self.env)
+        body = _call("wiki_graph", {}, self.env)
+        edges = [(e["source"], e["target"]) for e in body["edges"]]
+        dangling = [(e["source"], e["target"]) for e in body["dangling"]]
+        self.assertIn(("home", "about"), edges,
+                      f"piped wiki-link should resolve to 'about'; "
+                      f"edges={edges}, dangling={dangling}")
+        # 'home-page' or 'home page' must NOT appear anywhere (that would
+        # mean we captured the display title instead of the slug).
+        for _, target in edges + dangling:
+            self.assertNotIn("home-page", target)
+
 
 if __name__ == "__main__":
     unittest.main()

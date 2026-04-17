@@ -165,7 +165,7 @@ _ROUTER_ENFORCE_MAX_BYTES = 8192
 _ROUTER_ENFORCE_DEFAULT_TTL_S = 300.0  # 5 min — override with OMNI_ROUTER_TTL_S
 
 
-def _router_enforce_deny() -> Dict[str, Any] | None:
+def _router_enforce_deny(event: Dict[str, Any]) -> Dict[str, Any] | None:
     """Return a deny-decision if the last router verdict was 'redirect'
     and OMNI_ROUTER_ENFORCE=1 and the current tool isn't exempt.
 
@@ -175,8 +175,9 @@ def _router_enforce_deny() -> Dict[str, Any] | None:
     - Decision must be a string matching the expected enum.
     - Sentinel carries a TTL (OMNI_ROUTER_TTL_S, default 300s) so stale
       redirects from an earlier session can't brick unrelated work.
-    - Sentinel scope is per-session: when the event payload carries a
-      session_id, only a sentinel tagged with the same session counts.
+    - Sentinel is scoped to a session (Codex P1 finding): when BOTH the
+      caller and the sentinel carry a session_id, the two must match.
+      Absent ids fall back to the legacy behaviour (whole-cwd scope).
 
     Returns None when enforcement does not apply.
     """
@@ -196,6 +197,16 @@ def _router_enforce_deny() -> Dict[str, Any] | None:
         return None
     decision = data.get("decision")
     if not isinstance(decision, str) or decision != "redirect":
+        return None
+
+    # Per-session scope check: if we know both caller + sentinel ids and
+    # they disagree, refuse to bleed enforcement into another session.
+    caller_sid = (
+        event.get("session_id") or event.get("sessionId")
+        or os.environ.get("OMNI_SESSION_ID") or ""
+    )
+    sentinel_sid = data.get("session_id") or ""
+    if caller_sid and sentinel_sid and caller_sid != sentinel_sid:
         return None
 
     # TTL guard — avoid stale sentinels bricking unrelated future work.
@@ -240,7 +251,7 @@ def main() -> int:
     # Phase-C C25: router enforcement gate. Runs before policy checks so the
     # operator gets one unambiguous reason back (router, not policy).
     if tool_name not in _ROUTER_EXEMPT_TOOLS:
-        router_block = _router_enforce_deny()
+        router_block = _router_enforce_deny(event)
         if router_block is not None:
             result = _decision("deny", router_block["reason"])
             sys.stdout.write(json.dumps(result))
