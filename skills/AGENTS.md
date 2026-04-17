@@ -28,7 +28,7 @@ Skills are reusable workflow templates that can be invoked via `/copilot-omni:sk
 
 | File | Skill | Purpose |
 |-----------|-------|---------|
-| `plan/SKILL.md` | omni-plan | Strategic planning with interview workflow |
+| `plan/SKILL.md` | plan | Strategic planning with interview workflow |
 | `ralplan/SKILL.md` | ralplan | Iterative planning (Planner+Architect+Critic) with RALPLAN-DR structured deliberation (`--deliberate` for high-risk) |
 | `deep-interview/SKILL.md` | deep-interview | Socratic deep interview with mathematical ambiguity gating (Ouroboros-inspired) |
 
@@ -165,7 +165,7 @@ None - pure markdown files.
 |----------|--------|------------------|
 | Execution | autopilot, ultrawork, ralph, team, ultraqa | "autopilot", "ulw", "ralph", "team" |
 | Cleanup | ai-slop-cleaner | "deslop", "anti-slop", cleanup/refactor + slop smells |
-| Planning | omni-plan, ralplan, deep-interview | "plan this", "interview me", "ouroboros" |
+| Planning | plan, ralplan, deep-interview | "plan this", "interview me", "ouroboros" |
 | Exploration | deepinit, external-context, deep-dive | "deepinit", "research", "deep dive" |
 | Utility | remember, cancel, setup, omni-doctor, omni-setup, omni-reference, mcp-setup, skill, skillify, trace, wiki | "stop", "cancel", "remember", "wiki" |
 | Domain | release | release context |

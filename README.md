@@ -95,7 +95,7 @@ copilot -p "team run wave-3 plan" --allow-all
 | Parallelise long builds safely | `team` orchestrator with tmux + git worktrees, back-pressured subagents, cancel-cascade |
 | Pass corporate EDR / security review | Pure Python stdlib. No binaries. No pip installs. `file mcp/server.py` → `ASCII text` |
 | Mix fast/deep/ultrabrain reasoning | Semantic [model categories](docs/MODELS.md) resolved per Copilot subscription at runtime |
-| Prove the plugin is sound in CI | 18-check [contract validator](scripts/verify_plugin_contract.py) gates every merge |
+| Prove the plugin is sound in CI | 19-check [contract validator](scripts/verify_plugin_contract.py) gates every merge |
 | Roll back cleanly | `scripts/omni_migrate_v1_to_v2.py --rollback` + idempotent forward migration |
 
 ## 📦 What's in the box
@@ -241,7 +241,7 @@ Full guide: [docs/MIGRATION.md](docs/MIGRATION.md). Rollback path: [docs/MIGRATI
 
 Pull requests welcome. Before you open one:
 
-1. Run the 18-check contract validator — it is the merge gate.
+1. Run the 19-check contract validator — it is the merge gate.
    ```bash
    python3 scripts/verify_plugin_contract.py --all
    ```
