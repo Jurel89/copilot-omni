@@ -571,13 +571,28 @@ def _enforce_artifacts(run_dir: Path, gate: str) -> list[str]:
             if not (run_dir / name).exists()]
 
 
+_GATE_ARTIFACT_REQUIRED: dict[str, tuple[str, ...]] = {
+    # Each intermediate gate requires the same artifacts as the target gate
+    # that was requested from CLI — e.g. `omni execute` enforces spec.json,
+    # but `omni verify` should still require spec.json at the implicit
+    # execute step so we never silently jump through a gate without its
+    # artifact being present.
+    "plan":    ("spec.json",),   # plan lands once a spec exists
+    "execute": ("spec.json",),
+    "verify":  ("plan.md",),
+    "done":    ("plan.md",),
+}
+
+
 def _walk_gates(sm, run_dir: Path, target: str, note: str) -> None:
     """Step-advance through every gate between current and *target*.
 
-    Artifact enforcement has already happened; this helper exists because
-    the state machine only allows single-step forward moves. The artifact
-    check subsumes the intermediate gates (spec.json ⇒ discuss is done;
-    plan.md ⇒ plan is done).
+    The state machine enforces single-step forward moves; this helper walks
+    those steps one-by-one AND re-checks the per-gate artifact requirement
+    for each intermediate gate. Earlier versions of this helper delegated
+    enforcement to the caller's single up-front artifact check — the
+    adversarial architect review (Phase-C C34) flagged that as a silent
+    bypass. Every intermediate gate now re-enforces its own contract.
     """
     order = list(sm.GATES)
     state = sm.read_state(run_dir)
@@ -585,10 +600,16 @@ def _walk_gates(sm, run_dir: Path, target: str, note: str) -> None:
     target_idx = order.index(target)
     current_idx = order.index(current)
     if current_idx >= target_idx:
-        # Already at-or-past target; advance() is idempotent for same-gate.
         sm.advance(run_dir, target, note=note)
         return
     for intermediate in order[current_idx + 1:target_idx + 1]:
+        required = _GATE_ARTIFACT_REQUIRED.get(intermediate, ())
+        missing = [name for name in required if not (run_dir / name).exists()]
+        if missing:
+            raise sm.StateMachineError(
+                f"gate {intermediate!r} requires missing artifact(s): "
+                + ", ".join(missing)
+            )
         sm.advance(run_dir, intermediate, note=note)
 
 

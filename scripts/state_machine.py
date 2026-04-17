@@ -39,13 +39,24 @@ def _state_path(run_dir: Path) -> Path:
 
 
 def read_state(run_dir: Path) -> dict:
-    """Return the state dict for *run_dir*, or an initial dict when absent."""
+    """Return the state dict for *run_dir*, or an initial dict when absent.
+
+    Phase-C C34 code-reviewer finding: on JSON parse failure we emit a warning
+    to stderr instead of silently resetting the workflow. The caller still
+    gets a fresh {gate: discuss} so the CLI doesn't crash, but the operator
+    is informed their state.json was corrupt.
+    """
     sp = _state_path(run_dir)
     if not sp.exists():
         return {"gate": "discuss", "history": []}
     try:
         return json.loads(sp.read_text(encoding="utf-8"))
-    except Exception:
+    except (json.JSONDecodeError, OSError) as exc:
+        print(
+            f"state_machine: WARNING — could not parse {sp}: {exc}; "
+            "resetting workflow to gate=discuss",
+            file=sys.stderr,
+        )
         return {"gate": "discuss", "history": []}
 
 

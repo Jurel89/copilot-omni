@@ -168,14 +168,25 @@ PYEOF
 
 ```bash
 _ralplan_check_cancel() {
-  # B5 cancel cascade: honor both own cancel.signal and outer (parent) cancel.signal
+  # B5 cancel cascade: honor both own cancel.signal and outer (parent) cancel.signal.
+  # Phase-C C33/C34: prefer the structured should-cancel helper so a
+  # branch-scoped cancel from a team runner does NOT stop ralplan; only
+  # full-run or ralplan-scoped cancels apply. Legacy cancel.signal files
+  # (empty / plain text) are still honoured because should-cancel maps
+  # them to a full-run verdict.
   local _cancel_detected=0
-  if [ -f "${RUN_DIR}/cancel.signal" ]; then
+  local _cancel_source=""
+  if python3 scripts/cancel_signal.py should-cancel "${RUN_DIR}" \
+        --scope "ralplan:${RALPLAN_RUN_ID:-unknown}" >/dev/null 2>&1; then
     _cancel_detected=1
+    _cancel_source="own cancel.signal"
   fi
-  # If running as inner skill under an autopilot/outer run, check parent cancel.signal
-  if [ -n "${PARENT_RUN_DIR:-}" ] && [ -f "${PARENT_RUN_DIR}/cancel.signal" ]; then
-    _cancel_detected=1
+  if [ "${_cancel_detected}" = "0" ] && [ -n "${PARENT_RUN_DIR:-}" ]; then
+    if python3 scripts/cancel_signal.py should-cancel "${PARENT_RUN_DIR}" \
+          --scope "ralplan:${RALPLAN_RUN_ID:-unknown}" >/dev/null 2>&1; then
+      _cancel_detected=1
+      _cancel_source="outer cancel.signal"
+    fi
   fi
   if [ "${_cancel_detected}" = "1" ]; then
     python3 - <<'PYEOF'
@@ -193,7 +204,7 @@ tmp = status_path.with_suffix(".tmp")
 tmp.write_text(json.dumps(status, indent=2))
 import os as _os
 _os.replace(str(tmp), str(status_path))
-src = os.environ.get("PARENT_RUN_DIR", "") and "outer cancel.signal" or "own cancel.signal"
+src = os.environ.get("_CANCEL_SRC", "cancel.signal")
 print(f"ralplan: cancel detected ({src}) — state=cancelled")
 PYEOF
     exit 1

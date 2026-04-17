@@ -54,6 +54,32 @@ class TestExecuteGate(unittest.TestCase):
         self.assertIn("run-dir not found", result.stderr)
 
 
+class TestNoSkipThroughGates(unittest.TestCase):
+    """Phase-C C34 Codex finding: `omni verify` with only plan.md present
+    used to walk through plan → execute → verify silently, which was a
+    bypass of the four-gate contract. Now each intermediate gate
+    re-checks its artifact requirement."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.run_id = "bypass-run"
+        self.run_dir = self.root / ".omni" / "runs" / self.run_id
+        self.run_dir.mkdir(parents=True)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_verify_without_spec_json_is_rejected(self):
+        """Only plan.md present — the intermediate 'plan' gate requires
+        spec.json. Walker must refuse to advance."""
+        (self.run_dir / "plan.md").write_text("# Plan")
+        result = _run(["verify", self.run_id], self.root)
+        self.assertNotEqual(result.returncode, 0,
+                            f"bypass NOT rejected; stdout={result.stdout!r}")
+        self.assertIn("spec.json", result.stderr + result.stdout)
+
+
 class TestVerifyGate(unittest.TestCase):
 
     def setUp(self):

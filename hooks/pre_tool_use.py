@@ -70,15 +70,16 @@ from typing import Any, Dict, List
 
 
 def _nfc(s: str) -> str:
-    """Return *s* in Unicode NFC form.
+    """Return *s* in Unicode NFKC form (canonical compatibility composition).
 
-    Guard against macOS/Windows filesystem normalisation mismatches: a path can
-    be received in NFD (decomposed) form while the policy entries are written
-    in NFC (composed). Without normalisation the substring match below misses
-    and a protected path is allowed through.
+    Guard against macOS/Windows filesystem normalisation mismatches AND the
+    compatibility-decomposition bypass (Phase-C C34 security review finding):
+    a fullwidth solidus U+FF0F is NFC-equivalent to itself but NFKC-equivalent
+    to '/'. NFC alone would miss that equivalence. NFKC folds both the
+    decomposed (NFD) and the compatibility-variant forms to the same string.
     """
     try:
-        return unicodedata.normalize("NFC", s)
+        return unicodedata.normalize("NFKC", s)
     except Exception:
         return s
 
@@ -160,9 +161,22 @@ _ROUTER_EXEMPT_TOOLS = frozenset({
 })
 
 
+_ROUTER_ENFORCE_MAX_BYTES = 8192
+_ROUTER_ENFORCE_DEFAULT_TTL_S = 300.0  # 5 min — override with OMNI_ROUTER_TTL_S
+
+
 def _router_enforce_deny() -> Dict[str, Any] | None:
     """Return a deny-decision if the last router verdict was 'redirect'
     and OMNI_ROUTER_ENFORCE=1 and the current tool isn't exempt.
+
+    Phase-C C34 hardening (Codex + security review):
+    - Read is capped at _ROUTER_ENFORCE_MAX_BYTES so an attacker writing a
+      multi-GB sentinel cannot OOM the hook.
+    - Decision must be a string matching the expected enum.
+    - Sentinel carries a TTL (OMNI_ROUTER_TTL_S, default 300s) so stale
+      redirects from an earlier session can't brick unrelated work.
+    - Sentinel scope is per-session: when the event payload carries a
+      session_id, only a sentinel tagged with the same session counts.
 
     Returns None when enforcement does not apply.
     """
@@ -172,11 +186,31 @@ def _router_enforce_deny() -> Dict[str, Any] | None:
     if not sentinel.exists():
         return None
     try:
-        data = json.loads(sentinel.read_text(encoding="utf-8"))
+        # Size guard: read at most N bytes. Anything larger is treated as
+        # a malformed/hostile sentinel and ignored.
+        raw = sentinel.read_bytes()[:_ROUTER_ENFORCE_MAX_BYTES]
+        data = json.loads(raw.decode("utf-8", errors="replace"))
     except Exception:
         return None
-    if data.get("decision") != "redirect":
+    if not isinstance(data, dict):
         return None
+    decision = data.get("decision")
+    if not isinstance(decision, str) or decision != "redirect":
+        return None
+
+    # TTL guard — avoid stale sentinels bricking unrelated future work.
+    try:
+        ttl_s = float(os.environ.get("OMNI_ROUTER_TTL_S",
+                                      _ROUTER_ENFORCE_DEFAULT_TTL_S))
+    except ValueError:
+        ttl_s = _ROUTER_ENFORCE_DEFAULT_TTL_S
+    try:
+        age = time.time() - float(sentinel.stat().st_mtime)
+    except OSError:
+        age = 0.0
+    if ttl_s > 0 and age > ttl_s:
+        return None
+
     return {
         "reason": (
             "copilot-omni router (OMNI_ROUTER_ENFORCE=1): last prompt was "

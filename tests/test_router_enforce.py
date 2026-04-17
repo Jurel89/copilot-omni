@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -123,6 +124,53 @@ class TestRouterEnforcementGate(unittest.TestCase):
 
     def test_missing_sentinel_allows(self):
         # No sentinel file at all — enforcement must not block.
+        env = self._env(OMNI_ROUTER_ENFORCE="1")
+        result = subprocess.run(
+            [sys.executable, str(HOOKS / "pre_tool_use.py")],
+            input=json.dumps({"tool_name": "write",
+                              "tool_args": {"file_path": "README.md"}}),
+            capture_output=True, text=True, timeout=10,
+            env=env, cwd=str(self.cwd),
+        )
+        body = json.loads(result.stdout)
+        self.assertEqual(body["permissionDecision"], "allow")
+
+    def test_stale_sentinel_past_ttl_allows(self):
+        """Phase-C C34 Codex: stale sentinels must not brick unrelated work."""
+        self._write_sentinel("redirect")
+        # Backdate mtime to 2 hours ago; TTL defaults to 300s.
+        past = time.time() - 2 * 3600
+        os.utime(self.sentinel, (past, past))
+        env = self._env(OMNI_ROUTER_ENFORCE="1")
+        result = subprocess.run(
+            [sys.executable, str(HOOKS / "pre_tool_use.py")],
+            input=json.dumps({"tool_name": "write",
+                              "tool_args": {"file_path": "README.md"}}),
+            capture_output=True, text=True, timeout=10,
+            env=env, cwd=str(self.cwd),
+        )
+        body = json.loads(result.stdout)
+        self.assertEqual(body["permissionDecision"], "allow",
+                         "stale sentinel (past TTL) must not deny")
+
+    def test_oversized_sentinel_is_ignored(self):
+        """A multi-MB crafted sentinel must not OOM the hook nor enforce."""
+        self.sentinel.write_bytes(b'{"decision":"redirect",' + b' ' * 20000 + b'}')
+        env = self._env(OMNI_ROUTER_ENFORCE="1")
+        result = subprocess.run(
+            [sys.executable, str(HOOKS / "pre_tool_use.py")],
+            input=json.dumps({"tool_name": "write",
+                              "tool_args": {"file_path": "README.md"}}),
+            capture_output=True, text=True, timeout=10,
+            env=env, cwd=str(self.cwd),
+        )
+        # Oversized payload is truncated → JSON parse fails → sentinel ignored.
+        body = json.loads(result.stdout)
+        self.assertEqual(body["permissionDecision"], "allow")
+
+    def test_non_dict_sentinel_is_ignored(self):
+        """A JSON array (not an object) must not enforce."""
+        self.sentinel.write_text('["not", "an", "object"]')
         env = self._env(OMNI_ROUTER_ENFORCE="1")
         result = subprocess.run(
             [sys.executable, str(HOOKS / "pre_tool_use.py")],

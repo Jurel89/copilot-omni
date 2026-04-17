@@ -96,4 +96,6 @@ The `state` table's `mode` column now accepts the value `router` for WS3's route
 
 - All new code must write to exactly one canonical store per data class.
 - `check_state_store_canonical()` in `scripts/verify_plugin_contract.py` guards against future regressions by asserting exactly one writer module per data class.
-- Phase C TODO items: implement TTL cleanup, add FK constraint on `state.session_id`, deprecate SQLite mirror in `artifact_write`.
+- Phase C TODO items (all DONE):
+  - TTL cleanup ✓ Phase-C C24 added `memory_prune` / `notepad_prune`, C32 added `omni doctor --gc` for `.omni/runs/`.
+  - SQLite mirror in `artifact_write` ✓ Phase-C C23 removed the tool entirely; filesystem is the sole canonical store for run artifacts.

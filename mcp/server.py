@@ -541,21 +541,41 @@ def _tool_lsp_find_references(args: Dict[str, Any]) -> Dict[str, Any]:
     })
 
 
+def _assert_no_flag_injection(*values: str) -> None:
+    """Guard against flag-injection into subprocess argv.
+
+    Even with shell=False, a user-controlled positional argument that starts
+    with '-' is interpreted as a flag by the target tool. ast-grep's config
+    loader can execute remote rule files, so a value like '--config=/tmp/evil.yml'
+    is a realistic exploit.
+    Raises ValueError when any value starts with '-'.
+    """
+    for v in values:
+        if isinstance(v, str) and v.startswith("-"):
+            raise ValueError(
+                f"refusing ast-grep arg that begins with '-': {v[:40]!r}"
+            )
+
+
 def _tool_ast_grep_search(args: Dict[str, Any]) -> Dict[str, Any]:
     pattern = args.get("pattern", "")
     target = args.get("path", ".")
     lang = args.get("lang")
     if not pattern:
         raise ValueError("pattern required")
+    _assert_no_flag_injection(pattern, target, lang or "")
     if not _which("ast-grep") and not _which("sg"):
         return _json_result({
             "status": "skipped",
             "reason": "ast-grep (or 'sg') not found on PATH",
         })
     binary = _which("ast-grep") or _which("sg")
-    cmd = [binary, "run", "--pattern", pattern, target]
+    # `--` separates flags from positional arguments so ast-grep cannot
+    # reinterpret `target` as another flag.
+    cmd = [binary, "run", "--pattern", pattern]
     if lang:
         cmd.extend(["--lang", lang])
+    cmd.extend(["--", target])
     result = _run_subprocess(cmd, timeout=30.0)
     return _json_result(result)
 
@@ -567,6 +587,7 @@ def _tool_ast_grep_replace(args: Dict[str, Any]) -> Dict[str, Any]:
     lang = args.get("lang")
     if not pattern or not replacement:
         raise ValueError("pattern and replacement required")
+    _assert_no_flag_injection(pattern, replacement, target, lang or "")
     if not _which("ast-grep") and not _which("sg"):
         return _json_result({
             "status": "skipped",
@@ -574,10 +595,11 @@ def _tool_ast_grep_replace(args: Dict[str, Any]) -> Dict[str, Any]:
         })
     binary = _which("ast-grep") or _which("sg")
     cmd = [binary, "run", "--pattern", pattern,
-           "--rewrite", replacement,
-           "--update-all", target]
+           "--rewrite", replacement, "--update-all"]
     if lang:
         cmd.extend(["--lang", lang])
+    # `--` barrier so *target* (user-supplied) can never be re-parsed as a flag
+    cmd.extend(["--", target])
     result = _run_subprocess(cmd, timeout=60.0)
     return _json_result(result)
 
@@ -752,17 +774,23 @@ def _tool_wiki_ingest(args: Dict[str, Any]) -> Dict[str, Any]:
     sha = _hashlib.sha256(body.encode("utf-8")).hexdigest()
     now = _now()
     # The wiki table doesn't have a sha column; we encode the hash into the
-    # tags column as a sentinel token "sha256=<hex>" so de-dupe works without
-    # a schema migration. Stored tags are a comma-joined string already.
-    sentinel = f"sha256={sha}"
+    # tags column as a sentinel token using a namespaced prefix that cannot
+    # collide with user-supplied tags. Matching is done on comma-split
+    # tokens so a benign tag of the form "sha256=…" (not our sentinel
+    # prefix) never triggers a false dedupe.
+    sentinel = f"__omni_sha256__={sha}"
     with _Conn() as conn:
         existing = conn.execute(
             "SELECT slug, tags FROM wiki WHERE slug=?", (slug,)
         ).fetchone()
-        if existing and existing["tags"] and sentinel in existing["tags"]:
-            return _json_result({
-                "slug": slug, "ok": True, "deduped": True, "sha256": sha,
-            })
+        if existing and existing["tags"]:
+            existing_tokens = {
+                t.strip() for t in (existing["tags"] or "").split(",") if t.strip()
+            }
+            if sentinel in existing_tokens:
+                return _json_result({
+                    "slug": slug, "ok": True, "deduped": True, "sha256": sha,
+                })
         merged_tags_parts: List[str] = []
         if tags:
             merged_tags_parts.append(tags)

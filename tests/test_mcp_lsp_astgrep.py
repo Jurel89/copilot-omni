@@ -122,5 +122,37 @@ class TestRegistryPresent(unittest.TestCase):
                           f"{name} must be registered in TOOLS")
 
 
+class TestFlagInjectionGuard(unittest.TestCase):
+    """Phase-C C34 Codex + security review finding: user-supplied positional
+    args that start with '-' are interpreted as flags by ast-grep. Guard
+    with both a value check and a '--' separator in the argv."""
+
+    def test_guard_rejects_leading_dash_value(self):
+        mod = _load()
+        with self.assertRaises(ValueError) as ctx:
+            mod._assert_no_flag_injection("--config=/tmp/evil")
+        self.assertIn("-", str(ctx.exception))
+
+    def test_guard_accepts_regular_values(self):
+        mod = _load()
+        # Should not raise.
+        mod._assert_no_flag_injection("foo()", "src/", "python")
+
+    def test_ast_grep_search_rejects_flag_path(self):
+        mod = _load()
+        with self.assertRaises(ValueError):
+            mod._tool_ast_grep_search({
+                "pattern": "print($X)", "path": "--config=/tmp/evil.yml",
+            })
+
+    def test_ast_grep_replace_rejects_flag_replacement(self):
+        mod = _load()
+        with self.assertRaises(ValueError):
+            mod._tool_ast_grep_replace({
+                "pattern": "print($X)", "replacement": "--update-all",
+                "path": "src/",
+            })
+
+
 if __name__ == "__main__":
     unittest.main()

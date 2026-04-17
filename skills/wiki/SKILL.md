@@ -11,11 +11,15 @@ Persistent, self-maintained markdown knowledge base for project and session know
 ## Operations
 
 ### Ingest
-Process knowledge into wiki pages. A single ingest can touch multiple pages.
+Process knowledge into wiki pages with SHA-256-based content de-duplication.
+Re-ingesting an identical body is a no-op (returns `deduped: true`).
 
 ```
-wiki_ingest({ title: "Auth Architecture", content: "...", tags: ["auth", "architecture"], category: "architecture" })
+wiki_ingest({ title: "Auth Architecture", body: "...", tags: ["auth", "architecture"] })
 ```
+
+The slug is auto-derived from `title` when omitted. The tool accepts
+`body` (not `content`); pass the markdown source as `body`.
 
 ### Query
 Search across all wiki pages by keywords and tags. Returns matching pages with snippets — YOU (the LLM) synthesize answers with citations from the results.
