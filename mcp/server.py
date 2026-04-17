@@ -2,7 +2,7 @@
 """
 Copilot Omni MCP server — pure stdlib, stdio JSON-RPC 2.0, MCP 2024-11-05.
 
-Exposes tools across memory, state, wiki, notepad,
+Exposes 28 tools across memory, state, wiki, notepad,
 shared_memory, trace, policy, health, doctor, LSP, and ast-grep families.
 
 Runtime contract:
