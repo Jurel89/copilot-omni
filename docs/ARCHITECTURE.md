@@ -14,9 +14,9 @@ Copilot Omni is a **Copilot CLI plugin** — a directory with a manifest. Copilo
 ┌─────────────────────────────────────────────────────────┐
 │ copilot-omni plugin                                      │
 │                                                          │
-│  skills/       37 SKILL.md files (LLM instructions)      │
+│  skills/       30 SKILL.md files (LLM instructions)      │
 │  agents/       19 agent prompts                          │
-│  commands/     8 slash commands                          │
+│  commands/    10 slash commands                          │
 │                                                          │
 │  hooks.json ──▶ hooks/*.py (sessionStart, preToolUse …)  │
 │  .mcp.json  ──▶ python3 mcp/server.py (stdio JSON-RPC)   │
@@ -33,7 +33,7 @@ Copilot Omni is a **Copilot CLI plugin** — a directory with a manifest. Copilo
 
 ### `mcp/server.py`
 
-Single-file stdio MCP 2024-11-05 server. Registers 30 tools across 9 families. Persists to a SQLite database opened in WAL mode. No imports outside the Python standard library.
+Single-file stdio MCP 2024-11-05 server. Registers 20 tools across 9 families. Persists to a SQLite database opened in WAL mode with `UNIQUE(mode, session_id)` constraint on the state table. Every `tools/call` is schema-validated. No imports outside the Python standard library.
 
 Protocol transport is newline-delimited JSON (one JSON-RPC message per line on stdin → one response per line on stdout). That's what Copilot CLI sends by default.
 
@@ -52,13 +52,28 @@ User-facing CLI. Subcommands: `version`, `doctor`, `init`, `status`, `plugin-ins
 
 ### `scripts/subagent.py`
 
-Translates Claude-Code's `Task(subagent_type=…)` pattern into a Copilot-CLI subprocess call:
+Dispatches specialist work to sub-invocations of Copilot CLI. Known skills are routed via the
+`/copilot-omni:<name>` slash-command namespace; named agents via `--agent <name>`. A file-lock
+semaphore caps the number of concurrent children at `min(8, cpu_count())` by default, configurable
+in `.omni/config.json` (ADR-0010). The wrapper blocks rather than fails when the cap is hit.
 
 ```python
 run_agent("executor", "implement plan in .omni/plans/run-001.md", allow_all=True)
 ```
 
 runs `copilot -p "…" --agent executor --allow-all`.
+
+### `scripts/router.py`
+
+Front-door intent router (ADR-0005). Scores prompt concreteness on a rubric of anchors, verbs, and
+constraints; prompts scoring below the threshold (default 0.4) are redirected to `deep-interview`
+before any skill fires. Bypass explicitly with `--skip-interview`.
+
+### `scripts/category_resolver.py`
+
+Resolves semantic model categories (`quick`, `deep`, `ultrabrain`) to the best concrete model in the
+current Copilot subscription (ADR-0003). Agent frontmatter uses the category; `.omni/config.json`
+overrides allow per-project pinning.
 
 ## Data model (SQLite)
 

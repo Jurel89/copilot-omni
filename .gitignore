@@ -3,11 +3,13 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Runtime state (NOT tracked) — .omni/plans, .omni/research, .omni/specs ARE tracked
+# Runtime state (NOT tracked) — only .omni/config.json and .omni/specs are tracked
 .omni/audit/
 .omni/autopilot/
 .omni/cache/
 .omni/deferred/
+.omni/plans/
+.omni/research/
 .omni/runs/
 .omni/sessions/
 .omni/state/

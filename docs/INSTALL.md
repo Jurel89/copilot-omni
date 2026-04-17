@@ -52,7 +52,7 @@ No external downloads happen during install — the MCP server and all skills ar
 python3 scripts/omni.py doctor
 ```
 
-Expected output: `OK` on every line, plus skills count ≥ 25 and agents count ≥ 15.
+Expected output: `OK` on every line, plus `skills: 30`, `agents: 19`, `commands: 10`, `mcp tools: 20`.
 
 ```bash
 copilot -p "list available skills" --allow-all
