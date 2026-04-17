@@ -292,6 +292,7 @@ def probe_auth() -> bool:
 
 
 def run_plugin_load(repo_root: Path, workdir: Path) -> bool:
+    global _quota_exhausted
     _log("Tier 2 / Step 10: trial-mode plugin load")
     # Use --plugin-dir rather than marketplace install because the branch is
     # not necessarily pushed to GitHub at the time the harness is run locally.
@@ -308,6 +309,15 @@ def run_plugin_load(repo_root: Path, workdir: Path) -> bool:
     )
     combined = out + err
     _log(f"  exit={rc}  tail: {_tail(combined)}")
+    combined_lower = combined.lower()
+    if any(kw in combined_lower for kw in QUOTA_EXHAUSTED_KEYWORDS):
+        _quota_exhausted = True
+        _record(
+            "plugin load (trial-mode)",
+            SKIP,
+            f"Copilot subscription quota exhausted — tail: {_tail(combined, 160)}",
+        )
+        return True
     if rc != 0:
         _record("plugin load (trial-mode)", FAIL, f"exit {rc}  tail: {_tail(combined, 200)}")
         return False
@@ -323,7 +333,15 @@ def run_plugin_load(repo_root: Path, workdir: Path) -> bool:
 
 def run_skill_probe(repo_root: Path, workdir: Path) -> bool:
     """Invoke /copilot-omni:omni-status (lightest command in commands/)."""
+    global _quota_exhausted
     _log("Tier 2 / Step 11: trivial skill probe (/copilot-omni:omni-status)")
+    if _quota_exhausted:
+        _record(
+            "skill probe /copilot-omni:omni-status",
+            SKIP,
+            "skipped — upstream step already detected Copilot quota exhaustion",
+        )
+        return True
     rc, out, err = _run(
         [
             "copilot",
@@ -339,7 +357,6 @@ def run_skill_probe(repo_root: Path, workdir: Path) -> bool:
     _log(f"  exit={rc}  tail: {_tail(combined)}")
     combined_lower = combined.lower()
     if any(kw in combined_lower for kw in QUOTA_EXHAUSTED_KEYWORDS):
-        global _quota_exhausted
         _quota_exhausted = True
         _record(
             "skill probe /copilot-omni:omni-status",

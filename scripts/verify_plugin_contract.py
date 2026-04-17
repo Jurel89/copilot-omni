@@ -1985,7 +1985,6 @@ _EXTERNAL_CLI_EXCLUDED: tuple[str, ...] = (
     ".planning/",
     ".planning-archive/",
     "scripts/verify_plugin_contract.py",
-    "scripts/omni_team.py",
 )
 
 # Surface to scan for the external-CLI check.

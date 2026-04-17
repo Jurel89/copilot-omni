@@ -5,8 +5,10 @@ Manages the full lifecycle of a native Copilot team:
   create → plan → dispatch → execute → verify → collect → cleanup
 
 NOTE: This script supports only the native `team` skill (skills/team/SKILL.md).
-The external-CLI `omni-teams` skill (tmux workers for claude/codex/gemini) has
-been removed. Do not add external-CLI worker support here.
+A prior tmux-worker skill that invoked external AI binaries was removed in
+v2.1 — see docs/MIGRATION.md section 4b. Do not reintroduce external-binary
+worker invocations here; the `verify_plugin_contract.py --check-external-cli`
+gate now scans this file as part of the shipped plugin surface.
 
 Run-directory layout:
   .omni/runs/team-<id>/
