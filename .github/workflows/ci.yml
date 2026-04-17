@@ -42,6 +42,7 @@ jobs:
       - name: Validate JSON manifests
         run: |
           python -c "import json; json.load(open('plugin.json'))"
+          python -c "import json; json.load(open('marketplace.json'))"
           python -c "import json; json.load(open('.mcp.json'))"
           python -c "import json; json.load(open('hooks/hooks.json'))"
           python -c "import json; json.load(open('policies/standard.json'))"

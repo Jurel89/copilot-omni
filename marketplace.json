@@ -1,0 +1,50 @@
+{
+  "name": "copilot-omni",
+  "owner": {
+    "name": "Copilot Omni Team"
+  },
+  "metadata": {
+    "description": "Enterprise-safe multi-agent orchestration marketplace for GitHub Copilot CLI.",
+    "version": "2.1.0"
+  },
+  "plugins": [
+    {
+      "name": "copilot-omni",
+      "description": "Pure Python stdlib + Markdown Copilot CLI plugin. No compiled binaries, no pip dependencies, no external AI subscriptions. 27 skills, 19 agents, 20 MCP tools, artifact-driven workflow.",
+      "version": "2.1.0",
+      "source": "./",
+      "author": {
+        "name": "Copilot Omni Team",
+        "url": "https://github.com/Jurel89/copilot-omni"
+      },
+      "homepage": "https://github.com/Jurel89/copilot-omni",
+      "repository": "https://github.com/Jurel89/copilot-omni",
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": [
+        "copilot",
+        "copilot-cli",
+        "multi-agent",
+        "orchestration",
+        "enterprise",
+        "corporate-safe",
+        "artifact-driven",
+        "python-stdlib",
+        "mcp"
+      ],
+      "tags": [
+        "multi-agent",
+        "orchestration",
+        "corporate-safe",
+        "artifact-driven",
+        "copilot-cli",
+        "python-stdlib",
+        "mcp"
+      ],
+      "agents": "agents/",
+      "skills": "skills/",
+      "hooks": "hooks/hooks.json",
+      "mcpServers": ".mcp.json"
+    }
+  ]
+}
