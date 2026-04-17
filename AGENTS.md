@@ -79,6 +79,7 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 | `cancel` | Cancel a running mode / pipeline with cascade |
 | `deepinit` | Deep project initialisation with full scan |
 | `hud` | Display current mode / state HUD |
+| `configure-notifications` | Wire Telegram / Slack / Discord webhooks for run events |
 
 ## MCP tools (20 tools, schema-validated)
 
@@ -86,8 +87,7 @@ All tools are served by `mcp/server.py` (stdio JSON-RPC 2.0, stdlib only).
 Every `tools/call` is schema-validated; invalid payloads return a structured error.
 
 **Memory:** `memory_capture`, `memory_search`, `memory_export`.
-**Artifacts:** `artifact_write`, `artifact_read`.
-**Runs:** `run_status`, `resume_context`.
+**Artifacts:** write to `.omni/runs/<run-id>/` directly; the canonical store is the filesystem. (The SQLite mirror `artifact_write` / `run_status` was removed in Phase-C C23 — see docs/ADR/ADR-0007-state-store-ownership.md.)
 **State:** `state_write`, `state_read`, `state_clear`, `state_get_status`, `state_list_active`.
 **Wiki:** `wiki_write`, `wiki_read`, `wiki_query`, `wiki_list`.
 **Notepad:** `notepad_write`, `notepad_read`, `notepad_prune`.

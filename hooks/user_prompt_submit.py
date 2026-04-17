@@ -104,13 +104,19 @@ def _parse_trigger_list(raw: str) -> list[str]:
     return [t.strip() for t in raw.split(",") if t.strip()]
 
 
-def _build_trigger_map(skills_dir: Path) -> dict[str, list[str]]:
-    """Walk skills/ and build {skill_name: [trigger, ...]} from frontmatter.
+_DEFAULT_TRIGGER_PRIORITY = 100  # lower wins
+
+
+def _build_trigger_map(skills_dir: Path) -> dict[str, dict]:
+    """Walk skills/ and build {skill_name: {triggers, priority}} from frontmatter.
 
     Only parses SKILL.md files.  Runs once at hook startup.
     Expected overhead: < 20ms for a 30-skill tree.
+
+    Phase-C C27: a ``priority:`` integer field is honoured in frontmatter.
+    Lower values win on multi-match; the default is 100.
     """
-    trigger_map: dict[str, list[str]] = {}
+    trigger_map: dict[str, dict] = {}
     if not skills_dir.is_dir():
         return trigger_map
     for skill_md in skills_dir.rglob("SKILL.md"):
@@ -125,39 +131,62 @@ def _build_trigger_map(skills_dir: Path) -> dict[str, list[str]]:
         if end < 0:
             continue
         block = text[3:end]
+        triggers: list[str] = []
+        priority = _DEFAULT_TRIGGER_PRIORITY
         for line in block.splitlines():
-            if line.strip().startswith("triggers:"):
-                _, _, value = line.partition(":")
+            stripped = line.strip()
+            if stripped.startswith("triggers:"):
+                _, _, value = stripped.partition(":")
                 triggers = _parse_trigger_list(value)
-                if triggers:
-                    skill_name = skill_md.parent.name
-                    trigger_map[skill_name] = triggers
-                break
+            elif stripped.startswith("priority:"):
+                _, _, value = stripped.partition(":")
+                try:
+                    priority = int(value.strip())
+                except ValueError:
+                    priority = _DEFAULT_TRIGGER_PRIORITY
+        if triggers:
+            skill_name = skill_md.parent.name
+            trigger_map[skill_name] = {
+                "triggers": triggers,
+                "priority": priority,
+            }
     return trigger_map
 
 
 # Build trigger map once (at import)
-_TRIGGER_MAP: dict[str, list[str]] = _build_trigger_map(_PLUGIN_ROOT / "skills")
+_TRIGGER_MAP: dict[str, dict] = _build_trigger_map(_PLUGIN_ROOT / "skills")
 
 
-def _match_skill_triggers(prompt: str) -> list[tuple[str, list[str]]]:
-    """Return list of (skill_name, matched_triggers) for skills whose triggers match prompt."""
-    matches = []
+def _match_skill_triggers(prompt: str) -> list[tuple[str, list[str], int]]:
+    """Return (skill_name, matched_triggers, priority) for every match,
+    sorted ascending by priority (lower wins), with skill_name as the
+    deterministic final tie-break.
+    """
+    matches: list[tuple[str, list[str], int]] = []
     lower_prompt = prompt.lower()
-    for skill_name, triggers in _TRIGGER_MAP.items():
+    for skill_name, entry in _TRIGGER_MAP.items():
+        triggers = entry["triggers"]
+        priority = entry["priority"]
         matched = [t for t in triggers if t.lower() in lower_prompt]
         if matched:
-            matches.append((skill_name, matched))
+            matches.append((skill_name, matched, priority))
+    matches.sort(key=lambda t: (t[2], t[0]))
     return matches
 
 
-def _build_skill_trigger_hint(matches: list[tuple[str, list[str]]]) -> str:
-    """Render <skill-trigger-hint> blocks for each matched skill."""
+def _build_skill_trigger_hint(matches: list[tuple[str, list[str], int]]) -> str:
+    """Render <skill-trigger-hint> blocks for each matched skill.
+
+    The first entry (lowest priority) is additionally marked with
+    ``primary="true"`` — Phase-C C27 disambiguation.
+    """
     parts = []
-    for skill_name, matched in matches:
+    for idx, (skill_name, matched, priority) in enumerate(matches):
         triggers_str = ", ".join(matched)
+        primary_attr = ' primary="true"' if idx == 0 and len(matches) > 1 else ''
         parts.append(
-            f'<skill-trigger-hint skill="{skill_name}" triggers="{triggers_str}">'
+            f'<skill-trigger-hint skill="{skill_name}" triggers="{triggers_str}"'
+            f' priority="{priority}"{primary_attr}>'
             f'Skill /{skill_name} matched trigger(s): {triggers_str}'
             f'</skill-trigger-hint>'
         )
@@ -246,6 +275,26 @@ def main() -> int:
         router.emit_router_state(decision, session_id=session_id)
     except Exception as exc:
         print(f"[user_prompt_submit] warn: emit_router_state failed: {exc}", file=sys.stderr)
+
+    # Phase-C C25 + C34: persist last decision to a sentinel file so
+    # hooks/pre_tool_use.py can enforce it when OMNI_ROUTER_ENFORCE=1.
+    # The session_id is embedded in the payload (Codex P1 finding) so
+    # concurrent sessions in the same cwd cannot block each other.
+    try:
+        sentinel_dir = Path(os.getcwd()) / ".omni" / "cache"
+        sentinel_dir.mkdir(parents=True, exist_ok=True)
+        sentinel = sentinel_dir / "router-last.json"
+        sentinel.write_text(json.dumps({
+            "decision": decision.get("decision", "proceed"),
+            "redirect_to": decision.get("redirect_to"),
+            "score": decision.get("score", 0.0),
+            "ts": decision.get("ts", ""),
+            "prompt_excerpt": decision.get("prompt_excerpt", ""),
+            "session_id": session_id or "",
+        }, indent=2), encoding="utf-8")
+    except Exception as exc:
+        print(f"[user_prompt_submit] warn: could not persist router sentinel: {exc}",
+              file=sys.stderr)
 
     # Build output context
     tag = _build_router_decision_tag(decision)

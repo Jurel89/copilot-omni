@@ -633,7 +633,33 @@ Brownfield adds Context Clarity because modifying existing code safely requires 
 | Simplifier | Round 6+ | Remove complexity | "What's the simplest version?" |
 | Ontologist | Round 8+ (if ambiguity > 0.3) | Find essence | "What IS this, really?" |
 
-Each mode is used exactly once, then normal Socratic questioning resumes. Modes are tracked in state to prevent repetition.
+Each mode is used exactly once per session unless pruning (below) removes it
+from consideration. Modes are tracked in state to prevent repetition.
+
+### Phase-C C16 — Challenge-Agent Pruning
+
+Modes are evaluated by their marginal contribution to clarity. The state
+block carries a `mode_effectiveness` map:
+
+```jsonc
+{
+  "mode_effectiveness": {
+    "contrarian":   { "invocations": 1, "delta_ambiguity": -0.18, "active": true },
+    "simplifier":   { "invocations": 1, "delta_ambiguity": -0.02, "active": false },
+    "ontologist":   { "invocations": 0, "delta_ambiguity": null,  "active": true }
+  }
+}
+```
+
+Pruning rule. After a mode fires, compute `delta_ambiguity` = ambiguity
+AFTER − BEFORE. When `|delta| < 0.05` on two consecutive sessions, set
+`active: false`. A pruned mode is skipped on future rounds; its slot is
+filled by the next un-pruned mode. This keeps the interview short for
+well-scoped domains where, for example, the Simplifier never adds signal.
+
+Reviving a pruned mode. A user turn containing the marker `--revive <mode>`
+re-activates the mode and resets its effectiveness counters. No automatic
+revival — pruning is sticky across sessions to avoid oscillation.
 
 ## Ambiguity Score Interpretation
 
@@ -645,6 +671,37 @@ Each mode is used exactly once, then normal Socratic questioning resumes. Modes 
 | 0.4 - 0.6 | Significant gaps | Focus on weakest dimensions |
 | 0.6 - 0.8 | Very unclear | May need reframing (Ontologist) |
 | 0.8 - 1.0 | Almost nothing known | Early stages, keep going |
+
+### Phase-C C16 — Per-Axis Ambiguity Rubric (0–100 with evidence)
+
+The headline score is computed from a weighted per-axis rubric. Each axis
+carries a 0–100 value AND a one-line evidence string sourced from the
+conversation so the score is auditable and not a black-box number.
+
+```jsonc
+{
+  "ambiguity_axes": {
+    "goal_clarity":        { "score": 78, "evidence": "User named feature + business outcome" },
+    "constraint_clarity":  { "score": 45, "evidence": "Data retention policy still open" },
+    "success_criteria":    { "score": 20, "evidence": "No acceptance criteria given" },
+    "context_clarity":     { "score": 60, "evidence": "Mentioned 'current microservice mesh'" }
+  },
+  "ambiguity_score_pct": 49,
+  "ambiguity_score_normalised": 0.51
+}
+```
+
+- `score` is a 0–100 integer (higher = clearer on that axis).
+- `ambiguity_score_pct` = 100 − weighted average of axis scores; it rounds
+  to the nearest integer so humans can speak about "we're at 35% ambiguity".
+- `ambiguity_score_normalised` is the 0–1 form retained for compatibility
+  with the legacy threshold (default: 0.2 → proceed).
+- `evidence` must be non-empty. When an axis has no supporting turn the
+  skill emits it as `"(no evidence yet — ask about …)"` to force the
+  next question toward that gap.
+
+Weights follow the brownfield/greenfield table above; ambiguity pipelines
+that add new axes declare their weight contribution in the same block.
 </Advanced>
 
 Task: {{ARGUMENTS}}

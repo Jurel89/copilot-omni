@@ -104,7 +104,42 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     if strict and not team_ok:
         ok = False
 
+    # Phase-C C32: optional garbage-collection pass on .omni/runs/
+    if getattr(args, "gc", False):
+        _doctor_run_gc(root, apply_=getattr(args, "gc_apply", False))
+
     return 0 if ok else 1
+
+
+def _doctor_run_gc(root: Path, *, apply_: bool) -> None:
+    """Run the runs-GC from inside `omni doctor`.
+
+    The delegation avoids duplicating the policy — runs_gc.py owns the TTL
+    resolution and deletion logic.
+    """
+    gc_path = root / "scripts" / "runs_gc.py"
+    if not gc_path.exists():
+        print("gc:           runs_gc.py not found — skipping")
+        return
+    try:
+        import importlib.util as _ilu
+        spec = _ilu.spec_from_file_location("runs_gc", gc_path)
+        if spec is None or spec.loader is None:
+            print("gc:           could not load runs_gc — skipping")
+            return
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    except Exception as exc:
+        print(f"gc:           WARN: could not import runs_gc: {exc}")
+        return
+
+    ttl_env = os.environ.get("OMNI_RUNS_TTL_DAYS")
+    try:
+        ttl_days = float(ttl_env) if ttl_env else mod.DEFAULT_TTL_DAYS
+    except ValueError:
+        ttl_days = mod.DEFAULT_TTL_DAYS
+    print(f"gc:           {'APPLY' if apply_ else 'DRY-RUN'} ttl={ttl_days:.1f}d")
+    mod.run_gc(root, ttl_days=ttl_days, apply_=apply_)
 
 
 def _doctor_categories(root: Path, *, strict: bool = False) -> bool:
@@ -498,6 +533,150 @@ def _cmd_mcp(_args: argparse.Namespace) -> int:
     return subprocess.call([sys.executable, str(server)])
 
 
+# ---------------------------------------------------------------------------
+# Phase-C C20: artifact-first lifecycle enforcement
+# ---------------------------------------------------------------------------
+
+_ARTIFACT_REQUIRED: dict[str, tuple[str, ...]] = {
+    "execute": ("spec.json",),
+    "verify":  ("plan.md",),
+}
+
+
+def _load_state_machine():
+    path = _plugin_root() / "scripts" / "state_machine.py"
+    if not path.exists():
+        return None
+    import importlib.util as _ilu
+    spec = _ilu.spec_from_file_location("state_machine", path)
+    if spec is None or spec.loader is None:
+        return None
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+def _resolve_run_dir(raw: str) -> Path:
+    """Accept either an explicit path or a bare run-id (resolved under .omni/runs/)."""
+    cand = Path(raw)
+    if cand.is_absolute() or cand.exists():
+        return cand
+    return Path(os.getcwd()) / ".omni" / "runs" / raw
+
+
+def _enforce_artifacts(run_dir: Path, gate: str) -> list[str]:
+    """Return a list of missing-artifact paths for *gate*; empty on success."""
+    required = _ARTIFACT_REQUIRED.get(gate, ())
+    return [str(run_dir / name) for name in required
+            if not (run_dir / name).exists()]
+
+
+_GATE_ARTIFACT_REQUIRED: dict[str, tuple[str, ...]] = {
+    # Each intermediate gate requires the same artifacts as the target gate
+    # that was requested from CLI — e.g. `omni execute` enforces spec.json,
+    # but `omni verify` should still require spec.json at the implicit
+    # execute step so we never silently jump through a gate without its
+    # artifact being present.
+    "plan":    ("spec.json",),   # plan lands once a spec exists
+    "execute": ("spec.json",),
+    "verify":  ("plan.md",),
+    "done":    ("plan.md",),
+}
+
+
+def _walk_gates(sm, run_dir: Path, target: str, note: str) -> None:
+    """Step-advance through every gate between current and *target*.
+
+    The state machine enforces single-step forward moves; this helper walks
+    those steps one-by-one AND re-checks the per-gate artifact requirement
+    for each intermediate gate. Earlier versions of this helper delegated
+    enforcement to the caller's single up-front artifact check — the
+    adversarial architect review (Phase-C C34) flagged that as a silent
+    bypass. Every intermediate gate now re-enforces its own contract.
+    """
+    order = list(sm.GATES)
+    state = sm.read_state(run_dir)
+    current = state.get("gate", "discuss")
+    # Codex P2: corrupt or manually-edited state.json can carry an unknown
+    # gate value. Raise a controlled StateMachineError instead of the bare
+    # ValueError that order.index would throw.
+    if current not in order:
+        raise sm.StateMachineError(
+            f"unknown gate {current!r} in {run_dir / 'state.json'}; "
+            f"valid: {', '.join(order)}"
+        )
+    if target not in order:
+        raise sm.StateMachineError(
+            f"unknown target gate {target!r}; valid: {', '.join(order)}"
+        )
+    target_idx = order.index(target)
+    current_idx = order.index(current)
+    if current_idx >= target_idx:
+        sm.advance(run_dir, target, note=note)
+        return
+    for intermediate in order[current_idx + 1:target_idx + 1]:
+        required = _GATE_ARTIFACT_REQUIRED.get(intermediate, ())
+        missing = [name for name in required if not (run_dir / name).exists()]
+        if missing:
+            raise sm.StateMachineError(
+                f"gate {intermediate!r} requires missing artifact(s): "
+                + ", ".join(missing)
+            )
+        sm.advance(run_dir, intermediate, note=note)
+
+
+def _cmd_execute(args: argparse.Namespace) -> int:
+    run_dir = _resolve_run_dir(args.run_id)
+    if not run_dir.exists():
+        print(f"error: run-dir not found: {run_dir}", file=sys.stderr)
+        return 2
+    missing = _enforce_artifacts(run_dir, "execute")
+    if missing:
+        print("error: artifact-first lifecycle — missing required artifacts:",
+              file=sys.stderr)
+        for m in missing:
+            print(f"  - {m}", file=sys.stderr)
+        return 2
+    sm = _load_state_machine()
+    if sm is None:
+        print("warn: state_machine.py unavailable — skipping gate advance",
+              file=sys.stderr)
+    else:
+        try:
+            _walk_gates(sm, run_dir, "execute", note="omni execute")
+        except sm.StateMachineError as exc:
+            print(f"error: state machine: {exc}", file=sys.stderr)
+            return 2
+    print(f"omni execute: {run_dir} — ready to run (gate=execute)")
+    return 0
+
+
+def _cmd_verify(args: argparse.Namespace) -> int:
+    run_dir = _resolve_run_dir(args.run_id)
+    if not run_dir.exists():
+        print(f"error: run-dir not found: {run_dir}", file=sys.stderr)
+        return 2
+    missing = _enforce_artifacts(run_dir, "verify")
+    if missing:
+        print("error: artifact-first lifecycle — missing required artifacts:",
+              file=sys.stderr)
+        for m in missing:
+            print(f"  - {m}", file=sys.stderr)
+        return 2
+    sm = _load_state_machine()
+    if sm is None:
+        print("warn: state_machine.py unavailable — skipping gate advance",
+              file=sys.stderr)
+    else:
+        try:
+            _walk_gates(sm, run_dir, "verify", note="omni verify")
+        except sm.StateMachineError as exc:
+            print(f"error: state machine: {exc}", file=sys.stderr)
+            return 2
+    print(f"omni verify: {run_dir} — ready to run (gate=verify)")
+    return 0
+
+
 def _cmd_list(args: argparse.Namespace) -> int:
     root = _plugin_root()
     if args.kind in ("skills", "all"):
@@ -534,6 +713,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Show router config and recent decisions")
     doctor.add_argument("--strict", action="store_true",
                         help="Fail if any model category resolves to a fallback (signals drift)")
+    doctor.add_argument("--gc", action="store_true",
+                        help="Garbage-collect .omni/runs/ directories older than TTL (dry-run)")
+    doctor.add_argument("--gc-apply", action="store_true",
+                        help="With --gc, actually delete stale runs (default is dry-run)")
     doctor.set_defaults(func=_cmd_doctor)
 
     init = sub.add_parser("init", help="Scaffold .omni/ in the current project")
@@ -554,6 +737,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     mcp = sub.add_parser("mcp", help="Run the MCP server in stdio mode")
     mcp.set_defaults(func=_cmd_mcp)
+
+    # Phase-C C20: artifact-first lifecycle gates.
+    execute = sub.add_parser(
+        "execute",
+        help="Enforce the execute gate: require spec.json, advance state machine",
+    )
+    execute.add_argument("run_id",
+                         help="run-id or absolute path to the run directory")
+    execute.set_defaults(func=_cmd_execute)
+
+    verify = sub.add_parser(
+        "verify",
+        help="Enforce the verify gate: require plan.md, advance state machine",
+    )
+    verify.add_argument("run_id",
+                        help="run-id or absolute path to the run directory")
+    verify.set_defaults(func=_cmd_verify)
 
     lst = sub.add_parser("list", help="List installed skills/agents/commands")
     lst.add_argument("kind", choices=["skills", "agents", "commands", "all"],

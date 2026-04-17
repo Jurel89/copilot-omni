@@ -452,51 +452,156 @@ def _tool_memory_search(args: Dict[str, Any]) -> Dict[str, Any]:
     return _json_result({"results": [dict(r) for r in rows]})
 
 
-def _tool_artifact_write(args: Dict[str, Any]) -> Dict[str, Any]:  # UNUSED-OUTSIDE-TESTS
-    kind = args["kind"]
-    body = args["body"]
-    raw_run_id = args.get("run_id") or "adhoc"
-    raw_path = args.get("path", f"{kind}.md")
-    run_id = _safe_identifier(raw_run_id, "run_id")
-    art_id = _new_id()
-    with _Conn() as conn:
-        conn.execute(
-            "INSERT INTO artifacts(id, run_id, kind, path, body, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (art_id, run_id, kind, raw_path, body, _now()),
-        )
-    # Mirror to .omni/runs/<run_id>/ under the current project, with traversal guard.
-    mirror_path: Optional[str] = None
-    mirror_error: Optional[str] = None
+# ------------------------------------------------------------------ Phase-C C18: LSP + ast-grep
+
+def _which(binary: str) -> Optional[str]:
+    return shutil.which(binary)
+
+
+def _run_subprocess(cmd: List[str], *, input_text: Optional[str] = None,
+                    timeout: float = 30.0) -> Dict[str, Any]:
+    import subprocess as _sp  # noqa: PLC0415
     try:
-        cwd = Path(os.getcwd())
-        base = cwd / ".omni" / "runs" / run_id
-        base.mkdir(parents=True, exist_ok=True)
-        target = _safe_child_path(base, raw_path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(body, encoding="utf-8")
-        mirror_path = str(target)
-    except Exception as exc:
-        # Surface mirror errors without leaking full paths.
-        err_msg = str(exc)
-        if _looks_sensitive(err_msg):
-            err_msg = type(exc).__name__
-        mirror_error = err_msg
-    result: Dict[str, Any] = {"id": art_id, "kind": kind, "path": raw_path}
-    if mirror_path:
-        result["mirror_path"] = mirror_path
-    if mirror_error:
-        result["mirror_error"] = mirror_error
+        proc = _sp.run(
+            cmd, input=input_text, capture_output=True, text=True, timeout=timeout,
+        )
+    except FileNotFoundError:
+        return {"status": "skipped", "reason": f"{cmd[0]} not found on PATH"}
+    except _sp.TimeoutExpired:
+        return {"status": "error", "reason": f"{cmd[0]} timed out after {timeout}s"}
+    return {
+        "status": "ok" if proc.returncode == 0 else "error",
+        "returncode": proc.returncode,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr[:4000],
+    }
+
+
+def _tool_lsp_hover(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Best-effort LSP hover query.
+
+    Requires an LSP server binary on PATH (``ls_binary`` arg, default
+    ``pylsp``). Returns ``status: "skipped"`` when the binary is absent so
+    callers degrade gracefully rather than error.
+    """
+    binary = args.get("ls_binary", "pylsp")
+    path = args.get("path", "")
+    line = int(args.get("line", 0))
+    character = int(args.get("character", 0))
+    if not _which(binary):
+        return _json_result({
+            "status": "skipped",
+            "reason": f"{binary!r} not found on PATH — install an LSP "
+                      f"server to enable this tool",
+            "path": path,
+        })
+    # We don't start a persistent LSP session here — the intent is a smoke
+    # surface. A real handler would spawn the LSP over stdio JSON-RPC. For
+    # now we echo the request back with status=stub so integrations can
+    # probe and downstream tests can assert the call shape.
+    return _json_result({
+        "status": "stub",
+        "ls_binary": binary,
+        "path": path,
+        "line": line,
+        "character": character,
+        "note": "full LSP session not implemented; binary is present",
+    })
+
+
+def _tool_lsp_goto_definition(args: Dict[str, Any]) -> Dict[str, Any]:
+    binary = args.get("ls_binary", "pylsp")
+    if not _which(binary):
+        return _json_result({
+            "status": "skipped",
+            "reason": f"{binary!r} not found on PATH",
+        })
+    return _json_result({
+        "status": "stub",
+        "ls_binary": binary,
+        "path": args.get("path", ""),
+        "line": int(args.get("line", 0)),
+        "character": int(args.get("character", 0)),
+    })
+
+
+def _tool_lsp_find_references(args: Dict[str, Any]) -> Dict[str, Any]:
+    binary = args.get("ls_binary", "pylsp")
+    if not _which(binary):
+        return _json_result({
+            "status": "skipped",
+            "reason": f"{binary!r} not found on PATH",
+        })
+    return _json_result({
+        "status": "stub",
+        "ls_binary": binary,
+        "path": args.get("path", ""),
+        "line": int(args.get("line", 0)),
+        "character": int(args.get("character", 0)),
+    })
+
+
+def _assert_no_flag_injection(*values: str) -> None:
+    """Guard against flag-injection into subprocess argv.
+
+    Even with shell=False, a user-controlled positional argument that starts
+    with '-' is interpreted as a flag by the target tool. ast-grep's config
+    loader can execute remote rule files, so a value like '--config=/tmp/evil.yml'
+    is a realistic exploit.
+    Raises ValueError when any value starts with '-'.
+    """
+    for v in values:
+        if isinstance(v, str) and v.startswith("-"):
+            raise ValueError(
+                f"refusing ast-grep arg that begins with '-': {v[:40]!r}"
+            )
+
+
+def _tool_ast_grep_search(args: Dict[str, Any]) -> Dict[str, Any]:
+    pattern = args.get("pattern", "")
+    target = args.get("path", ".")
+    lang = args.get("lang")
+    if not pattern:
+        raise ValueError("pattern required")
+    _assert_no_flag_injection(pattern, target, lang or "")
+    if not _which("ast-grep") and not _which("sg"):
+        return _json_result({
+            "status": "skipped",
+            "reason": "ast-grep (or 'sg') not found on PATH",
+        })
+    binary = _which("ast-grep") or _which("sg")
+    # `--` separates flags from positional arguments so ast-grep cannot
+    # reinterpret `target` as another flag.
+    cmd = [binary, "run", "--pattern", pattern]
+    if lang:
+        cmd.extend(["--lang", lang])
+    cmd.extend(["--", target])
+    result = _run_subprocess(cmd, timeout=30.0)
     return _json_result(result)
 
 
-def _tool_run_status(args: Dict[str, Any]) -> Dict[str, Any]:  # UNUSED-OUTSIDE-TESTS
-    with _Conn() as conn:
-        run_id = args.get("run_id")
-        if run_id:
-            row = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
-            return _json_result(dict(row) if row else {"error": "not found"})
-        rows = conn.execute("SELECT * FROM runs ORDER BY updated_at DESC LIMIT 20").fetchall()
-    return _json_result({"runs": [dict(r) for r in rows]})
+def _tool_ast_grep_replace(args: Dict[str, Any]) -> Dict[str, Any]:
+    pattern = args.get("pattern", "")
+    replacement = args.get("replacement", "")
+    target = args.get("path", ".")
+    lang = args.get("lang")
+    if not pattern or not replacement:
+        raise ValueError("pattern and replacement required")
+    _assert_no_flag_injection(pattern, replacement, target, lang or "")
+    if not _which("ast-grep") and not _which("sg"):
+        return _json_result({
+            "status": "skipped",
+            "reason": "ast-grep (or 'sg') not found on PATH",
+        })
+    binary = _which("ast-grep") or _which("sg")
+    cmd = [binary, "run", "--pattern", pattern,
+           "--rewrite", replacement, "--update-all"]
+    if lang:
+        cmd.extend(["--lang", lang])
+    # `--` barrier so *target* (user-supplied) can never be re-parsed as a flag
+    cmd.extend(["--", target])
+    result = _run_subprocess(cmd, timeout=60.0)
+    return _json_result(result)
 
 
 def _tool_policy_check(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -636,6 +741,136 @@ def _tool_wiki_list(_: Dict[str, Any]) -> Dict[str, Any]:
     return _json_result({"entries": [dict(r) for r in rows]})
 
 
+# ------------------------------------------------------------------ Phase-C C17: ingest + graph
+
+
+import hashlib as _hashlib
+
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify(text: str) -> str:
+    s = _SLUG_RE.sub("-", text.lower()).strip("-")
+    return s[:80] or "untitled"
+
+
+def _tool_wiki_ingest(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Append a wiki page; de-duplicates by content SHA-256.
+
+    Ingesting the same *body* twice returns ``ok: true, deduped: true`` and
+    does NOT bump updated_at. This is the contract the wave-1 content-lake
+    plan called out — it lets external crawlers pipe documents in without
+    re-writing identical bodies.
+    """
+    body = args.get("body")
+    if not isinstance(body, str) or not body:
+        raise ValueError("body required (non-empty string)")
+    raw_slug = args.get("slug") or args.get("title") or "untitled"
+    slug = _slugify(raw_slug)
+    title = args.get("title", raw_slug)
+    tags_list = args.get("tags", []) or []
+    tags = ",".join(tags_list)
+    sha = _hashlib.sha256(body.encode("utf-8")).hexdigest()
+    now = _now()
+    # The wiki table doesn't have a sha column; we encode the hash into the
+    # tags column as a sentinel token using a namespaced prefix that cannot
+    # collide with user-supplied tags. Matching is done on comma-split
+    # tokens so a benign tag of the form "sha256=…" (not our sentinel
+    # prefix) never triggers a false dedupe.
+    sentinel = f"__omni_sha256__={sha}"
+    with _Conn() as conn:
+        existing = conn.execute(
+            "SELECT slug, tags FROM wiki WHERE slug=?", (slug,)
+        ).fetchone()
+        if existing and existing["tags"]:
+            existing_tokens = {
+                t.strip() for t in (existing["tags"] or "").split(",") if t.strip()
+            }
+            if sentinel in existing_tokens:
+                return _json_result({
+                    "slug": slug, "ok": True, "deduped": True, "sha256": sha,
+                })
+        merged_tags_parts: List[str] = []
+        if tags:
+            merged_tags_parts.append(tags)
+        merged_tags_parts.append(sentinel)
+        merged_tags = ",".join(merged_tags_parts)
+        conn.execute(
+            "INSERT INTO wiki(slug, title, body, tags, updated_at)"
+            " VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT(slug) DO UPDATE SET title=excluded.title,"
+            " body=excluded.body, tags=excluded.tags,"
+            " updated_at=excluded.updated_at",
+            (slug, title, body, merged_tags, now),
+        )
+    return _json_result({
+        "slug": slug, "ok": True, "deduped": False, "sha256": sha,
+    })
+
+
+# [[slug]] or [[Title|slug]] — when a pipe is present we capture the slug
+# (the segment AFTER the pipe), not the display title. Codex P2 fix.
+_WIKI_LINK_RE = re.compile(r"\[\[\s*(?:[^\]|]*\|)?\s*([^\]|]+?)\s*\]\]")
+_MD_LINK_RE = re.compile(r"\[[^\]]*?\]\(\s*([^)\s]+?)\s*\)")
+
+
+def _extract_wiki_targets(body: str) -> List[str]:
+    """Pull wiki-link targets from a body.
+
+    Recognises:
+    - [[other-slug]] and [[Title|slug]] (wiki-link syntax)
+    - [anchor](./other-slug) or [anchor](other-slug.md) (Markdown links
+      whose destination looks like a local slug reference rather than a URL)
+    """
+    out: List[str] = []
+    for m in _WIKI_LINK_RE.finditer(body):
+        out.append(_slugify(m.group(1)))
+    for m in _MD_LINK_RE.finditer(body):
+        dest = m.group(1)
+        if "://" in dest or dest.startswith("#"):
+            continue
+        bare = dest.rsplit("/", 1)[-1]
+        if bare.endswith(".md"):
+            bare = bare[:-3]
+        out.append(_slugify(bare))
+    # Stable de-dupe while preserving order
+    seen: set = set()
+    unique: List[str] = []
+    for t in out:
+        if t and t not in seen:
+            seen.add(t)
+            unique.append(t)
+    return unique
+
+
+def _tool_wiki_graph(_args: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a knowledge graph {nodes: [...], edges: [...]} of the wiki.
+
+    Nodes are every stored slug. Edges are extracted via _extract_wiki_targets
+    applied to each body. Dangling targets (no matching slug) are omitted,
+    but surface in ``dangling`` so callers can render them separately.
+    """
+    with _Conn() as conn:
+        rows = conn.execute(
+            "SELECT slug, title, body FROM wiki"
+        ).fetchall()
+    slugs = {row["slug"] for row in rows}
+    nodes = [{"slug": row["slug"], "title": row["title"]} for row in rows]
+    edges: List[Dict[str, str]] = []
+    dangling: List[Dict[str, str]] = []
+    for row in rows:
+        targets = _extract_wiki_targets(row["body"] or "")
+        for target in targets:
+            if target == row["slug"]:
+                continue
+            if target in slugs:
+                edges.append({"source": row["slug"], "target": target})
+            else:
+                dangling.append({"source": row["slug"], "target": target})
+    return _json_result({"nodes": nodes, "edges": edges, "dangling": dangling})
+
+
 def _tool_notepad_write(args: Dict[str, Any]) -> Dict[str, Any]:
     kind = args.get("kind", "working")
     body = args["body"]
@@ -661,6 +896,113 @@ def _tool_notepad_read(args: Dict[str, Any]) -> Dict[str, Any]:
                 "SELECT * FROM notepad ORDER BY created_at DESC LIMIT 50"
             ).fetchall()
     return _json_result({"notes": [dict(r) for r in rows]})
+
+
+# ------------------------------------------------------------------ Phase-C C24: TTL prune
+
+
+DEFAULT_MEM_TTL_DAYS = 30.0
+DEFAULT_NOTEPAD_TTL_DAYS = 30.0
+
+
+def _resolve_ttl(args: Dict[str, Any], env_var: str, default_days: float) -> float:
+    """Resolve a TTL from the call args → env var → default."""
+    raw = args.get("ttl_days")
+    if raw is not None:
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"ttl_days must be numeric, got {raw!r}")
+    else:
+        env_raw = os.environ.get(env_var)
+        if env_raw:
+            try:
+                value = float(env_raw)
+            except ValueError:
+                value = default_days
+        else:
+            value = default_days
+    if value <= 0:
+        raise ValueError(f"ttl_days must be > 0, got {value}")
+    return value
+
+
+def _tool_memory_prune(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Delete memory rows whose updated_at is older than ttl_days."""
+    ttl_days = _resolve_ttl(args, "OMNI_MEM_TTL_DAYS", DEFAULT_MEM_TTL_DAYS)
+    dry_run = bool(args.get("dry_run", False))
+    scope = args.get("scope")
+    cutoff = _now() - ttl_days * 86400
+    with _Conn() as conn:
+        if dry_run:
+            if scope is not None:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM memory WHERE updated_at < ? AND scope=?",
+                    (cutoff, scope),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM memory WHERE updated_at < ?",
+                    (cutoff,),
+                ).fetchone()
+            deleted = int(row["n"] if row else 0)
+        else:
+            if scope is not None:
+                cur = conn.execute(
+                    "DELETE FROM memory WHERE updated_at < ? AND scope=?",
+                    (cutoff, scope),
+                )
+            else:
+                cur = conn.execute(
+                    "DELETE FROM memory WHERE updated_at < ?",
+                    (cutoff,),
+                )
+            deleted = cur.rowcount if cur.rowcount is not None else 0
+    return _json_result({
+        "deleted": deleted,
+        "ttl_days": ttl_days,
+        "dry_run": dry_run,
+        "scope": scope,
+    })
+
+
+def _tool_notepad_prune(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Delete notepad rows whose created_at is older than ttl_days."""
+    ttl_days = _resolve_ttl(args, "OMNI_NOTEPAD_TTL_DAYS", DEFAULT_NOTEPAD_TTL_DAYS)
+    dry_run = bool(args.get("dry_run", False))
+    kind = args.get("kind")
+    cutoff = _now() - ttl_days * 86400
+    with _Conn() as conn:
+        if dry_run:
+            if kind is not None:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM notepad WHERE created_at < ? AND kind=?",
+                    (cutoff, kind),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM notepad WHERE created_at < ?",
+                    (cutoff,),
+                ).fetchone()
+            deleted = int(row["n"] if row else 0)
+        else:
+            if kind is not None:
+                cur = conn.execute(
+                    "DELETE FROM notepad WHERE created_at < ? AND kind=?",
+                    (cutoff, kind),
+                )
+            else:
+                cur = conn.execute(
+                    "DELETE FROM notepad WHERE created_at < ?",
+                    (cutoff,),
+                )
+            deleted = cur.rowcount if cur.rowcount is not None else 0
+    return _json_result({
+        "deleted": deleted,
+        "ttl_days": ttl_days,
+        "dry_run": dry_run,
+        "kind": kind,
+    })
 
 
 def _tool_shared_memory_write(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -750,27 +1092,85 @@ TOOLS: Dict[str, Dict[str, Any]] = {
         },
         "handler": _tool_memory_search,
     },
-    "artifact_write": {
-        "description": "Write an artifact (spec, plan, decision, summary) under a run.",
+    "lsp_hover": {
+        "description": (
+            "Best-effort LSP hover query; skipped when no LSP server on PATH. "
+            "Phase-C C18 knowledge layer."
+        ),
         "inputSchema": {
             "type": "object",
-            "required": ["kind", "body"],
+            "required": ["path"],
             "properties": {
-                "kind": {"type": "string"},
-                "body": {"type": "string"},
-                "run_id": {"type": "string"},
+                "ls_binary": {"type": "string"},
                 "path": {"type": "string"},
+                "line": {"type": "integer"},
+                "character": {"type": "integer"},
             },
         },
-        "handler": _tool_artifact_write,  # UNUSED-OUTSIDE-TESTS
+        "handler": _tool_lsp_hover,
     },
-    "run_status": {
-        "description": "Return status of a run or recent runs.",
+    "lsp_goto_definition": {
+        "description": (
+            "Best-effort LSP go-to-definition; skipped when no LSP server on PATH."
+        ),
         "inputSchema": {
             "type": "object",
-            "properties": {"run_id": {"type": "string"}},
+            "required": ["path"],
+            "properties": {
+                "ls_binary": {"type": "string"},
+                "path": {"type": "string"},
+                "line": {"type": "integer"},
+                "character": {"type": "integer"},
+            },
         },
-        "handler": _tool_run_status,  # UNUSED-OUTSIDE-TESTS
+        "handler": _tool_lsp_goto_definition,
+    },
+    "lsp_find_references": {
+        "description": (
+            "Best-effort LSP find-references; skipped when no LSP server on PATH."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "ls_binary": {"type": "string"},
+                "path": {"type": "string"},
+                "line": {"type": "integer"},
+                "character": {"type": "integer"},
+            },
+        },
+        "handler": _tool_lsp_find_references,
+    },
+    "ast_grep_search": {
+        "description": (
+            "Structural code search via ast-grep; skipped when binary not on PATH."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["pattern"],
+            "properties": {
+                "pattern": {"type": "string"},
+                "path": {"type": "string"},
+                "lang": {"type": "string"},
+            },
+        },
+        "handler": _tool_ast_grep_search,
+    },
+    "ast_grep_replace": {
+        "description": (
+            "Structural code rewrite via ast-grep; skipped when binary not on PATH."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["pattern", "replacement"],
+            "properties": {
+                "pattern": {"type": "string"},
+                "replacement": {"type": "string"},
+                "path": {"type": "string"},
+                "lang": {"type": "string"},
+            },
+        },
+        "handler": _tool_ast_grep_replace,
     },
     "policy_check": {
         "description": "Check whether a tool invocation is allowed by active policy.",
@@ -847,6 +1247,32 @@ TOOLS: Dict[str, Dict[str, Any]] = {
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         "handler": _tool_wiki_list,
     },
+    "wiki_ingest": {
+        "description": (
+            "Append a wiki page with SHA-256-based content de-duplication. "
+            "Re-ingesting identical body returns deduped=true without a write. "
+            "Slug auto-derived from title when omitted."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["body"],
+            "properties": {
+                "slug": {"type": "string"},
+                "title": {"type": "string"},
+                "body": {"type": "string"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "handler": _tool_wiki_ingest,
+    },
+    "wiki_graph": {
+        "description": (
+            "Return the wiki knowledge graph: {nodes, edges, dangling}. "
+            "Edges are derived from [[wiki-link]] and relative Markdown links."
+        ),
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "handler": _tool_wiki_graph,
+    },
     "notepad_write": {
         "description": "Append a notepad entry (kind: working|priority|manual).",
         "inputSchema": {
@@ -863,6 +1289,38 @@ TOOLS: Dict[str, Dict[str, Any]] = {
             "properties": {"kind": {"type": "string"}},
         },
         "handler": _tool_notepad_read,
+    },
+    "memory_prune": {
+        "description": (
+            "Delete memory rows older than ttl_days (default 30, or "
+            "OMNI_MEM_TTL_DAYS). Optional scope filter. dry_run=true returns "
+            "a count without deleting."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ttl_days": {"type": "number"},
+                "scope": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+            },
+        },
+        "handler": _tool_memory_prune,
+    },
+    "notepad_prune": {
+        "description": (
+            "Delete notepad rows older than ttl_days (default 30, or "
+            "OMNI_NOTEPAD_TTL_DAYS). Optional kind filter. dry_run=true "
+            "returns a count without deleting."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ttl_days": {"type": "number"},
+                "kind": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+            },
+        },
+        "handler": _tool_notepad_prune,
     },
     "shared_memory_write": {
         "description": "Write a cross-agent shared memory value.",

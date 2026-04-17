@@ -139,15 +139,32 @@ def _metrics_log_path() -> Path:
     return Path(os.getcwd()) / ".omni" / "audit" / "metrics.jsonl"
 
 
-def _ensure_dir(p: Path) -> None:
-    """Create parent directory tree if needed (best-effort)."""
+def _ensure_dir(p: Path, mode: Optional[int] = None) -> None:
+    """Create parent directory tree if needed (best-effort).
+
+    When *mode* is provided and the host is POSIX, the immediate parent
+    directory is chmod'd to *mode* after creation (and on every call so that a
+    dir created with wider perms by a previous process is tightened).
+    Windows inherits parent ACLs; *mode* is best-effort and ignored by the
+    chmod emulation if unsupported.
+    """
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
     except Exception:
-        pass
+        return
+    if mode is not None:
+        try:
+            os.chmod(p.parent, mode)
+        except Exception:
+            pass
 
 
-def _atomic_append(path: Path, line: str, lock_budget_s: float = 1.0) -> None:
+def _atomic_append(
+    path: Path,
+    line: str,
+    lock_budget_s: float = 1.0,
+    dir_mode: Optional[int] = None,
+) -> None:
     """Append *line* to *path* with a file lock; drops write if lock takes > lock_budget_s.
 
     POSIX: uses fcntl.flock(LOCK_EX | LOCK_NB) with a spin-wait up to budget.
@@ -156,7 +173,7 @@ def _atomic_append(path: Path, line: str, lock_budget_s: float = 1.0) -> None:
 
     Always opens in text mode so Python handles line-endings portably.
     """
-    _ensure_dir(path)
+    _ensure_dir(path, mode=dir_mode)
     deadline = time.monotonic() + lock_budget_s
 
     if _fcntl is not None:
@@ -240,7 +257,7 @@ def _append_audit(record: Dict[str, Any]) -> None:
         line = json.dumps(record, ensure_ascii=False)
     except Exception:
         line = json.dumps({"ts": time.time(), "hook": record.get("hook", ""), "error": "serialize_failed"})
-    _atomic_append(_audit_log_path(), line)
+    _atomic_append(_audit_log_path(), line, dir_mode=0o700)
 
 
 def _write_metric(name: str, value: Any, labels: Optional[Dict[str, Any]] = None) -> None:
@@ -258,4 +275,4 @@ def _write_metric(name: str, value: Any, labels: Optional[Dict[str, Any]] = None
         line = json.dumps(record, ensure_ascii=False)
     except Exception:
         return  # metrics are non-critical; never raise
-    _atomic_append(_metrics_log_path(), line)
+    _atomic_append(_metrics_log_path(), line, dir_mode=0o700)

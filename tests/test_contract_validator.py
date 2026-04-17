@@ -261,6 +261,21 @@ class TestMcpToolRefs:
 
 
 class TestExemptionBudget:
+    """Phase-C C03 makes the cap date-dependent. These legacy tests pin
+    the cap to 25 with OMNI_EXEMPTION_CAP_OVERRIDE so they are stable
+    across the falling schedule (22 → 18 → 12)."""
+
+    def setup_method(self, _method):
+        import os as _os
+        self._saved = _os.environ.pop("OMNI_EXEMPTION_CAP_OVERRIDE", None)
+        _os.environ["OMNI_EXEMPTION_CAP_OVERRIDE"] = "25"
+
+    def teardown_method(self, _method):
+        import os as _os
+        _os.environ.pop("OMNI_EXEMPTION_CAP_OVERRIDE", None)
+        if self._saved is not None:
+            _os.environ["OMNI_EXEMPTION_CAP_OVERRIDE"] = self._saved
+
     def _populate(self, tmp_path, rename: int, cc: int, ref: int) -> None:
         _make_tree(tmp_path)
         lines = []
@@ -276,7 +291,7 @@ class TestExemptionBudget:
         assert ok, "\n".join(msgs)
 
     def test_fail_over_budget(self, tmp_path):
-        # WS3: cap raised to 25; need total > 25 to fail
+        # cap pinned to 25 via setup_method
         self._populate(tmp_path, rename=9, cc=9, ref=9)  # total=27 > 25
         ok, msgs = check_exemption_budget(root=tmp_path)
         assert not ok
@@ -288,7 +303,6 @@ class TestExemptionBudget:
         assert ok, "\n".join(msgs)
 
     def test_one_over_budget(self, tmp_path):
-        # WS3: cap raised to 25; total=26 > 25
         self._populate(tmp_path, rename=9, cc=9, ref=8)  # total=26 > 25
         ok, msgs = check_exemption_budget(root=tmp_path)
         assert not ok

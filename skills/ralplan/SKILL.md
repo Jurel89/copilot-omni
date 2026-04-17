@@ -168,14 +168,25 @@ PYEOF
 
 ```bash
 _ralplan_check_cancel() {
-  # B5 cancel cascade: honor both own cancel.signal and outer (parent) cancel.signal
+  # B5 cancel cascade: honor both own cancel.signal and outer (parent) cancel.signal.
+  # Phase-C C33/C34: prefer the structured should-cancel helper so a
+  # branch-scoped cancel from a team runner does NOT stop ralplan; only
+  # full-run or ralplan-scoped cancels apply. Legacy cancel.signal files
+  # (empty / plain text) are still honoured because should-cancel maps
+  # them to a full-run verdict.
   local _cancel_detected=0
-  if [ -f "${RUN_DIR}/cancel.signal" ]; then
+  local _cancel_source=""
+  if python3 scripts/cancel_signal.py should-cancel "${RUN_DIR}" \
+        --scope "ralplan:${RALPLAN_RUN_ID:-unknown}" >/dev/null 2>&1; then
     _cancel_detected=1
+    _cancel_source="own cancel.signal"
   fi
-  # If running as inner skill under an autopilot/outer run, check parent cancel.signal
-  if [ -n "${PARENT_RUN_DIR:-}" ] && [ -f "${PARENT_RUN_DIR}/cancel.signal" ]; then
-    _cancel_detected=1
+  if [ "${_cancel_detected}" = "0" ] && [ -n "${PARENT_RUN_DIR:-}" ]; then
+    if python3 scripts/cancel_signal.py should-cancel "${PARENT_RUN_DIR}" \
+          --scope "ralplan:${RALPLAN_RUN_ID:-unknown}" >/dev/null 2>&1; then
+      _cancel_detected=1
+      _cancel_source="outer cancel.signal"
+    fi
   fi
   if [ "${_cancel_detected}" = "1" ]; then
     python3 - <<'PYEOF'
@@ -193,7 +204,7 @@ tmp = status_path.with_suffix(".tmp")
 tmp.write_text(json.dumps(status, indent=2))
 import os as _os
 _os.replace(str(tmp), str(status_path))
-src = os.environ.get("PARENT_RUN_DIR", "") and "outer cancel.signal" or "own cancel.signal"
+src = os.environ.get("_CANCEL_SRC", "cancel.signal")
 print(f"ralplan: cancel detected ({src}) — state=cancelled")
 PYEOF
     exit 1
@@ -359,12 +370,15 @@ except Exception as e:
 PYEOF
 
   # ---- 3b: Check for clarifying question ----
-  if python3 - <<PYEOF
-import re, sys
+  # Phase-C C10: replaced the "if python3 - <<PYEOF ... PYEOF then" shell-if
+  # heredoc pattern (Critic P10) with a sentinel-file invocation. The
+  # heredoc is still used to write the sentinel, but the shell branch tests
+  # a plain command's exit code — no nested redirection into `if`.
+  CLARIFY_SENTINEL="${RUN_DIR}/_clarify_check.py"
+  cat > "${CLARIFY_SENTINEL}" <<'PYEOF'
+import os, re, sys, json
 from pathlib import Path
 
-raw = Path(os.environ.get("PLAN_FILE", "") + ".raw") if __import__("os").environ.get("PLAN_FILE") else None
-import os
 raw = Path(os.environ["PLAN_FILE"] + ".raw")
 text = raw.read_text(errors="replace") if raw.exists() else ""
 m = re.search(r"<clarifying-question>(.*?)</clarifying-question>", text, re.DOTALL)
@@ -375,23 +389,24 @@ if m:
 
     status_path = run_dir / "status.json"
     try:
-        status = __import__("json").loads(status_path.read_text())
+        status = json.loads(status_path.read_text())
     except Exception:
         status = {}
     status["state"] = "awaiting-input"
     tmp = status_path.with_suffix(".tmp")
-    tmp.write_text(__import__("json").dumps(status, indent=2))
+    tmp.write_text(json.dumps(status, indent=2))
     os.replace(str(tmp), str(status_path))
-    print(f"ralplan: planner asked a clarifying question — state=awaiting-input")
+    print("ralplan: planner asked a clarifying question — state=awaiting-input")
     print(f"Question: {question}")
     sys.exit(0)  # 0 = question found
-else:
-    sys.exit(1)  # 1 = no question, continue
+sys.exit(1)      # 1 = no question, continue
 PYEOF
-  then
+  if python3 "${CLARIFY_SENTINEL}"; then
+    rm -f "${CLARIFY_SENTINEL}"
     # Clarifying question found — exit cleanly for turn-based resume
     exit 0
   fi
+  rm -f "${CLARIFY_SENTINEL}"
 
   # Promote raw output to plan file
   if [ -f "${PLAN_FILE}.raw" ]; then

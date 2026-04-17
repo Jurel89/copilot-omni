@@ -56,6 +56,44 @@ class TestPreToolUse(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out)["permissionDecision"], "allow")
 
+    def test_protected_path_unicode_nfd_is_normalised(self):
+        """Phase-C C05: an NFD-encoded protected path must still be blocked.
+
+        Writes a temporary policy with a composed (NFC) protected path, then
+        submits a decomposed (NFD) candidate that is visually identical. With
+        NFC normalisation wired in the hook the deny decision fires; without
+        it the substring match misses and the write is allowed.
+        """
+        import os as _os
+        import tempfile
+        import unicodedata as _ud
+        composed = "naïve/config.json"           # NFC
+        decomposed = _ud.normalize("NFD", composed)
+        self.assertNotEqual(composed, decomposed)
+        with tempfile.TemporaryDirectory() as tmp:
+            policy_path = Path(tmp) / "policy.json"
+            policy_path.write_text(json.dumps({
+                "profile": "custom",
+                "deny_commands": [],
+                "protected_paths": [composed],
+            }), encoding="utf-8")
+            env = {**_os.environ, "OMNI_POLICY_FILE": str(policy_path)}
+            result = subprocess.run(
+                [sys.executable, str(HOOKS / "pre_tool_use.py")],
+                input=json.dumps({
+                    "tool_name": "write",
+                    "tool_args": {"file_path": decomposed},
+                }),
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0)
+            body = json.loads(result.stdout)
+            self.assertEqual(body["permissionDecision"], "deny",
+                             f"NFD candidate should be blocked: {result.stdout!r}")
+
     def test_malformed_shell_command_denied(self):
         """C5: malformed shell input (unclosed quote) must exit with deny, not allow.
 

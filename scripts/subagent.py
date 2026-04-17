@@ -385,7 +385,10 @@ def spawn(
     )
     status_path = str(job_dir / "status.json")
 
-    # Acquire pool slot (best-effort; if pool unavailable, proceed anyway)
+    # Acquire pool slot (best-effort; if pool unavailable, proceed anyway).
+    # Phase-C C08/C26: MemoryPolicyDenied is NOT best-effort — it is a hard
+    # reject that surfaces to the caller as an error result so memory caps
+    # are actually enforced, not silently ignored.
     pool_mod = _load_pool()
     pool = None
     if pool_mod is not None:
@@ -394,6 +397,14 @@ def spawn(
             pool = pool_mod.SubagentPool(cap=cap)
             pool.acquire(job_id)
         except Exception as exc:
+            mem_denied_cls = getattr(pool_mod, "MemoryPolicyDenied", None)
+            if mem_denied_cls is not None and isinstance(exc, mem_denied_cls):
+                status.update(state="failed", ended_at=_now_iso(),
+                              exit_code=77, error=f"memory-policy: {exc}")
+                _write_status(job_dir, status)
+                return {"job_id": job_id, "run_id": run_id, "exit_code": 77,
+                        "error": f"memory-policy: {exc}",
+                        "status_path": status_path}
             print(f"warning: pool acquire failed (non-fatal): {exc}", file=sys.stderr)
             pool = None
 
@@ -704,15 +715,26 @@ def _spawn_background(
     # Transition status to running immediately (wrapper will update too)
     # We leave it as "pending" — the wrapper transitions to "running" when it starts.
 
-    # Launch wrapper detached (T9: passes config_path as arg, no f-string source)
+    # Launch wrapper detached (T9: passes config_path as arg, no f-string source).
+    # Phase-C C02: on Windows start_new_session is silently ignored; use
+    # CREATE_NEW_PROCESS_GROUP so Ctrl-C in the parent does not cascade into
+    # the background subagent, and add DETACHED_PROCESS to fully decouple.
+    popen_kwargs: dict = dict(
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        env=spawn_env,
+    )
+    if sys.platform == "win32":
+        detached = getattr(subprocess, "DETACHED_PROCESS", 0)
+        new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        popen_kwargs["creationflags"] = detached | new_group
+    else:
+        popen_kwargs["start_new_session"] = True
     try:
         proc = subprocess.Popen(
             [sys.executable, str(wrapper_script), str(config_path)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            close_fds=True,
-            env=spawn_env,
+            **popen_kwargs,
         )
         pid = proc.pid
     except Exception as exc:

@@ -104,18 +104,30 @@ def test_ralplan_converges_first_cycle(tmp_path, monkeypatch):
     # Blocks executed
     assert len(result.blocks_executed) >= 1, "No bash blocks were executed"
 
-    # Verify run-dir artifacts
+    # C09: once run_dir exists, the pipeline MUST have reached a terminal
+    # artifact — either consensus.md (converged) or divergent-points.md
+    # (unconverged). Spec + status.json are always required.
     if run_dir.exists():
         status = _read_status(run_dir)
-        # consensus.md should be written
+
+        spec = run_dir / "spec.md"
+        assert spec.exists(), f"spec.md missing in {run_dir}"
+        assert spec.stat().st_size > 0, "spec.md is empty"
+
+        status_path = run_dir / "status.json"
+        assert status_path.exists(), f"status.json missing in {run_dir}"
+
         consensus = run_dir / "consensus.md"
+        divergent = run_dir / "divergent-points.md"
+        assert consensus.exists() or divergent.exists(), (
+            f"neither consensus.md nor divergent-points.md in {run_dir}; "
+            f"pipeline did not reach a terminal state"
+        )
+
         if consensus.exists():
             assert consensus.stat().st_size > 0, "consensus.md is empty"
-
-        # spec.md should be written
-        spec = run_dir / "spec.md"
-        if spec.exists():
-            assert "bookmark" in spec.read_text().lower() or spec.stat().st_size > 0
+        if divergent.exists():
+            assert divergent.stat().st_size > 0, "divergent-points.md is empty"
 
         # If converged, state should be "converged"
         if status.get("state") == "converged":
@@ -207,10 +219,18 @@ def test_ralplan_unconverged(tmp_path, monkeypatch):
     # No banned primitives
     assert result.primitive_violations == []
 
+    # C09: unconverged run must reach a terminal artifact — either
+    # divergent-points.md (expected) or consensus.md (if the pipeline
+    # short-circuits on the final cycle). status.json is always required.
     if run_dir.exists():
         status = _read_status(run_dir)
-        # Unconverged: should write divergent-points.md
+        assert (run_dir / "status.json").exists(), f"status.json missing in {run_dir}"
+
         divergent = run_dir / "divergent-points.md"
+        consensus = run_dir / "consensus.md"
+        assert divergent.exists() or consensus.exists(), (
+            f"neither divergent-points.md nor consensus.md in {run_dir}"
+        )
         if divergent.exists():
             assert divergent.stat().st_size > 0, "divergent-points.md is empty"
 

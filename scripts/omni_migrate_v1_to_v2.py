@@ -119,18 +119,26 @@ def _print_guidance() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _locations(repo_root: Path) -> list[tuple[Path, Path, bool]]:
+def _locations(
+    repo_root: Path, *, rollback: bool = False
+) -> list[tuple[Path, Path, bool]]:
     """
     Return a list of (src, dst, use_git) tuples to process.
 
     use_git=True when the src is inside a git work-tree (prefer ``git mv``
     so git history is preserved).
+
+    When *rollback* is True, src and dst are swapped so .omni/ reverts to
+    .omc/ — this is the last-resort undo path documented in
+    docs/MIGRATION-ROLLBACK.md.
     """
     home = Path.home()
     targets = [
         (repo_root / ".omc", repo_root / ".omni"),
         (home / ".omc", home / ".omni"),
     ]
+    if rollback:
+        targets = [(dst, src) for (src, dst) in targets]
     result = []
     for src, dst in targets:
         # Only use git mv inside the repo, not for the user home dir
@@ -144,18 +152,29 @@ def _locations(repo_root: Path) -> list[tuple[Path, Path, bool]]:
 # ---------------------------------------------------------------------------
 
 
-def migrate(repo_root: Path, *, dry_run: bool) -> int:
+def migrate(
+    repo_root: Path, *, dry_run: bool, rollback: bool = False
+) -> int:
     """
     Run the migration. Returns 0 on clean success, 1 if any location errored.
+
+    When *rollback* is True, reverse the v1→v2 move: .omni/ is renamed back
+    to .omc/. Intended as a last-resort undo — see docs/MIGRATION-ROLLBACK.md.
     """
     mode_label = "DRY-RUN" if dry_run else "APPLY"
-    print(f"omni_migrate_v1_to_v2 — {mode_label}")
+    direction = "ROLLBACK" if rollback else "MIGRATE"
+    print(f"omni_migrate_v1_to_v2 — {direction} ({mode_label})")
+    if rollback:
+        print("WARNING: rollback renames .omni/ back to .omc/. This is a")
+        print("         last-resort recovery path — new content written under")
+        print("         .omni/ since the forward migration will move with it.")
+        print("         See docs/MIGRATION-ROLLBACK.md before running --apply.")
     print()
 
     had_error = False
     had_work = False
 
-    for src, dst, use_git in _locations(repo_root):
+    for src, dst, use_git in _locations(repo_root, rollback=rollback):
         line = _migrate_one(src, dst, dry_run=dry_run, use_git=use_git)
         print(line)
         if "ERR" in line:
@@ -165,18 +184,36 @@ def migrate(repo_root: Path, *, dry_run: bool) -> int:
 
     if not had_work:
         print()
-        print("Nothing to migrate — no .omc/ directories found.")
+        label = ".omni/" if rollback else ".omc/"
+        print(f"Nothing to {'roll back' if rollback else 'migrate'} — no {label} directories found.")
 
-    _print_guidance()
+    if not rollback:
+        _print_guidance()
+    else:
+        _print_rollback_guidance()
 
     if had_error:
-        print("Migration completed with errors (see ERR lines above).")
+        verb = "Rollback" if rollback else "Migration"
+        print(f"{verb} completed with errors (see ERR lines above).")
         return 1
 
     if dry_run and had_work:
         print("Dry-run complete. Re-run with --apply to execute.")
 
     return 0
+
+
+def _print_rollback_guidance() -> None:
+    """Print env-var revert guidance for rollback."""
+    print()
+    print("Rollback next steps — revert your shell profile manually:")
+    print()
+    print("  # Revert OMNI_SKIP_HOOKS → OMC_SKIP_HOOKS")
+    print("  # Revert DISABLE_OMNI → DISABLE_OMC")
+    print("  # Revert /copilot-omni: slash-commands → /oh-my-claudecode:")
+    print()
+    print("  # See docs/MIGRATION-ROLLBACK.md for full rollback checklist.")
+    print()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -203,6 +240,15 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Path to repo root (default: cwd).",
     )
+    parser.add_argument(
+        "--rollback",
+        action="store_true",
+        default=False,
+        help=(
+            "LAST-RESORT recovery: reverse the migration by moving .omni/ "
+            "back to .omc/. See docs/MIGRATION-ROLLBACK.md first."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.apply and args.dry_run:
@@ -212,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
 
     repo_root = args.repo_root if args.repo_root else Path.cwd()
 
-    return migrate(repo_root, dry_run=dry_run)
+    return migrate(repo_root, dry_run=dry_run, rollback=args.rollback)
 
 
 if __name__ == "__main__":

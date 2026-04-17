@@ -67,6 +67,125 @@ _RE_NUMERIC = re.compile(r"\d+\s*(?:s|ms|MB|GB|%|x)\b")
 # Bypass marker — literal substring
 _BYPASS_MARKER = "--skip-interview"
 
+# Phase-C C01: 16-class skill chooser.
+# Each skill has a priority (used for tie-break, lower wins) and a list of
+# (pattern, weight) pairs. Patterns are compiled case-insensitively with
+# word boundaries where feasible; plain substrings are checked as-is.
+# The top-scoring skill whose score >= _SKILL_MIN_SCORE is returned as
+# primary_skill. Nothing below the threshold is surfaced.
+
+_SKILL_MIN_SCORE = 0.30
+
+_SKILL_RULES: tuple[tuple[str, int, tuple[tuple[str, float], ...]], ...] = (
+    ("autopilot", 10, (
+        (r"\bautopilot\b", 0.9),
+        (r"\bbuild me\b", 0.5),
+        (r"\bcreate me\b", 0.5),
+        (r"\bmake me\b", 0.5),
+        (r"\bfull auto(?:nomous)?\b", 0.7),
+    )),
+    ("ralph",  20, (
+        (r"\bralph\b", 0.9),
+        (r"\buntil (?:complete|done)\b", 0.4),
+        (r"\bself[- ]referential loop\b", 0.5),
+    )),
+    ("ralplan", 20, (
+        (r"\bralplan\b", 0.9),
+        (r"\bconsensus plan\b", 0.5),
+        (r"\bplanner[- ]critic\b", 0.4),
+    )),
+    ("ultrawork", 20, (
+        (r"\bultrawork\b", 0.9),
+        (r"\bparallel(?:ize|ise)? tasks?\b", 0.4),
+        (r"\bfan[- ]out\b", 0.3),
+    )),
+    ("ultraqa", 20, (
+        (r"\bultraqa\b", 0.9),
+        (r"\bqa cycle\b", 0.5),
+        (r"\bbuild/lint/test\b", 0.4),
+    )),
+    ("team",    30, (
+        (r"\bteam mode\b", 0.8),
+        (r"\btmux (?:panes?|team)\b", 0.5),
+        (r"\bparallel (?:claude|codex|gemini)\b", 0.4),
+    )),
+    ("plan",    40, (
+        (r"\bwrite (?:me )?a plan\b", 0.7),
+        (r"\bplan (?:the|this|for)\b", 0.4),
+        (r"\barchitect (?:it|this)\b", 0.4),
+    )),
+    ("deep-interview", 40, (
+        (r"\bdeep[- ]interview\b", 0.9),
+        (r"\bsocratic\b", 0.5),
+        (r"\bambiguity gat(?:e|ing)\b", 0.5),
+    )),
+    ("debug",   40, (
+        (r"\bdebug\b", 0.6),
+        (r"\broot[- ]cause\b", 0.5),
+        (r"\bstack trace\b", 0.4),
+    )),
+    ("verify",  50, (
+        (r"\bverify\b", 0.5),
+        (r"\bvalidate (?:it|the change)\b", 0.4),
+        (r"\bacceptance criteria\b", 0.4),
+    )),
+    ("trace",   50, (
+        (r"\btrace\b", 0.5),
+        (r"\bcausal (?:chain|tracing)\b", 0.5),
+        (r"\bcompeting hypotheses\b", 0.4),
+    )),
+    ("wiki",    60, (
+        (r"\bwiki\b", 0.6),
+        (r"\bknowledge base\b", 0.4),
+        (r"\bpersistent notes?\b", 0.4),
+    )),
+    ("release", 60, (
+        (r"\brelease\b", 0.5),
+        (r"\bship (?:it|this)\b", 0.4),
+        (r"\btag (?:a )?version\b", 0.4),
+    )),
+    ("remember", 60, (
+        (r"\bremember\b", 0.5),
+        (r"\bmemorize\b", 0.4),
+        (r"\bsave to memory\b", 0.5),
+    )),
+    ("mcp-setup", 70, (
+        (r"\bmcp setup\b", 0.8),
+        (r"\bset up mcp\b", 0.7),
+        (r"\bconfigure mcp\b", 0.6),
+    )),
+    ("cancel",  90, (
+        (r"\bcancel\b", 0.5),
+        (r"\babort\b", 0.4),
+        (r"\bkill (?:the )?autopilot\b", 0.7),
+    )),
+)
+
+
+def _classify_skill(prompt: str) -> dict:
+    """Score every skill and return the top pick plus ranked alternatives."""
+    prompt_lower = prompt.lower()
+    scores: list[tuple[str, float, int]] = []  # (name, score, priority)
+    for name, priority, rules in _SKILL_RULES:
+        score = 0.0
+        for pattern, weight in rules:
+            try:
+                if re.search(pattern, prompt_lower, re.IGNORECASE):
+                    score += weight
+            except re.error:
+                continue
+        scores.append((name, round(score, 4), priority))
+    # Sort: highest score first; on tie lower priority wins; name as final tie-break
+    scores.sort(key=lambda t: (-t[1], t[2], t[0]))
+    top_name, top_score, _ = scores[0]
+    ranked = [{"skill": n, "score": s} for n, s, _ in scores if s > 0]
+    if top_score >= _SKILL_MIN_SCORE:
+        primary_skill: str | None = top_name
+    else:
+        primary_skill = None
+    return {"primary_skill": primary_skill, "skill_scores": ranked}
+
+
 # Vagueness penalty phrases (case-insensitive substring match)
 _VAGUE_PHRASES = (
     "build me",
@@ -207,6 +326,7 @@ def classify(
             redirect_to=None,
             signals=signals,
             prompt=prompt,
+            skill_pick=_classify_skill(prompt),
         )
 
     # ------------------------------------------------------------------
@@ -311,6 +431,8 @@ def classify(
     # ------------------------------------------------------------------
     score = _clamp(raw_score + penalty)
 
+    skill_pick = _classify_skill(prompt)
+
     if score < threshold:
         decision = "redirect"
         redirect_to = "deep-interview"
@@ -325,6 +447,7 @@ def classify(
         redirect_to=redirect_to,
         signals=signals,
         prompt=prompt,
+        skill_pick=skill_pick,
     )
 
 
@@ -363,8 +486,9 @@ def _build_result(
     redirect_to: str | None,
     signals: list[dict],
     prompt: str,
+    skill_pick: dict | None = None,
 ) -> dict:
-    return {
+    out: dict = {
         "score": round(score, 10),  # keep full precision; callers may round
         "threshold": threshold,
         "decision": decision,
@@ -373,6 +497,10 @@ def _build_result(
         "prompt_excerpt": prompt[:240],
         "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
+    if skill_pick is not None:
+        out["primary_skill"] = skill_pick.get("primary_skill")
+        out["skill_scores"] = skill_pick.get("skill_scores", [])
+    return out
 
 
 # ---------------------------------------------------------------------------

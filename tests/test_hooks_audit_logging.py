@@ -162,6 +162,43 @@ class TestWriteMetric(unittest.TestCase):
             self.assertEqual(r["value"], i)
 
 
+class TestAuditDirPermissions(unittest.TestCase):
+    """Audit writes must tighten the containing directory to 0o700 on POSIX."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._audit_dir = Path(self._tmp.name) / "audit"
+        self._log = self._audit_dir / "hooks.jsonl"
+        self._metrics = self._audit_dir / "metrics.jsonl"
+        self._lib = _load_hook_lib()
+        self._lib._audit_log_path = lambda: self._log  # type: ignore[method-assign]
+        self._lib._metrics_log_path = lambda: self._metrics  # type: ignore[method-assign]
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    @unittest.skipUnless(os.name == "posix", "posix-only chmod semantics")
+    def test_audit_dir_created_0700(self):
+        self._lib._append_audit({"hook": "test", "event_name": "x", "action": "log", "reason": ""})
+        self.assertTrue(self._audit_dir.exists())
+        mode = self._audit_dir.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o700, f"expected 0o700, got {oct(mode)}")
+
+    @unittest.skipUnless(os.name == "posix", "posix-only chmod semantics")
+    def test_metrics_writer_also_tightens_dir(self):
+        self._lib._write_metric("m", 1)
+        mode = self._audit_dir.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o700)
+
+    @unittest.skipUnless(os.name == "posix", "posix-only chmod semantics")
+    def test_wider_perm_is_tightened_on_subsequent_write(self):
+        self._audit_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(self._audit_dir, 0o755)
+        self._lib._append_audit({"hook": "test", "event_name": "x", "action": "log", "reason": ""})
+        mode = self._audit_dir.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o700)
+
+
 class TestDeprecationWarn(unittest.TestCase):
     """_deprecation_warn emits warning and creates sentinel; de-dupes on second call."""
 

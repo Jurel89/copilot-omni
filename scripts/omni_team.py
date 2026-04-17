@@ -142,8 +142,13 @@ class _TmuxSession:
             if os.environ.get("OMNI_EXPERIMENTAL_TEAM") != "1":
                 raise RuntimeError(
                     "tmux is not supported on Windows without OMNI_EXPERIMENTAL_TEAM=1. "
-                    "Set OMNI_EXPERIMENTAL_TEAM=1 to enable experimental tmux support, "
-                    "or use the subprocess fallback (use_tmux=False)."
+                    "Options:\n"
+                    "  1. Run with OMNI_EXPERIMENTAL_TEAM=1 if you have tmux "
+                    "available under WSL / Cygwin / Git-Bash.\n"
+                    "  2. Pass use_tmux=False to get the subprocess worker host "
+                    "(no multiplexer, workers run detached).\n"
+                    "  3. See docs/TEAM-WINDOWS.md for wezterm and Windows "
+                    "Terminal panel fallbacks that match the tmux UX on nt."
                 )
             # On Windows with guard set, attempt anyway (user opted in)
 

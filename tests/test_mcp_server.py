@@ -57,11 +57,17 @@ class TestMcpServer(unittest.TestCase):
         ], self.env)
         tools = [r for r in responses if r.get("id") == 2][0]["result"]["tools"]
         names = {t["name"] for t in tools}
-        self.assertGreaterEqual(len(names), 20)
+        # Phase-C: C23 removed artifact_write + run_status (-2). New tools
+        # landed across C17/C18/C24 (memory_prune, notepad_prune, wiki_ingest,
+        # wiki_graph, lsp_hover, lsp_goto_definition, lsp_find_references,
+        # ast_grep_search, ast_grep_replace) pushed the total back up.
+        self.assertGreaterEqual(len(names), 25)
         for required in ("health", "memory_capture", "memory_search",
-                         "policy_check", "wiki_write", "state_write",
-                         "artifact_write", "run_status"):
+                         "policy_check", "wiki_write", "state_write"):
             self.assertIn(required, names)
+        for removed in ("artifact_write", "run_status"):
+            self.assertNotIn(removed, names,
+                             f"{removed} should have been deleted")
 
     def test_memory_capture_search_roundtrip(self):
         responses, _ = roundtrip([
@@ -146,7 +152,8 @@ class TestMcpServer(unittest.TestCase):
         init = [r for r in responses if r.get("id") == 1][0]
         self.assertEqual(init["result"]["serverInfo"]["name"], "copilot-omni")
         tools = [r for r in responses if r.get("id") == 2][0]
-        self.assertGreaterEqual(len(tools["result"]["tools"]), 20)
+        # Phase-C: C17/C18/C24 added 9 new tools after C23 removed 2.
+        self.assertGreaterEqual(len(tools["result"]["tools"]), 25)
         health = [r for r in responses if r.get("id") == 3][0]
         self.assertIn("content", health["result"])
 

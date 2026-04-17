@@ -60,22 +60,20 @@ class TestErrorSanitization(unittest.TestCase):
         self.assertNotIn("traceback", error_str)
 
     def test_error_response_no_filesystem_path(self):
-        """A path-traversal failure from artifact_write must not leak cwd in mirror_error."""
-        resp, _ = _call("artifact_write", {
-            "kind": "x", "body": "y",
-            "run_id": "run-safe",
-            "path": "../../../../etc/passwd"
-        }, self.env)
-        # The result should have a mirror_error about path escaping.
-        result_text = resp.get("result", {}).get("content", [{}])[0].get("text", "")
-        body = json.loads(result_text) if result_text else {}
-        mirror_error = body.get("mirror_error", "")
-        # mirror_error should NOT contain the real tmpdir path (a filesystem path).
-        self.assertNotIn(self.tmpdir.name, mirror_error)
-        # mirror_error should not contain a real absolute path from the system.
-        self.assertNotIn("/home/", mirror_error)
-        self.assertNotIn("/var/", mirror_error)
-        self.assertNotIn("/tmp/tmp", mirror_error)
+        """A handler ValueError must not leak cwd or tmpdir paths in the
+        sanitized error response.
+
+        Phase-C C23: the former artifact_write-specific assertion is replaced
+        by a generic check on state_clear (deleted tools are gone, but the
+        sanitization contract is what we actually want to protect).
+        """
+        resp, _ = _call("state_clear", {}, self.env)
+        self.assertIn("error", resp)
+        error_str = json.dumps(resp["error"])
+        self.assertNotIn(self.tmpdir.name, error_str)
+        self.assertNotIn("/home/", error_str)
+        self.assertNotIn("/var/", error_str)
+        self.assertNotIn("/tmp/tmp", error_str)
 
     def test_error_code_is_32000(self):
         """Handler exceptions must return error code -32000."""
