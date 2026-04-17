@@ -123,7 +123,7 @@ Slash commands were removed in v2.1.0. Use skills directly via Copilot CLI promp
 
 ### 28 MCP tools
 Over stdio JSON-RPC 2.0, schema-validated on every call:
-`memory` · `wiki` · `notepad` · `state` · `shared-memory` · `trace` · `session` · `policy` · `health` · `doctor` · `config` · `support-bundle` · `lsp` · `ast-grep`.
+`memory` · `wiki` · `notepad` · `state` · `shared-memory` · `trace` · `policy` · `health` · `doctor` · `lsp` · `ast-grep`.
 
 Storage: WAL-mode SQLite with `UNIQUE(mode, session_id)`.
 

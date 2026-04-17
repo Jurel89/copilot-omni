@@ -10,7 +10,7 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 | Skills | 27 | `skills/<name>/SKILL.md` |
 | Agents | 19 | `agents/<name>.md` |
 | Slash commands | 0 | (commands/ removed in v2.1.0) |
-| MCP tools | 20 | served by `mcp/server.py` |
+| MCP tools | 28 | served by `mcp/server.py` |
 | Lifecycle hooks | 1 | `hooks/session_start.py` |
 
 ## Operating principles
