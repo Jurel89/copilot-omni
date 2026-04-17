@@ -42,7 +42,6 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("# Skills", out)
         self.assertIn("# Agents", out)
-        self.assertIn("# Commands", out)
 
     def test_doctor_returns_ok_in_repo(self):
         out, _, rc = run(["doctor"])

@@ -103,7 +103,7 @@ def _tail(text: str, n: int = 200) -> str:
 def _find_repo_root() -> Path | None:
     """Walk upward from this script's location to find the repo root."""
     candidate = Path(__file__).resolve().parent.parent
-    if (candidate / ".claude-plugin" / "plugin.json").exists() and (
+    if (candidate / "plugin.json").exists() and (
         candidate / "scripts" / "omni.py"
     ).exists():
         return candidate
@@ -196,7 +196,7 @@ def preflight_repo(repo_root: Path | None) -> bool:
             "repo layout",
             FAIL,
             "Not inside a copilot-omni checkout "
-            "(missing .claude-plugin/plugin.json or scripts/omni.py). "
+            "(missing plugin.json or scripts/omni.py). "
             "Run this script from within the cloned repository.",
         )
         return False
@@ -332,12 +332,12 @@ def run_plugin_load(repo_root: Path, workdir: Path) -> bool:
 
 
 def run_skill_probe(repo_root: Path, workdir: Path) -> bool:
-    """Invoke /copilot-omni:omni-status (lightest command in commands/)."""
+    """Invoke /copilot-omni:omni-doctor (lightest command in commands/)."""
     global _quota_exhausted
-    _log("Tier 2 / Step 11: trivial skill probe (/copilot-omni:omni-status)")
+    _log("Tier 2 / Step 11: trivial skill probe (/copilot-omni:omni-doctor)")
     if _quota_exhausted:
         _record(
-            "skill probe /copilot-omni:omni-status",
+            "skill probe /copilot-omni:omni-doctor",
             SKIP,
             "skipped — upstream step already detected Copilot quota exhaustion",
         )
@@ -346,7 +346,7 @@ def run_skill_probe(repo_root: Path, workdir: Path) -> bool:
         [
             "copilot",
             "--plugin-dir", str(repo_root),
-            "-p", "/copilot-omni:omni-status",
+            "-p", "/copilot-omni:omni-doctor",
             "--allow-all",
         ],
         cwd=workdir,
@@ -359,24 +359,24 @@ def run_skill_probe(repo_root: Path, workdir: Path) -> bool:
     if any(kw in combined_lower for kw in QUOTA_EXHAUSTED_KEYWORDS):
         _quota_exhausted = True
         _record(
-            "skill probe /copilot-omni:omni-status",
+            "skill probe /copilot-omni:omni-doctor",
             SKIP,
             f"Copilot subscription quota exhausted — tail: {_tail(combined, 160)}",
         )
         return True
     if rc != 0:
-        _record("skill probe /copilot-omni:omni-status", FAIL, f"exit {rc}  tail: {_tail(combined, 200)}")
+        _record("skill probe /copilot-omni:omni-doctor", FAIL, f"exit {rc}  tail: {_tail(combined, 200)}")
         return False
     if not combined.strip():
-        _record("skill probe /copilot-omni:omni-status", FAIL, "no output returned")
+        _record("skill probe /copilot-omni:omni-doctor", FAIL, "no output returned")
         return False
     skill_errors = ("skill registration error", "failed to register", "skill not found")
     combined_lower = combined.lower()
     for e in skill_errors:
         if e in combined_lower:
-            _record("skill probe /copilot-omni:omni-status", FAIL, f"skill error: {e!r}")
+            _record("skill probe /copilot-omni:omni-doctor", FAIL, f"skill error: {e!r}")
             return False
-    _record("skill probe /copilot-omni:omni-status", PASS, f"output len={len(combined.strip())}")
+    _record("skill probe /copilot-omni:omni-doctor", PASS, f"output len={len(combined.strip())}")
     return True
 
 

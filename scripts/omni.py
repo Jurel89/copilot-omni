@@ -48,7 +48,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     ok = ok and copilot_ok
 
     root = _plugin_root()
-    manifest = root / ".claude-plugin" / "plugin.json"
+    manifest = root / "plugin.json"
     manifest_ok = manifest.exists()
     print(f"plugin.json:   {str(manifest):<40} "
           + ("OK" if manifest_ok else "FAIL"))
@@ -68,23 +68,12 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print(f"agents:        {len(agents)} " + ("OK" if len(agents) >= 15 else "FAIL"))
     ok = ok and (len(agents) >= 15)
 
-    cmds = list((root / "commands").glob("*.md"))
-    print(f"commands:      {len(cmds)} " + ("OK" if len(cmds) >= 6 else "FAIL"))
-    ok = ok and (len(cmds) >= 6)
-
     print(f"platform:      {platform.system()} {platform.release()}")
     home = Path(os.environ.get("OMNI_HOME") or (Path.home() / ".omni"))
     print(f"omni_home:     {home}")
     home.mkdir(parents=True, exist_ok=True)
 
-    # WS3: router config check
-    _doctor_router(root, home, verbose=getattr(args, "verbose", False))
-
-    # WS4: model category fallback check
     strict = getattr(args, "strict", False)
-    categories_ok = _doctor_categories(root, strict=strict)
-    if strict and not categories_ok:
-        ok = False
 
     # WS5a: subagent pool state
     pool_ok = _doctor_subagent_pool(root, strict=strict)
@@ -165,6 +154,10 @@ def _doctor_fix_python(root: Path, *, apply_: bool) -> bool:
             continue
 
         changed, data = _rewrite_python_in_config(data, current)
+        # Also expand ${OMNI_PLUGIN_ROOT} / ${CLAUDE_PLUGIN_ROOT} to the
+        # absolute plugin root so the spawn argv is self-contained even if
+        # Copilot CLI (or the user's shell) does not set that variable.
+        changed += _expand_plugin_root_vars(data, plugin_root=root)
         if not changed:
             print(f"fix-python:    {label}: already calibrated — no change")
             continue
@@ -191,12 +184,49 @@ def _doctor_fix_python(root: Path, *, apply_: bool) -> bool:
     return all_ok
 
 
+def _is_usable_python(cmd_path: Optional[str]) -> bool:
+    """Return True iff *cmd_path* actually runs as Python >= 3.9.
+
+    Guards against the Microsoft Store reparse stub at
+    ``WindowsApps\\python3.exe`` / ``WindowsApps\\python.exe``: the unblessed
+    stub is a zero-byte reparse point that either opens the Store or exits
+    silently. Launching it under Copilot CLI causes ``MCP error -32000:
+    Connection closed`` because the child never speaks JSON-RPC.
+
+    We distinguish the stub from a real Store-installed Python by
+    *executing* the candidate with a tiny version probe and a 3-second
+    timeout: a blessed interpreter prints nothing and exits 0; the stub
+    either blocks on a Store dialog (killed by timeout) or exits non-zero.
+    Zero-byte reparse points are short-circuited before the spawn so users
+    without the Store subscription don't pay the full timeout.
+    """
+    if not cmd_path:
+        return False
+    # Zero-byte reparse points never execute Python; skip the spawn and fail
+    # fast. Real installed Python.exe under WindowsApps has a non-zero size.
+    try:
+        if os.name == "nt" and os.path.getsize(cmd_path) == 0:
+            return False
+    except OSError:
+        return False
+    try:
+        result = subprocess.run(
+            [cmd_path, "-c",
+             "import sys; sys.exit(0 if sys.version_info>=(3,9) else 1)"],
+            capture_output=True,
+            timeout=3,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def _rewrite_python_in_config(
     data: object, interpreter: str
 ) -> tuple[list[tuple[str, str]], object]:
     """Walk the JSON tree and replace bare `python3` / `python` in any
     `command` field with the absolute interpreter path when the current one
-    doesn't resolve on PATH.
+    doesn't actually run.
 
     Returns (list of (before, after) pairs, mutated data). The data is
     mutated in place but also returned for convenience.
@@ -204,16 +234,24 @@ def _rewrite_python_in_config(
     changed: list[tuple[str, str]] = []
 
     def _needs_rewrite(cmd: str) -> bool:
-        # An absolute path that exists is already calibrated.
-        if os.path.isabs(cmd) and os.path.exists(cmd):
-            return False
-        # A bare name that resolves on PATH is fine too.
-        return shutil.which(cmd) is None
+        # Absolute path: rewrite unless it actually runs.
+        if os.path.isabs(cmd):
+            return not _is_usable_python(cmd)
+        # Bare name: resolve via PATH, then probe the resolved path.
+        return not _is_usable_python(shutil.which(cmd))
+
+    # Fields whose value is a shell-ish string whose head we may need to
+    # rewrite. ``command`` is the MCP config shape; ``bash`` / ``powershell``
+    # are the Copilot CLI hooks-config shape documented in the hooks-
+    # configuration reference.
+    _SHELL_STRING_FIELDS = ("command", "bash", "powershell")
 
     def _recurse(node: object) -> None:
         if isinstance(node, dict):
-            cmd = node.get("command")
-            if isinstance(cmd, str):
+            for field in _SHELL_STRING_FIELDS:
+                cmd = node.get(field)
+                if not isinstance(cmd, str):
+                    continue
                 # Hook commands are shell-ish strings (`python3 "..."` or
                 # `"C:\Program Files\Python311\python.exe" "..."`). The MCP
                 # `command` is a bare executable name. `_split_cmd_head`
@@ -224,7 +262,7 @@ def _rewrite_python_in_config(
                     new_cmd = (
                         f'"{interpreter}" {rest}' if rest else interpreter
                     )
-                    node["command"] = new_cmd
+                    node[field] = new_cmd
                     changed.append((cmd, new_cmd))
             for v in node.values():
                 _recurse(v)
@@ -234,6 +272,55 @@ def _rewrite_python_in_config(
 
     _recurse(data)
     return changed, data
+
+
+def _expand_plugin_root_vars(
+    data: object, plugin_root: Path
+) -> list[tuple[str, str]]:
+    """Expand ``${OMNI_PLUGIN_ROOT}`` / ``${CLAUDE_PLUGIN_ROOT}`` to *plugin_root*.
+
+    Copilot CLI performs ``${VAR}`` substitution from the user's environment
+    but does not itself set a plugin-root variable. An unset var leaves the
+    literal token in the spawn argv and the child process fails with
+    file-not-found. ``fix-python --apply`` calls this helper after the
+    interpreter calibration pass so every shipped install becomes tied to a
+    concrete absolute path on disk.
+
+    Mutates *data* in place. Returns the list of (before, after) replacements.
+    """
+    root_str = str(plugin_root.resolve())
+    changed: list[tuple[str, str]] = []
+
+    def _expand(s: str) -> str:
+        if "${" not in s:
+            return s
+        return (
+            s.replace("${OMNI_PLUGIN_ROOT}", root_str)
+             .replace("${CLAUDE_PLUGIN_ROOT}", root_str)
+        )
+
+    def _recurse(node: object) -> None:
+        if isinstance(node, dict):
+            for k, v in list(node.items()):
+                if isinstance(v, str):
+                    expanded = _expand(v)
+                    if expanded != v:
+                        node[k] = expanded
+                        changed.append((v, expanded))
+                else:
+                    _recurse(v)
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                if isinstance(v, str):
+                    expanded = _expand(v)
+                    if expanded != v:
+                        node[i] = expanded
+                        changed.append((v, expanded))
+                else:
+                    _recurse(v)
+
+    _recurse(data)
+    return changed
 
 
 def _split_cmd_head(cmd: str) -> tuple[str, str]:
@@ -301,112 +388,6 @@ def _doctor_run_gc(root: Path, *, apply_: bool) -> None:
     mod.run_gc(root, ttl_days=ttl_days, apply_=apply_)
 
 
-def _doctor_categories(root: Path, *, strict: bool = False) -> bool:
-    """WS4: resolve each model category and report; warn on drift.
-
-    Returns True if all categories resolve to their primary (or check failed).
-    Returns False only when strict=True and any category used a fallback.
-    """
-    resolver_path = root / "scripts" / "category_resolver.py"
-    if not resolver_path.exists():
-        print("models:        category_resolver.py not found — skipping")
-        return True
-
-    try:
-        import importlib.util as _ilu
-        spec = _ilu.spec_from_file_location("category_resolver", resolver_path)
-        if spec is None or spec.loader is None:
-            print("models:        could not load category_resolver — skipping")
-            return True
-        resolver = _ilu.module_from_spec(spec)
-        spec.loader.exec_module(resolver)  # type: ignore[union-attr]
-    except Exception as exc:
-        print(f"models:        WARN: could not import category_resolver: {exc}")
-        return True
-
-    all_ok = True
-    all_failed = True  # track if every check failed (CLI not present)
-
-    for cat in sorted(resolver.known_categories()):
-        try:
-            res = resolver.resolve(cat)
-        except Exception as exc:
-            print(f"models:        {cat}: WARN resolve error: {exc}")
-            continue
-
-        check = res.get("available_check", "?")
-        model = res.get("model", "?")
-        primary = res.get("primary", "?")
-        tried = res.get("fallbacks_tried", [])
-
-        if check != "failed":
-            all_failed = False
-
-        if tried:
-            status = f"DRIFT (fallback: {model}; primary: {primary}; tried: {tried})"
-            print(f"models:        {cat} → {status}")
-            if strict:
-                all_ok = False
-        else:
-            check_note = f"; check: {check}" if check != "ok" else ""
-            print(f"models:        {cat} → {model} (primary{check_note})")
-
-    if all_failed:
-        print("models:        WARN: availability check failed for all categories "
-              "(copilot models subcommand may not be available) — assuming primary OK")
-
-    return all_ok
-
-
-def _doctor_router(root: Path, home: Path, *, verbose: bool = False) -> None:
-    """WS3: check and display router configuration."""
-    config_path = root / ".omni" / "config.json"
-    config: dict = {}
-    if config_path.exists():
-        try:
-            config = json.loads(config_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-
-    router_cfg = config.get("router", {})
-    threshold = router_cfg.get("vagueness_threshold", None)
-
-    if threshold is None:
-        # Populate default
-        router_cfg["vagueness_threshold"] = 0.4
-        config["router"] = router_cfg
-        try:
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
-            threshold = 0.4
-            print(f"router:        vagueness_threshold=0.4 (defaulted OK)")
-        except Exception as exc:
-            print(f"router:        WARN: could not write default threshold: {exc}")
-    else:
-        print(f"router:        vagueness_threshold={threshold} OK")
-
-    if not verbose:
-        return
-
-    # Verbose: show last-N router decisions from MCP state
-    print("\n--- router decisions (last 5) ---")
-    try:
-        import importlib.util
-        state_path = root / "scripts" / "router_state.py"
-        spec = importlib.util.spec_from_file_location("router_state", state_path)
-        if spec and spec.loader:
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)  # type: ignore[union-attr]
-            result = mod.read_pipeline_state(mode="router")
-            if result is None:
-                print("  (no router state found or MCP unavailable)")
-            else:
-                print(f"  decision:  {result.get('decision', '?')}")
-                print(f"  score:     {result.get('classifier_score', '?')}")
-                print(f"  excerpt:   {str(result.get('prompt_excerpt', ''))[:80]}")
-                print(f"  ts:        {result.get('ts', '?')}")
-    except Exception as exc:
-        print(f"  (could not read router state: {exc})")
 
 
 def _doctor_subagent_pool(root: Path, *, strict: bool = False) -> bool:
@@ -855,10 +836,6 @@ def _cmd_list(args: argparse.Namespace) -> int:
         print("\n# Agents")
         for agent in sorted((root / "agents").glob("*.md")):
             print(f"  - {agent.stem}")
-    if args.kind in ("commands", "all"):
-        print("\n# Commands")
-        for cmd in sorted((root / "commands").glob("*.md")):
-            print(f"  - /{cmd.stem}")
     return 0
 
 
@@ -868,10 +845,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("version").set_defaults(func=_cmd_version)
     doctor = sub.add_parser("doctor")
-    doctor.add_argument("--verbose", action="store_true",
-                        help="Show router config and recent decisions")
     doctor.add_argument("--strict", action="store_true",
-                        help="Fail if any model category resolves to a fallback (signals drift)")
+                        help="Fail on any environment drift (stale team runs, pool caps, etc.)")
     doctor.add_argument("--gc", action="store_true",
                         help="Garbage-collect .omni/runs/ directories older than TTL (dry-run)")
     doctor.add_argument("--gc-apply", action="store_true",
@@ -923,8 +898,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="run-id or absolute path to the run directory")
     verify.set_defaults(func=_cmd_verify)
 
-    lst = sub.add_parser("list", help="List installed skills/agents/commands")
-    lst.add_argument("kind", choices=["skills", "agents", "commands", "all"],
+    lst = sub.add_parser("list", help="List installed skills and agents")
+    lst.add_argument("kind", choices=["skills", "agents", "all"],
                      nargs="?", default="all")
     lst.set_defaults(func=_cmd_list)
 

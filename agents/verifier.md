@@ -1,8 +1,6 @@
 ---
 name: verifier
 description: Verification strategy, evidence-based completion checks, test adequacy
-category: deep
-level: 3
 ---
 
 <Agent_Prompt>

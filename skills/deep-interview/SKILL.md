@@ -353,8 +353,8 @@ After the spec is written, present execution options as plain chat; the next use
 
 1. **Ralplan → Autopilot (Recommended)**
    - Description: "3-stage pipeline: consensus-refine this spec with Planner/Architect/Critic, then execute with full autopilot. Maximum quality."
-   - Action: Invoke the omni-plan skill via `/copilot-omni:omni-plan` OR read `skills/plan/SKILL.md` and follow it with `--consensus --direct` flags and the spec file path as context. When consensus completes and produces a plan in `.omni/plans/`, invoke the autopilot skill via `/copilot-omni:autopilot` OR read `skills/autopilot/SKILL.md` and follow it with the consensus plan as Phase 0+1 output — autopilot skips both Expansion and Planning, starting directly at Phase 2 (Execution).
-   - Pipeline: `deep-interview spec → omni-plan --consensus --direct → autopilot execution`
+   - Action: Invoke the plan skill via `/copilot-omni:plan` OR read `skills/plan/SKILL.md` and follow it with `--consensus --direct` flags and the spec file path as context. When consensus completes and produces a plan in `.omni/plans/`, invoke the autopilot skill via `/copilot-omni:autopilot` OR read `skills/autopilot/SKILL.md` and follow it with the consensus plan as Phase 0+1 output — autopilot skips both Expansion and Planning, starting directly at Phase 2 (Execution).
+   - Pipeline: `deep-interview spec → plan --consensus --direct → autopilot execution`
 
 2. **Execute with autopilot (skip ralplan)**
    - Description: "Full autonomous pipeline — planning, parallel implementation, QA, validation. Faster but without consensus refinement."

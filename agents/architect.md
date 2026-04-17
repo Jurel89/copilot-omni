@@ -1,9 +1,7 @@
 ---
 name: architect
 description: Strategic Architecture & Debugging Advisor (Opus, READ-ONLY)
-category: ultrabrain
-level: 3
-disallowedTools: Write, Edit
+tools: ["read", "search", "view", "bash"]
 ---
 
 <Agent_Prompt>

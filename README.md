@@ -118,8 +118,8 @@ Routing cheatsheet in [AGENTS.md](AGENTS.md).
 </td>
 <td width="50%" valign="top">
 
-### 10 slash commands
-`/omni-init` · `/omni-doctor` · `/omni-status` · `/omni-list` · `/omni-plan` · `/omni-ship` · `/omni-verify` · `/omni-memory` · `/omni-do` · `/omni-next`
+### 0 slash commands
+Slash commands were removed in v2.1.0. Use skills directly via Copilot CLI prompts.
 
 ### 20 MCP tools
 Over stdio JSON-RPC 2.0, schema-validated on every call:
@@ -127,8 +127,8 @@ Over stdio JSON-RPC 2.0, schema-validated on every call:
 
 Storage: WAL-mode SQLite with `UNIQUE(mode, session_id)`.
 
-### 4 lifecycle hooks
-`session_start` · `pre_tool_use` · `post_tool_use` · `user_prompt_submit` — atomic audit logging, five kill-switch env vars, per-hook toggles. See [docs/HOOK_CONTRACT.md](docs/HOOK_CONTRACT.md).
+### 1 lifecycle hook
+`session_start` — banner, policy permission checks, metrics. See [docs/HOOK_CONTRACT.md](docs/HOOK_CONTRACT.md).
 
 </td>
 </tr>
@@ -138,25 +138,19 @@ Storage: WAL-mode SQLite with `UNIQUE(mode, session_id)`.
 
 ```
 GitHub Copilot CLI
- ├─ reads .claude-plugin/plugin.json         ← plugin manifest
- ├─ discovers skills/ (27), agents/ (19), commands/ (10)
- ├─ wires hooks/hooks.json  → python3 hooks/*.py
- │    ├─ session_start.py       banner, policy checks, metrics
- │    ├─ pre_tool_use.py        policy guard, shlex-safe parse
- │    ├─ post_tool_use.py       audit logging, metrics
- │    └─ user_prompt_submit.py  router + skill trigger hints
- └─ wires .mcp.json         → python3 mcp/server.py
+ ├─ reads plugin.json                        ← plugin manifest (root)
+ ├─ discovers skills/ (27), agents/ (19)
+ ├─ wires hooks/hooks.json  → python hooks/session_start.py
+ │    └─ session_start.py       banner, policy checks, metrics
+ └─ wires .mcp.json         → python mcp/server.py
                                  └─ SQLite store at $OMNI_HOME/omni.db
                                      WAL mode · UNIQUE(mode, session_id)
 
-scripts/router.py              scripts/category_resolver.py
-  concreteness → gate            quick | deep | ultrabrain
-  ├─ score ≥ 0.4 → skill fires      └─ resolved per Copilot subscription
-  ├─ score < 0.4 → deep-interview
-  └─ --skip-interview → bypass
+Model selection is owned by the Copilot CLI host via the `/model` slash
+command — the plugin ships no router or category resolver of its own.
 ```
 
-Dive deeper: [ARCHITECTURE](docs/ARCHITECTURE.md) · [ROUTER](docs/ROUTER.md) · [MODELS](docs/MODELS.md) · [TEAM](docs/TEAM.md) · [STATE_MODES](docs/STATE_MODES.md)
+Dive deeper: [ARCHITECTURE](docs/ARCHITECTURE.md) · [TEAM](docs/TEAM.md) · [STATE_MODES](docs/STATE_MODES.md)
 
 ## 🛡️ Corporate-safe by design
 
@@ -256,7 +250,7 @@ Pull requests welcome. Before you open one:
    python3 -m pytest
    ```
 3. Keep runtime code to Python 3.9 **stdlib only**. Third-party imports are rejected by CI.
-4. Don't add compiled binaries. Don't add npm dependencies. Don't hardcode model names — use `category: quick|deep|ultrabrain`.
+4. Don't add compiled binaries. Don't add npm dependencies. Model selection is owned by the Copilot CLI host via `/model` — do not add `category:` frontmatter to agents.
 
 Report vulnerabilities via [SECURITY.md](SECURITY.md).
 
@@ -269,6 +263,6 @@ Report vulnerabilities via [SECURITY.md](SECURITY.md).
 <!-- omni-rename-allow: upstream-reference -->
 copilot-omni began as a Copilot-CLI rebuild of the excellent
 [`oh-my-claudecode`](https://github.com/Yeachan-Heo/oh-my-claudecode) — without it, none of the
-ergonomics would exist. Everything Copilot-specific, the router, the MCP server, the team
-orchestrator, the contract validator, and the artifact pipeline were rebuilt from scratch in pure
+ergonomics would exist. Everything Copilot-specific — the MCP server, the team
+orchestrator, the contract validator, and the artifact pipeline — were rebuilt from scratch in pure
 Python stdlib so the plugin runs anywhere Copilot CLI does and nowhere it doesn't.

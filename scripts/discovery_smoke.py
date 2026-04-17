@@ -43,10 +43,7 @@ AUDIT_DIR = ROOT / ".omni" / "audit"
 AUDIT_LOG = AUDIT_DIR / "runtime-contract.jsonl"
 
 EXPECTED_HOOK_FIELDS = {
-    "pre_tool_use.py": {"event_name", "tool_name", "tool_input"},
-    "post_tool_use.py": {"event_name", "tool_name", "tool_input", "tool_response"},
     "session_start.py": {"event_name"},
-    "user_prompt_submit.py": {"event_name", "prompt"},
 }
 
 
@@ -82,9 +79,9 @@ def _skip_copilot(cli_offline: bool) -> bool:
 def probe_layout(_: Any) -> ProbeResult:
     failures: list[str] = []
 
-    manifest = ROOT / ".claude-plugin" / "plugin.json"
+    manifest = ROOT / "plugin.json"
     if not manifest.exists():
-        failures.append("missing .claude-plugin/plugin.json")
+        failures.append("missing plugin.json")
     else:
         data = json.loads(manifest.read_text(encoding="utf-8"))
         for field in ("name", "version", "description"):
@@ -106,8 +103,9 @@ def probe_layout(_: Any) -> ProbeResult:
         failures.append(f"too few skills: {len(skills)}")
     if len(agents) < 15:
         failures.append(f"too few agents: {len(agents)}")
-    if len(commands) < 6:
-        failures.append(f"too few commands: {len(commands)}")
+    # commands/ was removed in v2.1.0; 0 is now the expected count
+    if len(commands) != 0:
+        failures.append(f"unexpected commands (should be 0 post-v2.1.0): {len(commands)}")
 
     detail = {
         "manifest": manifest.exists(),

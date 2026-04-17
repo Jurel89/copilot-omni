@@ -1,15 +1,17 @@
 # Hook Contract Reference
 
-**Version:** 2.0.0 (WS7 hardening)
-**Applies to:** `hooks/pre_tool_use.py`, `hooks/post_tool_use.py`, `hooks/session_start.py`, `hooks/user_prompt_submit.py`
+**Version:** 2.1.0
+**Applies to:** `hooks/session_start.py`
+
+> **Note (v2.1.0):** `hooks/pre_tool_use.py`, `hooks/post_tool_use.py`, and `hooks/user_prompt_submit.py` were **removed in v2.1.0** — these lifecycle events are not emitted by GitHub Copilot CLI. Policy enforcement is via the MCP `policy_check` tool. The removed sections below are retained as historical record.
 
 ---
 
 ## 1. Overview
 
-All four lifecycle hooks are pure Python stdlib scripts. They are invoked by the Copilot CLI (or Claude Code harness) at specific pipeline points. Each hook reads a JSON payload from stdin and writes a JSON response to stdout.
+The one active lifecycle hook is a pure Python stdlib script. It is invoked by the Copilot CLI at session start. The hook reads a JSON payload from stdin and writes a JSON response to stdout.
 
-All hooks **fail open**: on any unhandled error the hook exits 0 and returns `{}` so the pipeline is never blocked.
+The hook **fails open**: on any unhandled error the hook exits 0 and returns `{}` so the pipeline is never blocked.
 
 ---
 
@@ -30,7 +32,7 @@ The `<omni-banner>` tag is always present. `<policy-warning>` lines appear only 
 
 ---
 
-### 2.2 `preToolUse` — `hooks/pre_tool_use.py`
+### 2.2 `preToolUse` — `hooks/pre_tool_use.py` _(Removed in v2.1.0 — this lifecycle event is not emitted by GitHub Copilot CLI)_
 
 **Stdin:**
 ```json
@@ -49,7 +51,7 @@ Alternate field names `toolName` / `toolArgs` are also accepted.
 
 ---
 
-### 2.3 `postToolUse` — `hooks/post_tool_use.py`
+### 2.3 `postToolUse` — `hooks/post_tool_use.py` _(Removed in v2.1.0 — this lifecycle event is not emitted by GitHub Copilot CLI)_
 
 **Stdin:**
 ```json
@@ -63,7 +65,7 @@ Alternate field names `toolName` / `toolArgs` are also accepted.
 
 ---
 
-### 2.4 `userPromptSubmit` — `hooks/user_prompt_submit.py`
+### 2.4 `userPromptSubmit` — `hooks/user_prompt_submit.py` _(Removed in v2.1.0 — this lifecycle event is not emitted by GitHub Copilot CLI)_
 
 **Stdin:**
 ```json

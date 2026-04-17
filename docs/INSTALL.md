@@ -22,8 +22,8 @@ copilot plugin install copilot-omni@copilot-omni
 The first command registers the repository as a marketplace; the second installs the
 `copilot-omni` plugin from it. This is the syntax the Copilot CLI is moving to — direct
 `owner/repo` installs now emit a deprecation warning and will be removed in a future
-release. Copilot reads `.claude-plugin/plugin.json` from the repository and wires up
-skills, agents, commands, hooks, and the MCP server automatically.
+release. Copilot reads `plugin.json` at the repository root and wires up skills,
+agents, the session-start hook, and the MCP server automatically.
 
 ## Install path B — local clone
 

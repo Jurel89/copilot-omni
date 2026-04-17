@@ -149,16 +149,19 @@ corporate-machine bugs surface before landing rather than in production.
 ### 5. Agent model frontmatter
 
 v1.x agent files used `model: claude-sonnet-4.5` or similar concrete model names.
-v2.0.0 uses semantic categories resolved at runtime.
+v2.0.0 introduced semantic categories resolved at runtime.
 
-| v1.x frontmatter | v2.0.0 frontmatter |
-|-----------------|-------------------|
+> **SUPERSEDED — Note (v2.1.0):** The `category:` frontmatter is removed entirely in v2.1.0. Model selection is owned by the Copilot CLI host via `/model`. Agent frontmatter has no `category`, `level`, or `disallowedTools` fields. The table below is retained as historical record only.
+
+| v1.x frontmatter | v2.0.0 frontmatter (historical) |
+|-----------------|--------------------------------|
 | `model: claude-haiku-4-5` | `category: quick` |
 | `model: claude-sonnet-4.5` | `category: deep` |
 | `model: claude-opus-4-6` | `category: ultrabrain` |
 
-If you have custom agents in your project, update their frontmatter.
-Override the resolved model in `.omni/config.json`:
+If you have custom agents that still carry `category:` frontmatter, remove it — the field is now ignored.
+
+The `.omni/config.json` models block below was used in v2.0.0 and is also obsolete in v2.1.0:
 
 ```json
 {

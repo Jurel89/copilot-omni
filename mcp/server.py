@@ -615,7 +615,7 @@ def _tool_policy_check(args: Dict[str, Any]) -> Dict[str, Any]:
         "deny_commands": ["sudo", "rm -rf /", "mkfs", "dd if=/dev/zero",
                           ":(){ :|:& };:"],
         "protected_paths": [".omni/config.json", ".github/copilot-instructions.md",
-                            ".claude-plugin/plugin.json", "AGENTS.md"],
+                            "plugin.json", "AGENTS.md"],
     }
     policy = default
     if policy_file.exists():

@@ -2,8 +2,8 @@
   "mcpServers": {
     "copilot-omni": {
       "type": "stdio",
-      "command": "python3",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.py"]
+      "command": "python",
+      "args": ["${OMNI_PLUGIN_ROOT}/mcp/server.py"]
     }
   }
 }

@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] — v2.1.0 Copilot-CLI-native cleanup
+
+### Fixed
+
+- **Windows Python stub** — `py` launcher now preferred over bare `python3` on Windows; fallback chain handles missing interpreters gracefully.
+
+### Removed
+
+- **`.claude-plugin/` directory** — legacy plugin root directory deleted; `OMNI_PLUGIN_ROOT` is the sole root reference going forward.
+- **Router and model-category availability checks** — `scripts/router.py` front-door intent router and `scripts/category_resolver.py` model-category resolver removed. Model selection is now owned entirely by the Copilot CLI host via the `/model` slash command.
+- **`docs/MODELS.md` and `docs/ROUTER.md`** — dead reference docs deleted; superseded by Copilot CLI native model management.
+
+### Changed
+
+- **Hooks reduced to `sessionStart`** — `preToolUse`, `postToolUse`, and `stop` hooks removed from default hook set; only `sessionStart` is registered out of the box.
+- **Agent frontmatter normalized** — `model: claude-*` and `category: quick|deep|ultrabrain` frontmatter fields removed from all agent files; model selection delegated to Copilot CLI host.
+- **`CLAUDE_PLUGIN_ROOT` removed** — all remaining references in `skills/` and `docs/` replaced with `OMNI_PLUGIN_ROOT`. Legacy fallback alias dropped.
+- **ADR-0003 superseded** — model-category contract marked superseded; `category_resolver` retained as thin passthrough for backward compatibility only.
+
 ## [2.0.0] — 2026-04-16
 
 > **Breaking release.** See [docs/MIGRATION.md](docs/MIGRATION.md) for the full upgrade guide.

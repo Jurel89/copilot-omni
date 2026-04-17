@@ -27,11 +27,14 @@ class TestDefaultTargets(unittest.TestCase):
                             f"mutation target missing: {t}")
 
     def test_targets_are_high_value(self):
-        """The scope must include the three hot-path modules the backlog calls out."""
+        """The scope must include the remaining hot-path modules.
+
+        v2.1.0 removed ``scripts/router.py`` (Claude-Code-only classifier),
+        so the target set narrows to the two surviving high-value modules.
+        """
         mod = _load()
         scoped = set(mod.DEFAULT_TARGETS)
-        for expected in ("scripts/router.py", "scripts/subagent_pool.py",
-                         "scripts/category_resolver.py"):
+        for expected in ("scripts/subagent_pool.py", "scripts/category_resolver.py"):
             self.assertIn(expected, scoped)
 
 
@@ -43,8 +46,8 @@ class TestCliListing(unittest.TestCase):
             capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(result.returncode, 0)
-        self.assertIn("scripts/router.py", result.stdout)
         self.assertIn("scripts/subagent_pool.py", result.stdout)
+        self.assertIn("scripts/category_resolver.py", result.stdout)
 
 
 class TestGracefulWhenMutmutAbsent(unittest.TestCase):

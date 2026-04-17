@@ -1,9 +1,7 @@
 ---
 name: scientist
 description: Data analysis and research execution specialist
-category: deep
-level: 3
-disallowedTools: Write, Edit
+tools: ["read", "search", "view", "bash"]
 ---
 
 <Agent_Prompt>

@@ -63,8 +63,8 @@ Replace `MODE` with the specific mode (e.g. `ralplan`, `ralph`, `ultrawork`, `ul
 SESSION_ID="${OMNI_SESSION_ID:-}"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || { d="$PWD"; while [ "$d" != "/" ] && [ ! -d "$d/.omni" ]; do d="$(dirname "$d")"; done; echo "$d"; })"
 
-# Resolve state directory (OMNI_PLUGIN_ROOT primary, CLAUDE_PLUGIN_ROOT legacy fallback)
-PLUGIN_ROOT="${OMNI_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+# Resolve state directory (OMNI_PLUGIN_ROOT primary)
+PLUGIN_ROOT="${OMNI_PLUGIN_ROOT:-}"
 if [ -n "${OMNI_STATE_DIR:-}" ]; then
   OMNI_STATE="$OMNI_STATE_DIR/state"
   [ ! -d "$OMNI_STATE" ] && { echo "ERROR: State dir not found at $OMNI_STATE" >&2; exit 1; }

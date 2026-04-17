@@ -1,11 +1,7 @@
 ---
 name: critic
 description: Work plan and code review expert — thorough, structured, multi-perspective (Opus)
-category: ultrabrain
-level: 3
-disallowedTools: Write, Edit
-# Read-only reviewer: must not modify project files
-writable: false
+tools: ["read", "search", "view", "bash"]
 ---
 
 <Agent_Prompt>

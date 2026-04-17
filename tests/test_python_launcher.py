@@ -109,7 +109,7 @@ class TestFixPythonRewrite(unittest.TestCase):
                 "copilot-omni": {
                     "type": "stdio",
                     "command": "python3",
-                    "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.py"],
+                    "args": ["${OMNI_PLUGIN_ROOT}/mcp/server.py"],
                 }
             }
         }, indent=2) + "\n", encoding="utf-8")
@@ -119,11 +119,7 @@ class TestFixPythonRewrite(unittest.TestCase):
             "hooks": {
                 "sessionStart": [{
                     "type": "command",
-                    "command": 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py"',
-                }],
-                "preToolUse": [{
-                    "type": "command",
-                    "command": 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use.py"',
+                    "command": 'python3 "${OMNI_PLUGIN_ROOT}/hooks/session_start.py"',
                 }],
             }
         }, indent=2) + "\n", encoding="utf-8")
@@ -191,14 +187,72 @@ class TestFixPythonRewrite(unittest.TestCase):
         self.assertIn("already calibrated", out)
 
     def test_skip_when_command_already_on_path(self) -> None:
-        # With an unrestricted PATH, `python3` resolves and nothing should
-        # be rewritten.
+        # With an unrestricted PATH and a pre-resolved plugin-root token,
+        # `python3` resolves and nothing should be rewritten.
+        self._mcp.write_text(json.dumps({
+            "mcpServers": {
+                "copilot-omni": {
+                    "type": "stdio",
+                    "command": "python3",
+                    "args": [f"{self._tmp}/mcp/server.py"],
+                }
+            }
+        }, indent=2) + "\n", encoding="utf-8")
+        self._hooks.write_text(json.dumps({
+            "version": 1,
+            "hooks": {
+                "sessionStart": [{
+                    "type": "command",
+                    "command": f'python3 "{self._tmp}/hooks/session_start.py"',
+                }],
+            }
+        }, indent=2) + "\n", encoding="utf-8")
         mcp_before = self._mcp.read_text()
         hooks_before = self._hooks.read_text()
         out = self._run(apply_=True)
         self.assertIn("already calibrated", out)
         self.assertEqual(self._mcp.read_text(), mcp_before)
         self.assertEqual(self._hooks.read_text(), hooks_before)
+
+    def test_expands_plugin_root_token(self) -> None:
+        # fix-python must expand ${OMNI_PLUGIN_ROOT} (and the legacy
+        # ${CLAUDE_PLUGIN_ROOT}) to the absolute plugin-root path so the
+        # spawned child doesn't receive a literal shell-variable token when
+        # Copilot CLI has not set the variable in the environment.
+        self._mcp.write_text(json.dumps({
+            "mcpServers": {
+                "copilot-omni": {
+                    "type": "stdio",
+                    "command": sys.executable,  # absolute, real interpreter
+                    "args": ["${OMNI_PLUGIN_ROOT}/mcp/server.py"],
+                }
+            }
+        }, indent=2) + "\n", encoding="utf-8")
+        self._hooks.write_text(json.dumps({
+            "version": 1,
+            "hooks": {
+                "sessionStart": [{
+                    "type": "command",
+                    "command": f'"{sys.executable}" "${{CLAUDE_PLUGIN_ROOT}}/hooks/session_start.py"',
+                }],
+            }
+        }, indent=2) + "\n", encoding="utf-8")
+        out = self._run(apply_=True)
+        self.assertNotIn("already calibrated", out)
+        mcp_after = json.loads(self._mcp.read_text())
+        hooks_after = json.loads(self._hooks.read_text())
+        # Resolve the expected plugin-root path the same way the rewriter
+        # does. Windows 8.3 short-filename aliases (e.g. RUNNER~1 vs
+        # runneradmin) make a naive string compare flaky.
+        resolved_root = str(Path(self._tmp).resolve())
+        self.assertEqual(
+            Path(mcp_after["mcpServers"]["copilot-omni"]["args"][0]).resolve(),
+            Path(f"{resolved_root}/mcp/server.py").resolve(),
+        )
+        self.assertIn(
+            resolved_root,
+            hooks_after["hooks"]["sessionStart"][0]["command"],
+        )
 
     def test_malformed_json_is_reported_not_corrupted(self) -> None:
         self._mcp.write_text("{not json", encoding="utf-8")
@@ -231,14 +285,16 @@ class TestFixPythonRewrite(unittest.TestCase):
             }
         }
         # Simulate a hook command whose interpreter path contains spaces
-        # (mimics a real Windows install: C:\Program Files\...).
+        # (mimics a real Windows install: C:\Program Files\...). Plugin-root
+        # token is pre-resolved so nothing — including var expansion — needs
+        # to change.
         faux_interp = sys.executable  # absolute + exists on PATH
         fake_hooks = {
             "version": 1,
             "hooks": {
                 "sessionStart": [{
                     "type": "command",
-                    "command": f'"{faux_interp}" "${{CLAUDE_PLUGIN_ROOT}}/hooks/session_start.py"',
+                    "command": f'"{faux_interp}" "{self._tmp}/hooks/session_start.py"',
                 }],
             },
         }
@@ -254,6 +310,59 @@ class TestFixPythonRewrite(unittest.TestCase):
         # File content is byte-identical — the quoted path was not split
         # on the first space and no spurious rewrite happened.
         self.assertEqual(self._hooks.read_text(), before)
+
+
+class TestWindowsStoreStubRejection(unittest.TestCase):
+    """Regression for the MCP ``-32000 Connection closed`` bug on Windows.
+
+    ``shutil.which("python3")`` happily returns the Microsoft Store reparse
+    stub under ``%LOCALAPPDATA%\\Microsoft\\WindowsApps\\python3.exe``. The
+    stub is a 0-byte redirector that either launches the Store UI or exits
+    silently. Treating it as a valid interpreter is what caused Copilot CLI
+    to log ``MCP error -32000: Connection closed`` on every corporate Windows
+    box that had only the Store stub on PATH.
+
+    The current implementation short-circuits zero-byte files on Windows
+    (the stub's signature) and falls back to running the candidate with a
+    3-second version probe for everything else. A real Store-installed
+    Python has a non-zero size and executes the probe normally.
+    """
+
+    def test_rejects_zero_byte_file_on_windows(self) -> None:
+        # The stub is a zero-byte reparse point; a real interpreter is not.
+        # We simulate the stub with a 0-byte file and toggle os.name=nt.
+        import tempfile
+        import os as _os
+        real_os_name = _os.name
+        try:
+            _os.name = "nt"
+            with tempfile.NamedTemporaryFile(delete=False) as f:
+                stub_path = f.name
+            try:
+                self.assertEqual(_os.path.getsize(stub_path), 0)
+                self.assertFalse(omni._is_usable_python(stub_path))
+            finally:
+                _os.unlink(stub_path)
+        finally:
+            _os.name = real_os_name
+
+    def test_accepts_real_interpreter(self) -> None:
+        # The running interpreter is, by definition, usable.
+        self.assertTrue(omni._is_usable_python(sys.executable))
+
+    def test_rejects_empty_and_none(self) -> None:
+        self.assertFalse(omni._is_usable_python(""))
+        self.assertFalse(omni._is_usable_python(None))
+
+    def test_rejects_nonexistent_path(self) -> None:
+        self.assertFalse(omni._is_usable_python("/no/such/python"))
+
+    def test_does_not_over_reject_store_installed_python(self) -> None:
+        # Even on Windows, a real (non-zero-byte) interpreter is accepted —
+        # the earlier version that blanket-rejected every path under
+        # WindowsApps would wrongly fail here because installed Store Python
+        # also lives under WindowsApps.
+        self.assertTrue(omni._is_usable_python(sys.executable))
 
 
 class TestSplitCmdHead(unittest.TestCase):

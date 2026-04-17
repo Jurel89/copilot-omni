@@ -7,6 +7,6 @@
     "mkfs"
   ],
   "protected_paths": [
-    ".claude-plugin/plugin.json"
+    "plugin.json"
   ]
 }

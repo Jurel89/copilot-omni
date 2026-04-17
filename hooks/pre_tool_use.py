@@ -105,7 +105,9 @@ def _load_policy() -> Dict[str, Any]:
         "protected_paths": [
             ".omni/config.json",
             ".github/copilot-instructions.md",
-            ".claude-plugin/plugin.json",
+            "plugin.json",
+            ".mcp.json",
+            "hooks/hooks.json",
             "AGENTS.md",
         ],
     }
@@ -116,8 +118,7 @@ def _load_policy() -> Dict[str, Any]:
     profile = os.environ.get("OMNI_POLICY_PROFILE", "standard")
     cwd = Path(os.getcwd())
     candidates.append(cwd / ".omni" / f"policy-{profile}.json")
-    # OMNI_PLUGIN_ROOT (primary) > CLAUDE_PLUGIN_ROOT (legacy fallback)
-    plugin_root = os.environ.get("OMNI_PLUGIN_ROOT") or os.environ.get("CLAUDE_PLUGIN_ROOT")
+    plugin_root = os.environ.get("OMNI_PLUGIN_ROOT")
     if plugin_root:
         candidates.append(Path(plugin_root) / "policies" / f"{profile}.json")
     for p in candidates:
@@ -242,7 +243,22 @@ def main() -> int:
     policy = _load_policy()
     tool_name = (event.get("tool_name") or event.get("toolName")
                  or os.environ.get("COPILOT_TOOL_NAME") or "").lower()
-    tool_args = event.get("tool_args") or event.get("toolArgs") or {}
+    # Copilot CLI emits `toolArgs` as a JSON-encoded string (per the
+    # hooks-configuration reference). Legacy/test payloads may also pass a
+    # native dict under `tool_args`. Normalise both shapes to a dict so the
+    # downstream `tool_args.get(...)` calls don't blow up on the live event.
+    raw_args = event.get("tool_args")
+    if raw_args is None:
+        raw_args = event.get("toolArgs")
+    if isinstance(raw_args, str):
+        try:
+            tool_args = json.loads(raw_args) if raw_args else {}
+        except json.JSONDecodeError:
+            tool_args = {}
+    elif isinstance(raw_args, dict):
+        tool_args = raw_args
+    else:
+        tool_args = {}
 
     action = "allow"
     reason = ""
@@ -344,10 +360,22 @@ def main() -> int:
                                   {"hook": _HOOK_NAME})
                     return 0
 
-    if tool_name in ("edit", "write", "edit_file", "multi_edit",
-                     "multiedit", "patch", "apply_patch",
-                     "str_replace_editor", "create_file"):
-        path_raw = str(tool_args.get("file_path") or tool_args.get("path") or "")
+    # File-modification tool names Copilot CLI + legacy clients may emit. The
+    # canonical Copilot CLI set (per hooks-configuration reference) includes
+    # ``edit`` and ``create``; the other names are from older clients and
+    # tests and are kept to avoid regressions.
+    _FILE_MOD_TOOLS = (
+        "edit", "write", "edit_file", "multi_edit", "multiedit", "patch",
+        "apply_patch", "str_replace_editor", "create_file",
+        "create",  # Copilot CLI canonical name for file-creation events
+    )
+    if tool_name in _FILE_MOD_TOOLS:
+        path_raw = str(
+            tool_args.get("file_path")
+            or tool_args.get("path")
+            or tool_args.get("filePath")
+            or ""
+        )
         # Normalize path separators and resolve `..` where possible.
         # Apply Unicode NFC normalisation so a decomposed (NFD) path can't
         # bypass a composed (NFC) protected-path entry.

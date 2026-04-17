@@ -1,6 +1,10 @@
 # ADR-0003 — Model Category Contract
 
-- **Status:** Accepted
+## Status: Superseded (2026-04-17)
+
+> **Status: Superseded (2026-04-17)** — model-category routing removed in v2.1.0. Model selection is now owned by the Copilot CLI host via the `/model` slash command. The `category_resolver` module is retained as a thin passthrough for backward compatibility only.
+
+- **Status:** Superseded
 - **Date:** 2026-04-16
 - **Supersedes:** (none)
 - **Related:** ADR-0000 locked decision 6, phase-b-master-plan.md §2.WS4 + §7 WS4

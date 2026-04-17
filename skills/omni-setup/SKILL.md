@@ -116,8 +116,8 @@ Emit as plain chat and wait for the user's reply:
 
 **If user chooses "Update CLAUDE.md only":**
 - Detect if local (.claude/CLAUDE.md) or global (~/.claude/CLAUDE.md) config exists
-- If local exists, run: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-claude-md.sh" local`
-- If only global exists, run: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-claude-md.sh" global`
+- If local exists, run: `bash "${OMNI_PLUGIN_ROOT}/scripts/setup-claude-md.sh" local`
+- If only global exists, run: `bash "${OMNI_PLUGIN_ROOT}/scripts/setup-claude-md.sh" global`
 - Skip all other steps
 - Report success and exit
 
@@ -136,7 +136,7 @@ If user passes `--force` flag, skip this check and proceed directly to setup.
 Before starting any phase, check for existing state:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-progress.sh" resume
+bash "${OMNI_PLUGIN_ROOT}/scripts/setup-progress.sh" resume
 ```
 
 If state exists (output is not "fresh"), emit as plain chat and wait for the user's reply:
@@ -149,29 +149,29 @@ If state exists (output is not "fresh"), emit as plain chat and wait for the use
 
 If user chooses "Start fresh":
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-progress.sh" clear
+bash "${OMNI_PLUGIN_ROOT}/scripts/setup-progress.sh" clear
 ```
 
 ## Phase Execution
 
 ### For `--local` or `--global` flags:
-Read the file at `${CLAUDE_PLUGIN_ROOT}/skills/omni-setup/phases/01-install-claude-md.md` and follow its instructions.
+Read the file at `${OMNI_PLUGIN_ROOT}/skills/omni-setup/phases/01-install-claude-md.md` and follow its instructions.
 (The phase file handles early exit for flag mode.)
 
 ### For full setup (default or --force):
 Execute phases sequentially. For each phase, read the corresponding file and follow its instructions:
 
-1. **Phase 1 - Install CLAUDE.md**: Read `${CLAUDE_PLUGIN_ROOT}/skills/omni-setup/phases/01-install-claude-md.md` and follow its instructions.
+1. **Phase 1 - Install CLAUDE.md**: Read `${OMNI_PLUGIN_ROOT}/skills/omni-setup/phases/01-install-claude-md.md` and follow its instructions.
 
-2. **Phase 2 - Environment Configuration**: Read `${CLAUDE_PLUGIN_ROOT}/skills/omni-setup/phases/02-configure.md` and follow its instructions.
+2. **Phase 2 - Environment Configuration**: Read `${OMNI_PLUGIN_ROOT}/skills/omni-setup/phases/02-configure.md` and follow its instructions.
 
-3. **Phase 3 - Integration Setup**: Read `${CLAUDE_PLUGIN_ROOT}/skills/omni-setup/phases/03-integrations.md` and follow its instructions.
+3. **Phase 3 - Integration Setup**: Read `${OMNI_PLUGIN_ROOT}/skills/omni-setup/phases/03-integrations.md` and follow its instructions.
 
-4. **Phase 4 - Completion**: Read `${CLAUDE_PLUGIN_ROOT}/skills/omni-setup/phases/04-welcome.md` and follow its instructions.
+4. **Phase 4 - Completion**: Read `${OMNI_PLUGIN_ROOT}/skills/omni-setup/phases/04-welcome.md` and follow its instructions.
 
 ## Graceful Interrupt Handling
 
-**IMPORTANT**: This setup process saves progress after each phase via `${CLAUDE_PLUGIN_ROOT}/scripts/setup-progress.sh`. If interrupted (Ctrl+C or connection loss), the setup can resume from where it left off.
+**IMPORTANT**: This setup process saves progress after each phase via `${OMNI_PLUGIN_ROOT}/scripts/setup-progress.sh`. If interrupted (Ctrl+C or connection loss), the setup can resume from where it left off.
 
 ## Keeping Up to Date
 

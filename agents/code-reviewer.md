@@ -1,11 +1,7 @@
 ---
 name: code-reviewer
 description: Expert code review specialist with severity-rated feedback, logic defect detection, SOLID principle checks, style, performance, and quality strategy
-category: ultrabrain
-level: 3
-disallowedTools: Write, Edit
-# Read-only reviewer: must not modify project files
-writable: false
+tools: ["read", "search", "view", "bash"]
 ---
 
 <Agent_Prompt>

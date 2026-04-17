@@ -188,5 +188,5 @@ echo "Task tool set to: USER_CHOICE"
 
 ```bash
 CONFIG_TYPE=$(jq -r '.configType // "unknown"' ".omni/state/setup-state.json" 2>/dev/null || echo "unknown")
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-progress.sh" save 4 "$CONFIG_TYPE"
+bash "${OMNI_PLUGIN_ROOT}/scripts/setup-progress.sh" save 4 "$CONFIG_TYPE"
 ```

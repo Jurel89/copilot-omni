@@ -1,9 +1,7 @@
 ---
 name: analyst
 description: Pre-planning consultant for requirements analysis (Opus)
-category: ultrabrain
-level: 3
-disallowedTools: Write, Edit
+tools: ["read", "search", "view", "bash"]
 ---
 
 <Agent_Prompt>

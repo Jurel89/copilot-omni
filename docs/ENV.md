@@ -69,7 +69,7 @@ are additive — every one has a sensible default and nothing is required.
 | Var | Default | Effect |
 |---|---|---|
 | `OMNI_PLUGIN_ROOT` | computed from `__file__` | plugin root — primary |
-| `CLAUDE_PLUGIN_ROOT` | unset | legacy fallback — still honoured |
+| `OMNI_PLUGIN_ROOT` | computed from `__file__` | plugin root — primary |
 | `OMNI_SESSION_ID` | unset | session identifier used by MCP state writes |
 
 ## Cancel cascade (C33)

@@ -9,17 +9,16 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 |------|-------|----------|
 | Skills | 27 | `skills/<name>/SKILL.md` |
 | Agents | 19 | `agents/<name>.md` |
-| Slash commands | 10 | `commands/<name>.md` |
+| Slash commands | 0 | (commands/ removed in v2.1.0) |
 | MCP tools | 20 | served by `mcp/server.py` |
-| Lifecycle hooks | 4 | `hooks/*.py` |
+| Lifecycle hooks | 1 | `hooks/session_start.py` |
 
 ## Operating principles
 
 - **Delegate by capability.** Use `scripts/subagent.py <name> "<prompt>"` (or `copilot -p ... --agent <name>`) to invoke a specialist agent when the task calls for one.
 - **Evidence over assumption.** Run the verifier / code-reviewer pass separately from the writer pass. Never self-approve.
 - **Smallest viable change.** Don't broaden scope unless asked.
-- **Front-door router.** Every user prompt is scored by `scripts/router.py`. Vague prompts redirect to `deep-interview`. Bypass with `--skip-interview` only.
-- **Semantic model categories.** Agent frontmatter uses `category: quick|deep|ultrabrain`. Never hardcode a concrete model name — `scripts/category_resolver.py` resolves at runtime.
+- **Model selection via Copilot CLI.** Model selection is owned by the Copilot CLI host via `/model`. Agent frontmatter has no `category`, `level`, or `disallowedTools` fields. `scripts/category_resolver.py` is a pure passthrough.
 - **Corporate-safe.** Every runtime piece is interpreted Python (stdlib only) or Markdown. Never add compiled binaries. Never add third-party pip dependencies (enforced by CI).
 
 ## Agent roster (routing cheatsheet)
@@ -97,17 +96,15 @@ See `docs/STATE_MODES.md` for the full mode-key registry and ownership matrix (A
 
 ## Hook contract
 
-Four lifecycle hooks enforce policy and produce audit evidence:
+One lifecycle hook is active:
 
 | Hook | Script | Key responsibilities |
 |------|--------|---------------------|
 | `sessionStart` | `hooks/session_start.py` | Banner, policy permission checks, metrics |
-| `preToolUse` | `hooks/pre_tool_use.py` | Policy guard, shlex-safe argument parse |
-| `postToolUse` | `hooks/post_tool_use.py` | Audit append, metrics write |
-| `userPromptSubmit` | `hooks/user_prompt_submit.py` | Router decision, skill trigger hints |
 
-Kill switches (any stops all hooks): `OMNI_SKIP_HOOKS=1`, `DISABLE_OMNI=1`.
-Per-hook: `OMNI_SKIP_PRE_TOOL_USE=1`, `OMNI_SKIP_POST_TOOL_USE=1`, `OMNI_SKIP_SESSION_START=1`, `OMNI_SKIP_USER_PROMPT_SUBMIT=1`.
+`preToolUse`, `postToolUse`, and `userPromptSubmit` were removed in v2.1.0 — these lifecycle events are not emitted by GitHub Copilot CLI. Policy enforcement is via the MCP `policy_check` tool.
+
+Kill switches: `OMNI_SKIP_HOOKS=1`, `DISABLE_OMNI=1`, `OMNI_SKIP_SESSION_START=1`.
 Deprecated aliases (removed in v3.0.0): `OMC_SKIP_HOOKS=1`, `DISABLE_OMC=1`. <!-- omni-rename-allow: OMC legacy env var names documented here -->
 
 Full event shapes, audit schema, and metrics schema: `docs/HOOK_CONTRACT.md`.
