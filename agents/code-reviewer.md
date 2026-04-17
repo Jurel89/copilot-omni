@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Expert code review specialist with severity-rated feedback, logic defect detection, SOLID principle checks, style, performance, and quality strategy
-tools: ["read", "grep", "glob", "bash(git:*)", "bash(rg:*)"]
+tools: ["read", "search"]
 ---
 
 <Agent_Prompt>

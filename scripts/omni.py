@@ -154,6 +154,10 @@ def _doctor_fix_python(root: Path, *, apply_: bool) -> bool:
             continue
 
         changed, data = _rewrite_python_in_config(data, current)
+        # Also expand ${OMNI_PLUGIN_ROOT} / ${CLAUDE_PLUGIN_ROOT} to the
+        # absolute plugin root so the spawn argv is self-contained even if
+        # Copilot CLI (or the user's shell) does not set that variable.
+        changed += _expand_plugin_root_vars(data, plugin_root=root)
         if not changed:
             print(f"fix-python:    {label}: already calibrated — no change")
             continue
@@ -180,24 +184,30 @@ def _doctor_fix_python(root: Path, *, apply_: bool) -> bool:
     return all_ok
 
 
-_WINDOWS_APPS = os.path.join(
-    os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WindowsApps"
-).lower() if os.name == "nt" else ""
-
-
 def _is_usable_python(cmd_path: Optional[str]) -> bool:
     """Return True iff *cmd_path* actually runs as Python >= 3.9.
 
     Guards against the Microsoft Store reparse stub at
-    ``WindowsApps\\python3.exe`` / ``WindowsApps\\python.exe``, which
-    ``shutil.which()`` returns but which does not execute Python — it just
-    opens the Store or exits silently. Launching that stub under Copilot CLI
-    causes ``MCP error -32000: Connection closed`` because the child never
-    speaks JSON-RPC.
+    ``WindowsApps\\python3.exe`` / ``WindowsApps\\python.exe``: the unblessed
+    stub is a zero-byte reparse point that either opens the Store or exits
+    silently. Launching it under Copilot CLI causes ``MCP error -32000:
+    Connection closed`` because the child never speaks JSON-RPC.
+
+    We distinguish the stub from a real Store-installed Python by
+    *executing* the candidate with a tiny version probe and a 3-second
+    timeout: a blessed interpreter prints nothing and exits 0; the stub
+    either blocks on a Store dialog (killed by timeout) or exits non-zero.
+    Zero-byte reparse points are short-circuited before the spawn so users
+    without the Store subscription don't pay the full timeout.
     """
     if not cmd_path:
         return False
-    if _WINDOWS_APPS and cmd_path.lower().startswith(_WINDOWS_APPS):
+    # Zero-byte reparse points never execute Python; skip the spawn and fail
+    # fast. Real installed Python.exe under WindowsApps has a non-zero size.
+    try:
+        if os.name == "nt" and os.path.getsize(cmd_path) == 0:
+            return False
+    except OSError:
         return False
     try:
         result = subprocess.run(
@@ -230,10 +240,18 @@ def _rewrite_python_in_config(
         # Bare name: resolve via PATH, then probe the resolved path.
         return not _is_usable_python(shutil.which(cmd))
 
+    # Fields whose value is a shell-ish string whose head we may need to
+    # rewrite. ``command`` is the MCP config shape; ``bash`` / ``powershell``
+    # are the Copilot CLI hooks-config shape documented in the hooks-
+    # configuration reference.
+    _SHELL_STRING_FIELDS = ("command", "bash", "powershell")
+
     def _recurse(node: object) -> None:
         if isinstance(node, dict):
-            cmd = node.get("command")
-            if isinstance(cmd, str):
+            for field in _SHELL_STRING_FIELDS:
+                cmd = node.get(field)
+                if not isinstance(cmd, str):
+                    continue
                 # Hook commands are shell-ish strings (`python3 "..."` or
                 # `"C:\Program Files\Python311\python.exe" "..."`). The MCP
                 # `command` is a bare executable name. `_split_cmd_head`
@@ -244,7 +262,7 @@ def _rewrite_python_in_config(
                     new_cmd = (
                         f'"{interpreter}" {rest}' if rest else interpreter
                     )
-                    node["command"] = new_cmd
+                    node[field] = new_cmd
                     changed.append((cmd, new_cmd))
             for v in node.values():
                 _recurse(v)
@@ -254,6 +272,55 @@ def _rewrite_python_in_config(
 
     _recurse(data)
     return changed, data
+
+
+def _expand_plugin_root_vars(
+    data: object, plugin_root: Path
+) -> list[tuple[str, str]]:
+    """Expand ``${OMNI_PLUGIN_ROOT}`` / ``${CLAUDE_PLUGIN_ROOT}`` to *plugin_root*.
+
+    Copilot CLI performs ``${VAR}`` substitution from the user's environment
+    but does not itself set a plugin-root variable. An unset var leaves the
+    literal token in the spawn argv and the child process fails with
+    file-not-found. ``fix-python --apply`` calls this helper after the
+    interpreter calibration pass so every shipped install becomes tied to a
+    concrete absolute path on disk.
+
+    Mutates *data* in place. Returns the list of (before, after) replacements.
+    """
+    root_str = str(plugin_root.resolve())
+    changed: list[tuple[str, str]] = []
+
+    def _expand(s: str) -> str:
+        if "${" not in s:
+            return s
+        return (
+            s.replace("${OMNI_PLUGIN_ROOT}", root_str)
+             .replace("${CLAUDE_PLUGIN_ROOT}", root_str)
+        )
+
+    def _recurse(node: object) -> None:
+        if isinstance(node, dict):
+            for k, v in list(node.items()):
+                if isinstance(v, str):
+                    expanded = _expand(v)
+                    if expanded != v:
+                        node[k] = expanded
+                        changed.append((v, expanded))
+                else:
+                    _recurse(v)
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                if isinstance(v, str):
+                    expanded = _expand(v)
+                    if expanded != v:
+                        node[i] = expanded
+                        changed.append((v, expanded))
+                else:
+                    _recurse(v)
+
+    _recurse(data)
+    return changed
 
 
 def _split_cmd_head(cmd: str) -> tuple[str, str]:
@@ -831,8 +898,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="run-id or absolute path to the run directory")
     verify.set_defaults(func=_cmd_verify)
 
-    lst = sub.add_parser("list", help="List installed skills/agents/commands")
-    lst.add_argument("kind", choices=["skills", "agents", "commands", "all"],
+    lst = sub.add_parser("list", help="List installed skills and agents")
+    lst.add_argument("kind", choices=["skills", "agents", "all"],
                      nargs="?", default="all")
     lst.set_defaults(func=_cmd_list)
 

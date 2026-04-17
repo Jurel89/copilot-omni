@@ -1,7 +1,7 @@
 ---
 name: analyst
 description: Pre-planning consultant for requirements analysis (Opus)
-tools: ["read", "grep", "glob", "bash(git:*)", "bash(rg:*)"]
+tools: ["read", "search"]
 ---
 
 <Agent_Prompt>

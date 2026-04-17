@@ -1,7 +1,7 @@
 ---
 name: security-reviewer
 description: Security vulnerability detection specialist (OWASP Top 10, secrets, unsafe patterns)
-tools: ["read", "grep", "glob", "bash(git:*)", "bash(rg:*)"]
+tools: ["read", "search"]
 ---
 
 <Agent_Prompt>

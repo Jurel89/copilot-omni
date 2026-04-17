@@ -1,12 +1,23 @@
 {
   "version": 1,
-  "description": "Copilot Omni session lifecycle hook — pure Python, stdlib only, corporate-safe",
+  "description": "Copilot Omni lifecycle hooks — pure Python stdlib, corporate-safe",
   "hooks": {
     "sessionStart": [
       {
         "type": "command",
-        "command": "python \"${OMNI_PLUGIN_ROOT}/hooks/session_start.py\"",
-        "timeout": 10
+        "comment": "Session banner + policy permission checks + startup metrics",
+        "bash": "python \"${OMNI_PLUGIN_ROOT}/hooks/session_start.py\"",
+        "powershell": "python \"${OMNI_PLUGIN_ROOT}/hooks/session_start.py\"",
+        "timeoutSec": 10
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "comment": "Policy guard — shlex-safe command parse, protected-path enforcement",
+        "bash": "python \"${OMNI_PLUGIN_ROOT}/hooks/pre_tool_use.py\"",
+        "powershell": "python \"${OMNI_PLUGIN_ROOT}/hooks/pre_tool_use.py\"",
+        "timeoutSec": 8
       }
     ]
   }

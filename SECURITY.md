@@ -18,7 +18,7 @@ Copilot Omni is a **development-time orchestration layer** for GitHub Copilot CL
 
 ### Out of scope (explicit non-goals)
 
-- **Policy engine is advisory, not authoritative.** `hooks/pre_tool_use.py` does best-effort pattern matching on tool arguments. Skilled adversaries who control the LLM's input can craft commands that bypass substring and token matching (base64-piped payloads, unusual binary paths, command substitution). The engine raises the cost of accidental damage; it is not a sandbox.
+- **Policy engine is advisory, not authoritative.** Policy enforcement is via the MCP `policy_check` tool, which does best-effort pattern matching on tool arguments. Skilled adversaries who control the LLM's input can craft commands that bypass substring and token matching (base64-piped payloads, unusual binary paths, command substitution). The engine raises the cost of accidental damage; it is not a sandbox.
 - **No authentication.** The MCP server listens on stdio, started by Copilot CLI under the invoking user. Anyone who can start `python3 mcp/server.py` on your machine can already read your files.
 - **No crypto.** The SQLite store at `$OMNI_HOME/omni.db` is plaintext. Don't put secrets in `memory_capture`/`wiki_write` unless you encrypt them upstream.
 - **Supply chain of Copilot CLI itself** is not validated by this plugin.
@@ -55,6 +55,5 @@ Custom profiles live at `<cwd>/.omni/policy-<name>.json`. **Project-level policy
 ## References
 
 - `policies/*.json` — shipped profiles.
-- `hooks/pre_tool_use.py` — runtime policy enforcement.
-- `mcp/server.py` `policy_check` tool — server-side policy check MCP endpoint.
+- `mcp/server.py` `policy_check` tool — runtime policy enforcement (MCP endpoint).
 - `tests/test_security.py` — regression suite.

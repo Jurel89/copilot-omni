@@ -1,7 +1,7 @@
 ---
 name: explore
 description: Codebase search specialist for finding files and code patterns
-tools: ["read", "grep", "glob", "bash(git:*)", "bash(rg:*)"]
+tools: ["read", "search"]
 ---
 
 <Agent_Prompt>

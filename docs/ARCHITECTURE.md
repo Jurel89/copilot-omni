@@ -39,11 +39,10 @@ Protocol transport is newline-delimited JSON (one JSON-RPC message per line on s
 ### `hooks/*.py`
 
 - `session_start.py` — returns an informational banner to the session.
-- `pre_tool_use.py` — enforces policy (deny patterns, protected paths). Fails open on any error so the plugin never bricks the session.
-- `post_tool_use.py` — appends an audit entry to `.omni/audit/tool-audit.log`.
-- `user_prompt_submit.py` — scans the prompt for skill triggers and surfaces a hint.
 
-Every hook accepts its event payload on stdin and returns JSON on stdout. Budget per hook: < 500 ms on Windows (no large imports, minimal file I/O).
+`pre_tool_use.py`, `post_tool_use.py`, and `user_prompt_submit.py` were removed in v2.1.0 — these lifecycle events are not emitted by GitHub Copilot CLI. Policy enforcement is via the MCP `policy_check` tool.
+
+The hook accepts its event payload on stdin and returns JSON on stdout. Budget: < 500 ms on Windows (no large imports, minimal file I/O).
 
 ### `scripts/omni.py`
 
@@ -92,7 +91,7 @@ Schema is migrated on every server start via `_migrate()`.
 
 ## Policy model
 
-`hooks/pre_tool_use.py` looks up policies in this order:
+The MCP `policy_check` tool looks up policies in this order:
 1. `$OMNI_POLICY_FILE` (explicit override)
 2. `<cwd>/.omni/policy-<profile>.json` (per-project)
 3. `<plugin>/policies/<profile>.json` (plugin default)

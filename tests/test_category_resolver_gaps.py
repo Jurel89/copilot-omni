@@ -60,21 +60,28 @@ class TestResolveContract(unittest.TestCase):
         self.assertIsNone(res["primary"])
 
     def test_resolve_does_not_shell_out(self):
-        # Regression: confirm resolve() never invokes subprocess. We patch
-        # subprocess.run on the module under test; any call would fail the
-        # test because the mock raises.
+        # Regression: resolve() must never invoke subprocess. Patching
+        # ``subprocess.run`` at the module level catches any future
+        # re-introduction of a subprocess call regardless of how the
+        # resolver imports the module.
         from unittest import mock
-        with mock.patch.object(
-            self._mod,
-            "subprocess",
-            create=True,
-            new=mock.MagicMock(
-                run=mock.MagicMock(side_effect=AssertionError(
-                    "resolve() must not call subprocess"
-                ))
-            ),
+        with mock.patch(
+            "subprocess.run",
+            side_effect=AssertionError("resolve() must not call subprocess"),
         ):
             self._mod.resolve("deep")
+
+    def test_load_config_ignores_unknown_categories(self):
+        # Regression: user-provided categories that aren't in the known
+        # set must not leak into the resolver output.
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "config.json"
+            p.write_text(
+                json.dumps({"categories": {"turbo": {"model": "evil"}}}),
+                encoding="utf-8",
+            )
+            cfg = self._mod.load_config(p)
+        self.assertNotIn("turbo", cfg)
 
 
 class TestLoadConfig(unittest.TestCase):
