@@ -7,7 +7,6 @@
         "type": "command",
         "comment": "Session banner + policy permission checks + startup metrics",
         "bash": "python \"${COPILOT_PLUGIN_ROOT}/hooks/session_start.py\"",
-        "powershell": "python \"${COPILOT_PLUGIN_ROOT}/hooks/session_start.py\"",
         "timeoutSec": 10
       }
     ],
@@ -16,7 +15,6 @@
         "type": "command",
         "comment": "Policy guard — shlex-safe command parse, protected-path enforcement",
         "bash": "python \"${COPILOT_PLUGIN_ROOT}/hooks/pre_tool_use.py\"",
-        "powershell": "python \"${COPILOT_PLUGIN_ROOT}/hooks/pre_tool_use.py\"",
         "timeoutSec": 8
       }
     ]

@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **MCP `-32000 Connection closed` on fresh installs** — `.mcp.json` `args` now ships a relative path (`mcp/server.py`) instead of `${COPILOT_PLUGIN_ROOT}/mcp/server.py`. Copilot CLI does **not** interpolate `${VAR}` tokens inside the MCP `args` array — it forwards them verbatim — which caused the child to spawn with a literal `${COPILOT_PLUGIN_ROOT}` path segment and exit before speaking JSON-RPC. Copilot CLI sets cwd to the plugin root, so a relative path resolves correctly. (Regression guarded by `TestShippedConfigShape.test_mcp_args_is_a_relative_path`.)
+- **`spawn pwsh.exe ENOENT` on every tool call** — `hooks/hooks.json` no longer ships a `powershell` key. Copilot CLI hard-codes PowerShell Core (`pwsh.exe`) for that field and never falls back to Windows PowerShell 5.1 (`powershell.exe`), so shipping a `powershell` entry made every `preToolUse` fire fail on corporate Windows boxes that only have 5.1. The `bash` entry remains, and Copilot CLI uses it cross-shell. (Regression guarded by `TestShippedConfigShape.test_hooks_do_not_ship_powershell_key`.)
 - **Windows Python stub** — `py` launcher now preferred over bare `python3` on Windows; fallback chain handles missing interpreters gracefully.
 
 ### Removed

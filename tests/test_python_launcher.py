@@ -411,5 +411,60 @@ class TestSplitCmdHead(unittest.TestCase):
         self.assertEqual(omni._split_cmd_head("   "), ("", ""))
 
 
+class TestShippedConfigShape(unittest.TestCase):
+    """Source-level guards on the real `.mcp.json` + `hooks/hooks.json`.
+
+    Regression for two failure modes reported on fresh Copilot CLI installs:
+
+    1. MCP ``-32000 Connection closed``. Copilot CLI does **not** interpolate
+       ``${VAR}`` tokens in the MCP ``args`` array — it forwards them verbatim
+       to the child argv. Shipping ``${COPILOT_PLUGIN_ROOT}/mcp/server.py``
+       therefore surfaces as ``python: can't open file
+       '…\\copilot-omni${COPILOT_PLUGIN_ROOT}\\mcp\\server.py'`` and the MCP
+       child exits before speaking JSON-RPC. Fix: the shipped args must be a
+       *relative* path. Copilot CLI sets cwd to the plugin root at spawn time.
+    2. ``spawn pwsh.exe ENOENT`` on every tool call. Copilot CLI hard-codes
+       PowerShell Core (``pwsh.exe``) as the interpreter for the
+       ``powershell`` hook field — it never falls back to Windows PowerShell
+       5.1 (``powershell.exe``). Corporate Windows boxes typically ship only
+       5.1, so shipping a ``powershell`` key means the hook fails on every
+       ``preToolUse`` event. Omitting the key makes Copilot CLI use the
+       ``bash`` entry instead, which works cross-shell.
+    """
+
+    def test_mcp_args_is_a_relative_path(self) -> None:
+        data = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))
+        args = data["mcpServers"]["copilot-omni"]["args"]
+        self.assertTrue(args, ".mcp.json must pass at least the server path")
+        for token in args:
+            self.assertNotIn(
+                "${", token,
+                "Copilot CLI does NOT interpolate ${VAR} tokens in MCP args — "
+                f"use a relative path so cwd resolves it. Got: {token!r}",
+            )
+            self.assertFalse(
+                os.path.isabs(token),
+                "MCP args should be relative to the plugin root (Copilot CLI "
+                f"sets cwd there); absolute paths break portability: {token!r}",
+            )
+
+    def test_hooks_do_not_ship_powershell_key(self) -> None:
+        hooks = json.loads(
+            (ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8")
+        )
+        offenders: list[str] = []
+        for event, entries in hooks.get("hooks", {}).items():
+            for idx, entry in enumerate(entries):
+                if "powershell" in entry:
+                    offenders.append(f"{event}[{idx}]")
+        self.assertEqual(
+            offenders, [],
+            "hooks/hooks.json must not ship a 'powershell' key — Copilot CLI "
+            "hard-codes pwsh.exe for that field, which is absent on Windows "
+            "installs without PowerShell Core. Rely on the 'bash' key; "
+            f"offending entries: {offenders}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
