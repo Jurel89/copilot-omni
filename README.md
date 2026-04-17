@@ -167,6 +167,7 @@ Dive deeper: [ARCHITECTURE](docs/ARCHITECTURE.md) · [ROUTER](docs/ROUTER.md) ·
 - **Five kill-switches** — `OMNI_SKIP_HOOKS`, `DISABLE_OMNI`, plus per-hook `OMNI_SKIP_PRE_TOOL_USE`, `OMNI_SKIP_POST_TOOL_USE`, `OMNI_SKIP_SESSION_START`, `OMNI_SKIP_USER_PROMPT_SUBMIT`.
 - **Policy engine** — `policies/{strict,standard,permissive}.json` permission-checked on session start.
 - **~520 tests** — unit · integration · MCP-smoke · discovery-smoke · per-module coverage gates (`mcp/` ≥ 80 %, `hooks/` ≥ 70 %, `scripts/` ≥ 60 %).
+- **Local integration test (never runs in CI)** — `./scripts/itest` installs the `copilot` CLI if missing, runs `omni doctor`, the MCP stdio roundtrip, the discovery probe, and the full `verify_plugin_contract.py --all` gate (which includes `--check-external-cli` to block reintroduction of Claude/Codex/Gemini CLI calls and `hud` statusline residue). If a `copilot` auth session exists, it adds a trial-mode plugin load and a trivial slash-command invocation. Results go to `.omni/integration-test/last-run.log`. Corporate auth flows and npm install paths vary between laptops, so this test is intentionally excluded from `ci.yml`, `full-suite.yml`, and `copilot-nightly.yml` — it runs on your machine, against the `copilot` you actually use, to catch bugs CI cannot reproduce.
 
 ## 📚 Documentation
 
