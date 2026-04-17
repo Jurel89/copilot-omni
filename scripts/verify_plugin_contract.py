@@ -29,6 +29,7 @@ Usage:
     python3 scripts/verify_plugin_contract.py --list-checks
     python3 scripts/verify_plugin_contract.py --list-rename-exemptions
 """
+
 from __future__ import annotations
 
 import argparse
@@ -50,11 +51,11 @@ CheckResult = Tuple[bool, list]
 ALLOWLIST_PATHS: tuple[str, ...] = (
     ".omni/research/",
     ".omni/plans/phase-b-master-plan-v1-backup.md",
-    ".omni/plans/phase-b-critique-",   # prefix match
+    ".omni/plans/phase-b-critique-",  # prefix match
     ".omni/plans/phase-b-master-plan.md",
-    ".omni/plans/wave-2-review-",      # Wave 2 adversarial review outputs (prefix match)
+    ".omni/plans/wave-2-review-",  # Wave 2 adversarial review outputs (prefix match)
     ".omni/plans/wave-2.x-patch-report.md",
-    "docs/ADR/ADR-0000",               # prefix match
+    "docs/ADR/ADR-0000",  # prefix match
     # Runtime state dirs — not source files
     ".omc/",
     ".git/",
@@ -124,11 +125,27 @@ BANNED_PATTERNS: tuple[str, ...] = (
 )
 
 # File extensions to scan (text files only)
-SCAN_EXTENSIONS: frozenset[str] = frozenset({
-    ".md", ".py", ".json", ".yaml", ".yml", ".toml", ".txt",
-    ".cfg", ".sh", ".bash", ".zsh", ".ps1", ".cmd", ".bat",
-    ".html", ".rst", ".ini",
-})
+SCAN_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".md",
+        ".py",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".txt",
+        ".cfg",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".ps1",
+        ".cmd",
+        ".bat",
+        ".html",
+        ".rst",
+        ".ini",
+    }
+)
 
 # Max allowed inline exemptions across the whole tree (hard cap for --all)
 MAX_EXEMPTIONS = 10
@@ -172,6 +189,7 @@ def _current_exemption_cap(today_iso: str | None = None) -> int:
     resolved = env_date or today_iso
     if resolved is None:
         import datetime as _dt
+
         resolved = _dt.date.today().isoformat()
     cap = _EXEMPTION_CAP_SCHEDULE[0][1]
     for effective, value in _EXEMPTION_CAP_SCHEDULE:
@@ -299,11 +317,13 @@ def check_rename() -> CheckResult:
             for pattern in compiled:
                 if pattern.search(line):
                     if _has_allow_marker_nearby(lines_raw, line_idx):
-                        exemptions.append({
-                            "file": rel,
-                            "line": line_idx + 1,
-                            "text": lines_raw[line_idx].strip()[:120],
-                        })
+                        exemptions.append(
+                            {
+                                "file": rel,
+                                "line": line_idx + 1,
+                                "text": lines_raw[line_idx].strip()[:120],
+                            }
+                        )
                     else:
                         violations.append(
                             f"  {rel}:{line_idx + 1}: {lines_raw[line_idx].strip()[:120]}"
@@ -360,12 +380,14 @@ def _list_rename_exemptions() -> int:
             for pattern in compiled:
                 if pattern.search(line):
                     if _has_allow_marker_nearby(lines_raw, line_idx):
-                        exemptions.append({
-                            "file": rel,
-                            "line": line_idx + 1,
-                            "reason": "omni-rename-allow marker found",
-                            "text": lines_raw[line_idx].strip()[:120],
-                        })
+                        exemptions.append(
+                            {
+                                "file": rel,
+                                "line": line_idx + 1,
+                                "reason": "omni-rename-allow marker found",
+                                "text": lines_raw[line_idx].strip()[:120],
+                            }
+                        )
                     break
 
     if not exemptions:
@@ -393,21 +415,21 @@ def check_rename_stub() -> CheckResult:
 
 # Banned Claude-Code-specific primitive patterns in source files
 _CC_PRIMITIVE_PATTERNS: tuple[str, ...] = (
-    r'Task\s*\(\s*subagent_type\s*=',
-    r'AskUserQuestion\s*\(',
+    r"Task\s*\(\s*subagent_type\s*=",
+    r"AskUserQuestion\s*\(",
     r'Skill\s*\(\s*["\'](?!.*SKILL\.md)',  # Skill("name") calls, not file refs
-    r'\bstate_list_active\b',
-    r'\bSendMessage\(',      # requires immediate paren — avoids "SendMessage (no team)" prose
-    r'\bTeamCreate\(',
-    r'\bTeamDelete\(',
+    r"\bstate_list_active\b",
+    r"\bSendMessage\(",  # requires immediate paren — avoids "SendMessage (no team)" prose
+    r"\bTeamCreate\(",
+    r"\bTeamDelete\(",
 )
 
 # Paths allowlisted for the primitives check
 _CC_PRIMITIVE_ALLOWLIST: tuple[str, ...] = (
     "scripts/verify_plugin_contract.py",  # this file defines the patterns
-    "scripts/subagent.py",               # documents the replacement
-    "AGENTS.md",                         # prose documenting the translation layer
-    "docs/ARCHITECTURE.md",              # prose documenting the translation layer
+    "scripts/subagent.py",  # documents the replacement
+    "AGENTS.md",  # prose documenting the translation layer
+    "docs/ARCHITECTURE.md",  # prose documenting the translation layer
     ".git/",
     ".omc/",
     ".omni/",
@@ -479,7 +501,9 @@ def check_no_claude_primitives() -> CheckResult:
 
     if violations:
         ok = False
-        messages.append(f"FAIL: {len(violations)} banned Claude-Code primitive(s) found:")
+        messages.append(
+            f"FAIL: {len(violations)} banned Claude-Code primitive(s) found:"
+        )
         messages.extend(violations)
     else:
         if ok:
@@ -527,8 +551,11 @@ def check_writable_frontmatter() -> CheckResult:
         if not m:
             return False
         body = m.group(1)
-        entries = [e.strip().strip("'").strip('"').lower()
-                   for e in body.split(",") if e.strip()]
+        entries = [
+            e.strip().strip("'").strip('"').lower()
+            for e in body.split(",")
+            if e.strip()
+        ]
         if not entries:
             return False
         return all(e not in _WRITE_TOOLS for e in entries)
@@ -554,9 +581,9 @@ def check_writable_frontmatter() -> CheckResult:
             continue
 
         frontmatter = m.group(1)
-        writable_false = bool(re.search(
-            r"^\s*writable\s*:\s*false\s*$", frontmatter, re.MULTILINE
-        ))
+        writable_false = bool(
+            re.search(r"^\s*writable\s*:\s*false\s*$", frontmatter, re.MULTILINE)
+        )
         tools_ro = _tools_allowlist_is_read_only(frontmatter)
 
         if writable_false or tools_ro:
@@ -608,7 +635,9 @@ def check_frontmatter_schema(root: Path = ROOT) -> CheckResult:
         missing = {"name", "description"} - meta.keys()
         if missing:
             rel = str(skill.relative_to(root)).replace("\\", "/")
-            failures.append(f"FAIL: {rel}: missing frontmatter fields {sorted(missing)}")
+            failures.append(
+                f"FAIL: {rel}: missing frontmatter fields {sorted(missing)}"
+            )
         if "writable" in meta and meta["writable"] not in ("true", "false"):
             rel = str(skill.relative_to(root)).replace("\\", "/")
             failures.append(
@@ -621,7 +650,9 @@ def check_frontmatter_schema(root: Path = ROOT) -> CheckResult:
         missing = {"name", "description"} - meta.keys()
         if missing:
             rel = str(agent.relative_to(root)).replace("\\", "/")
-            failures.append(f"FAIL: {rel}: missing frontmatter fields {sorted(missing)}")
+            failures.append(
+                f"FAIL: {rel}: missing frontmatter fields {sorted(missing)}"
+            )
         if "writable" in meta and meta["writable"] not in ("true", "false"):
             rel = str(agent.relative_to(root)).replace("\\", "/")
             failures.append(
@@ -641,14 +672,18 @@ def check_frontmatter_schema(root: Path = ROOT) -> CheckResult:
             )
 
     messages: list[str] = []
-    messages.append(f"  skills: {len(skills)}, agents: {len(agents)}, commands: {len(commands)}")
+    messages.append(
+        f"  skills: {len(skills)}, agents: {len(agents)}, commands: {len(commands)}"
+    )
 
     if len(skills) < _MIN_SKILLS:
         failures.append(f"FAIL: insufficient skills: {len(skills)} < {_MIN_SKILLS}")
     if len(agents) < _MIN_AGENTS:
         failures.append(f"FAIL: insufficient agents: {len(agents)} < {_MIN_AGENTS}")
     if len(commands) < _MIN_COMMANDS:
-        failures.append(f"FAIL: insufficient commands: {len(commands)} < {_MIN_COMMANDS}")
+        failures.append(
+            f"FAIL: insufficient commands: {len(commands)} < {_MIN_COMMANDS}"
+        )
 
     ok = len(failures) == 0
     if ok:
@@ -669,18 +704,37 @@ _AGENT_REF_PATTERNS: list[tuple[str, re.Pattern]] = [
     # /copilot-omni:<name>  — agent name follows colon
     ("slash-cmd", re.compile(r"/copilot-omni:([A-Za-z0-9_-]+)")),
     # agent: <name>  in frontmatter (not a placeholder)
-    ("frontmatter-agent", re.compile(r"^\s*agent\s*:\s*([A-Za-z0-9_-]+)", re.MULTILINE)),
+    (
+        "frontmatter-agent",
+        re.compile(r"^\s*agent\s*:\s*([A-Za-z0-9_-]+)", re.MULTILINE),
+    ),
     # subagent_type=<name>  (without quotes, in prose; not angle-bracket placeholder)
     ("subagent_type", re.compile(r"subagent_type\s*=\s*[\"']([A-Za-z0-9_-]+)[\"']")),
 ]
 
 # Placeholder names and common English words that should be ignored in ref checks
-_PLACEHOLDER_NAMES: frozenset[str] = frozenset({
-    "skill-name", "agent-name", "name", "my-skill", "my-agent",
-    "follow-up-skill", "omni-",
-    # Common English words that may appear after subagent.py in prose
-    "or", "and", "to", "via", "the", "a", "an", "in", "of", "for",
-})
+_PLACEHOLDER_NAMES: frozenset[str] = frozenset(
+    {
+        "skill-name",
+        "agent-name",
+        "name",
+        "my-skill",
+        "my-agent",
+        "follow-up-skill",
+        "omni-",
+        # Common English words that may appear after subagent.py in prose
+        "or",
+        "and",
+        "to",
+        "via",
+        "the",
+        "a",
+        "an",
+        "in",
+        "of",
+        "for",
+    }
+)
 
 # Marker to allow a reference inside code fences used as examples
 _REF_ALLOW_MARKER_RE = re.compile(
@@ -708,7 +762,9 @@ def _is_agent_ref_allowlisted(rel: str) -> bool:
     return False
 
 
-def _has_ref_allow_marker_nearby(lines: list[str], line_idx: int, window: int = 3) -> bool:
+def _has_ref_allow_marker_nearby(
+    lines: list[str], line_idx: int, window: int = 3
+) -> bool:
     """Return True if an omni-ref-allow:example marker is within `window` lines."""
     start = max(0, line_idx - window)
     end = min(len(lines), line_idx + window + 1)
@@ -731,17 +787,13 @@ def check_skill_agent_refs(root: Path = ROOT) -> CheckResult:
     by check_command_refs; this check only flags names that also don't match any agent.
     Lines covered by omni-ref-allow: example within 3 lines are skipped.
     """
-    known_agents: set[str] = {
-        p.stem for p in (root / "agents").glob("*.md")
-    }
+    known_agents: set[str] = {p.stem for p in (root / "agents").glob("*.md")}
 
     # Also collect known skills and commands (slash-cmd refs may point to skills)
     known_skills: set[str] = {
         p.parent.name for p in (root / "skills").glob("*/SKILL.md")
     }
-    known_commands: set[str] = {
-        p.stem for p in (root / "commands").glob("*.md")
-    }
+    known_commands: set[str] = {p.stem for p in (root / "commands").glob("*.md")}
 
     violations: list[str] = []
 
@@ -764,13 +816,21 @@ def check_skill_agent_refs(root: Path = ROOT) -> CheckResult:
                     for m in pattern.finditer(line):
                         name = m.group(1)
                         # Skip placeholder/example names
-                        if name in _PLACEHOLDER_NAMES or name.startswith("<") or name.endswith("`"):
+                        if (
+                            name in _PLACEHOLDER_NAMES
+                            or name.startswith("<")
+                            or name.endswith("`")
+                        ):
                             continue
                         # slash-cmd refs: skip if known skill or command (handled by check_command_refs)
-                        if kind == "slash-cmd" and (name in known_skills or name in known_commands):
+                        if kind == "slash-cmd" and (
+                            name in known_skills or name in known_commands
+                        ):
                             continue
                         # subagent.py refs: skip known skills too (scripts may invoke skills)
-                        if kind == "subagent.py" and (name in known_skills or name in known_commands):
+                        if kind == "subagent.py" and (
+                            name in known_skills or name in known_commands
+                        ):
                             continue
                         if name not in known_agents:
                             if _has_ref_allow_marker_nearby(lines_raw, line_idx):
@@ -819,9 +879,7 @@ def check_command_refs(root: Path = ROOT) -> CheckResult:
     known_skills: set[str] = {
         p.parent.name for p in (root / "skills").glob("*/SKILL.md")
     }
-    known_commands: set[str] = {
-        p.stem for p in (root / "commands").glob("*.md")
-    }
+    known_commands: set[str] = {p.stem for p in (root / "commands").glob("*.md")}
     known = known_skills | known_commands
 
     violations: list[str] = []
@@ -870,9 +928,7 @@ def check_command_refs(root: Path = ROOT) -> CheckResult:
 # MCP tool reference check
 # ---------------------------------------------------------------------------
 # Tools referenced via these name patterns in skills/agents
-_MCP_TOOL_REF_RE = re.compile(
-    r"\b(?:mcp__copilot_omni_(?:\w+)|omni_(\w+))\b"
-)
+_MCP_TOOL_REF_RE = re.compile(r"\b(?:mcp__copilot_omni_(?:\w+)|omni_(\w+))\b")
 
 # Alternative pattern: prose references like "omni_<tool>" where tool maps to TOOLS key
 _OMNI_TOOL_REF_RE = re.compile(r"\bomni_([a-z_]+)\b")
@@ -1072,51 +1128,231 @@ def check_exemption_budget(root: Path = ROOT) -> CheckResult:
 # Stdlib-only imports check
 # ---------------------------------------------------------------------------
 
+
 # Stdlib module names — use sys.stdlib_module_names on Python >= 3.10,
 # fall back to a frozen list for earlier runtimes.
 def _get_stdlib_names() -> frozenset[str]:
     if hasattr(sys, "stdlib_module_names"):
         return frozenset(sys.stdlib_module_names)  # type: ignore[attr-defined]
     # Frozen fallback covering Python 3.9 stdlib
-    _STDLIB_FALLBACK = frozenset({
-        "__future__", "_thread", "abc", "aifc", "argparse", "array", "ast",
-        "asynchat", "asyncio", "asyncore", "atexit", "audioop", "base64",
-        "bdb", "binascii", "binhex", "bisect", "builtins", "bz2", "calendar",
-        "cgi", "cgitb", "chunk", "cmath", "cmd", "code", "codecs", "codeop",
-        "colorsys", "compileall", "concurrent", "configparser", "contextlib",
-        "contextvars", "copy", "copyreg", "cProfile", "csv", "ctypes",
-        "curses", "dataclasses", "datetime", "dbm", "decimal", "difflib",
-        "dis", "distutils", "doctest", "email", "encodings", "enum",
-        "errno", "faulthandler", "fcntl", "filecmp", "fileinput", "fnmatch",
-        "fractions", "ftplib", "functools", "gc", "getopt", "getpass",
-        "gettext", "glob", "grp", "gzip", "hashlib", "heapq", "hmac",
-        "html", "http", "idlelib", "imaplib", "imghdr", "importlib",
-        "inspect", "io", "ipaddress", "itertools", "json", "keyword",
-        "lib2to3", "linecache", "locale", "logging", "lzma", "mailbox",
-        "marshal", "math", "mimetypes", "mmap", "modulefinder", "multiprocessing",
-        "netrc", "nis", "nntplib", "numbers", "operator", "optparse",
-        "os", "ossaudiodev", "pathlib", "pdb", "pickle", "pickletools",
-        "pipes", "pkgutil", "platform", "plistlib", "poplib", "posix",
-        "posixpath", "pprint", "profile", "pstats", "pty", "pwd", "py_compile",
-        "pyclbr", "pydoc", "queue", "quopri", "random", "re", "readline",
-        "reprlib", "resource", "rlcompleter", "runpy", "sched", "secrets",
-        "select", "selectors", "shelve", "shlex", "shutil", "signal",
-        "site", "smtpd", "smtplib", "sndhdr", "socket", "socketserver",
-        "spwd", "sqlite3", "sre_compile", "sre_constants", "sre_parse",
-        "ssl", "stat", "statistics", "string", "stringprep", "struct",
-        "subprocess", "sunau", "symtable", "sys", "sysconfig", "syslog",
-        "tabnanny", "tarfile", "telnetlib", "tempfile", "termios", "test",
-        "textwrap", "threading", "time", "timeit", "tkinter", "token",
-        "tokenize", "tomllib", "trace", "traceback", "tracemalloc", "tty",
-        "turtle", "turtledemo", "types", "typing", "unicodedata", "unittest",
-        "urllib", "uu", "uuid", "venv", "warnings", "wave", "weakref",
-        "webbrowser", "winreg", "winsound", "wsgiref", "xdrlib", "xml",
-        "xmlrpc", "zipapp", "zipfile", "zipimport", "zlib", "zoneinfo",
-        "_collections_abc", "_weakrefset", "antigravity", "cmath", "ntpath",
-        "posixpath", "genericpath",
-        # Platform-specific stdlib (Windows)
-        "msvcrt", "_winapi",
-    })
+    _STDLIB_FALLBACK = frozenset(
+        {
+            "__future__",
+            "_thread",
+            "abc",
+            "aifc",
+            "argparse",
+            "array",
+            "ast",
+            "asynchat",
+            "asyncio",
+            "asyncore",
+            "atexit",
+            "audioop",
+            "base64",
+            "bdb",
+            "binascii",
+            "binhex",
+            "bisect",
+            "builtins",
+            "bz2",
+            "calendar",
+            "cgi",
+            "cgitb",
+            "chunk",
+            "cmath",
+            "cmd",
+            "code",
+            "codecs",
+            "codeop",
+            "colorsys",
+            "compileall",
+            "concurrent",
+            "configparser",
+            "contextlib",
+            "contextvars",
+            "copy",
+            "copyreg",
+            "cProfile",
+            "csv",
+            "ctypes",
+            "curses",
+            "dataclasses",
+            "datetime",
+            "dbm",
+            "decimal",
+            "difflib",
+            "dis",
+            "distutils",
+            "doctest",
+            "email",
+            "encodings",
+            "enum",
+            "errno",
+            "faulthandler",
+            "fcntl",
+            "filecmp",
+            "fileinput",
+            "fnmatch",
+            "fractions",
+            "ftplib",
+            "functools",
+            "gc",
+            "getopt",
+            "getpass",
+            "gettext",
+            "glob",
+            "grp",
+            "gzip",
+            "hashlib",
+            "heapq",
+            "hmac",
+            "html",
+            "http",
+            "idlelib",
+            "imaplib",
+            "imghdr",
+            "importlib",
+            "inspect",
+            "io",
+            "ipaddress",
+            "itertools",
+            "json",
+            "keyword",
+            "lib2to3",
+            "linecache",
+            "locale",
+            "logging",
+            "lzma",
+            "mailbox",
+            "marshal",
+            "math",
+            "mimetypes",
+            "mmap",
+            "modulefinder",
+            "multiprocessing",
+            "netrc",
+            "nis",
+            "nntplib",
+            "numbers",
+            "operator",
+            "optparse",
+            "os",
+            "ossaudiodev",
+            "pathlib",
+            "pdb",
+            "pickle",
+            "pickletools",
+            "pipes",
+            "pkgutil",
+            "platform",
+            "plistlib",
+            "poplib",
+            "posix",
+            "posixpath",
+            "pprint",
+            "profile",
+            "pstats",
+            "pty",
+            "pwd",
+            "py_compile",
+            "pyclbr",
+            "pydoc",
+            "queue",
+            "quopri",
+            "random",
+            "re",
+            "readline",
+            "reprlib",
+            "resource",
+            "rlcompleter",
+            "runpy",
+            "sched",
+            "secrets",
+            "select",
+            "selectors",
+            "shelve",
+            "shlex",
+            "shutil",
+            "signal",
+            "site",
+            "smtpd",
+            "smtplib",
+            "sndhdr",
+            "socket",
+            "socketserver",
+            "spwd",
+            "sqlite3",
+            "sre_compile",
+            "sre_constants",
+            "sre_parse",
+            "ssl",
+            "stat",
+            "statistics",
+            "string",
+            "stringprep",
+            "struct",
+            "subprocess",
+            "sunau",
+            "symtable",
+            "sys",
+            "sysconfig",
+            "syslog",
+            "tabnanny",
+            "tarfile",
+            "telnetlib",
+            "tempfile",
+            "termios",
+            "test",
+            "textwrap",
+            "threading",
+            "time",
+            "timeit",
+            "tkinter",
+            "token",
+            "tokenize",
+            "tomllib",
+            "trace",
+            "traceback",
+            "tracemalloc",
+            "tty",
+            "turtle",
+            "turtledemo",
+            "types",
+            "typing",
+            "unicodedata",
+            "unittest",
+            "urllib",
+            "uu",
+            "uuid",
+            "venv",
+            "warnings",
+            "wave",
+            "weakref",
+            "webbrowser",
+            "winreg",
+            "winsound",
+            "wsgiref",
+            "xdrlib",
+            "xml",
+            "xmlrpc",
+            "zipapp",
+            "zipfile",
+            "zipimport",
+            "zlib",
+            "zoneinfo",
+            "_collections_abc",
+            "_weakrefset",
+            "antigravity",
+            "cmath",
+            "ntpath",
+            "posixpath",
+            "genericpath",
+            # Platform-specific stdlib (Windows)
+            "msvcrt",
+            "_winapi",
+        }
+    )
     return _STDLIB_FALLBACK
 
 
@@ -1202,9 +1438,7 @@ def check_stdlib_only_imports(root: Path = ROOT) -> CheckResult:
                     continue
                 if in_tests and top in _TEST_FRAMEWORK_NAMES:
                     continue
-                violations.append(
-                    f"  {rel}:{lineno}: third-party import '{top}'"
-                )
+                violations.append(f"  {rel}:{lineno}: third-party import '{top}'")
 
     messages: list[str] = []
     ok = len(violations) == 0
@@ -1260,6 +1494,15 @@ _STATE_CANONICAL_ALLOWLIST_PY = (
     # WS6: omni_team.py _mcp_write_best_effort() follows the same best-effort
     # proxy pattern — writes to the state table only when MCP server is offline.
     "scripts/omni_team.py",
+    # WS5a: _subagent_wrapper.py _mcp_memory_capture_best_effort() writes to the
+    # memory table for background subagent outcome tracking. Same best-effort
+    # pattern as subagent.py — only writes when DB exists, never raises.
+    "scripts/_subagent_wrapper.py",
+    # CLI: omni.py memory subcommands write directly to the memory table for
+    # user-facing capture/prune operations. This is intentional — the CLI is a
+    # user-facing tool, not a pipeline component, and writes directly to the same
+    # DB that the MCP server uses.
+    "scripts/omni.py",
 )
 
 # Test files are excluded — they may seed the DB directly for test setup
@@ -1332,11 +1575,11 @@ def check_state_store_canonical(root: Path = ROOT) -> CheckResult:
 # Uses character classes to defeat 'hai' + 'ku' string concatenation evasion
 # (per critic §4 WS4).
 _RAW_MODEL_PATTERNS: tuple[re.Pattern, ...] = (
-    re.compile(r"claude-[Hh][Aa][Ii][Kk][Uu]"),          # claude-haiku variants
-    re.compile(r"claude-[Ss][Oo][Nn][Nn][Ee][Tt]"),        # claude-sonnet variants
-    re.compile(r"claude-[Oo][Pp][Uu][Ss]"),                # claude-opus variants
-    re.compile(r"gpt-[0-9]"),                               # gpt-4, gpt-5, etc.
-    re.compile(r"gemini-[0-9]"),                            # gemini-2.x, etc.
+    re.compile(r"claude-[Hh][Aa][Ii][Kk][Uu]"),  # claude-haiku variants
+    re.compile(r"claude-[Ss][Oo][Nn][Nn][Ee][Tt]"),  # claude-sonnet variants
+    re.compile(r"claude-[Oo][Pp][Uu][Ss]"),  # claude-opus variants
+    re.compile(r"gpt-[0-9]"),  # gpt-4, gpt-5, etc.
+    re.compile(r"gemini-[0-9]"),  # gemini-2.x, etc.
 )
 
 # Directories in scope for this check
@@ -1347,7 +1590,7 @@ _RAW_MODEL_ALLOWLIST: tuple[str, ...] = (
     "docs/MODELS.md",
     ".omni/config.json",
     "scripts/category_resolver.py",
-    "docs/ADR/ADR-0003-",              # prefix match
+    "docs/ADR/ADR-0003-",  # prefix match
     ".omni/plans/wave-2-WS4-report.md",
     "scripts/verify_plugin_contract.py",
     ".git/",
@@ -1421,8 +1664,10 @@ def check_no_raw_model_names(root: Path = ROOT) -> CheckResult:
                             f"{lines_raw[line_idx].strip()[:120]}"
                         )
                         if has_marker:
-                            exemptions.append(f"  [exempt] {rel}:{line_idx + 1}: "
-                                              f"{lines_raw[line_idx].strip()[:120]}")
+                            exemptions.append(
+                                f"  [exempt] {rel}:{line_idx + 1}: "
+                                f"{lines_raw[line_idx].strip()[:120]}"
+                            )
                         else:
                             violations.append(entry)
                         break  # one report per line
@@ -1476,10 +1721,12 @@ def check_run_directory_invariants(root: Path = ROOT) -> CheckResult:
 
     # Pattern for subagent job dirs (UUID or job-N); pipeline phase/iteration dirs are skipped
     import re as _re
+
     _JOB_DIR_RE = _re.compile(
         r"^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|job-\d+)$",
         _re.IGNORECASE,
     )
+
     # Additional marker: a subagent job dir always contains spec.json (written by WS5a)
     def _is_subagent_job_dir(d: Path) -> bool:
         """Return True if this directory is a subagent job dir (not a pipeline phase dir)."""
@@ -1507,6 +1754,7 @@ def check_run_directory_invariants(root: Path = ROOT) -> CheckResult:
 
             try:
                 import json as _json
+
                 data = _json.loads(status_path.read_text(encoding="utf-8"))
             except Exception as exc:
                 ok = False
@@ -1521,15 +1769,15 @@ def check_run_directory_invariants(root: Path = ROOT) -> CheckResult:
             if state == "running" and started_at:
                 try:
                     from datetime import datetime, timezone
+
                     fmt = "%Y-%m-%dT%H:%M:%SZ"
-                    t0 = datetime.strptime(started_at, fmt).replace(
-                        tzinfo=timezone.utc)
+                    t0 = datetime.strptime(started_at, fmt).replace(tzinfo=timezone.utc)
                     age_s = now - t0.timestamp()
                     if age_s > _RUN_STALE_SECS:
                         n_stuck += 1
                         rel = str(status_path.relative_to(root)).replace("\\", "/")
                         messages.append(
-                            f"  WARN: job stuck in 'running' for {age_s/60:.0f} min: {rel}"
+                            f"  WARN: job stuck in 'running' for {age_s / 60:.0f} min: {rel}"
                         )
                 except Exception:
                     pass
@@ -1648,7 +1896,7 @@ def _parse_registered_modes(doc_path: Path) -> set[str]:
     modes: set[str] = set()
     for line in doc_path.read_text(encoding="utf-8").splitlines():
         # Match table rows: | `mode.key` | ... |
-        m = re.search(r'\|\s*`([^`]+)`\s*\|', line)
+        m = re.search(r"\|\s*`([^`]+)`\s*\|", line)
         if m:
             modes.add(m.group(1))
     return modes
@@ -1797,7 +2045,9 @@ def check_team_modes_declared(root: Path = ROOT) -> CheckResult:
     if ok:
         messages.append("team-modes-declared check passed")
     else:
-        messages.append(f"FAIL: team-modes-declared: {len(violations)} unregistered team mode(s):")
+        messages.append(
+            f"FAIL: team-modes-declared: {len(violations)} unregistered team mode(s):"
+        )
         messages.extend(violations)
     return ok, messages
 
@@ -1837,7 +2087,7 @@ def check_worktree_hygiene(root: Path = ROOT) -> CheckResult:
         git_worktree_paths: set[str] = set()
         for line in result.stdout.splitlines():
             if line.startswith("worktree "):
-                git_worktree_paths.add(line[len("worktree "):].strip())
+                git_worktree_paths.add(line[len("worktree ") :].strip())
     except Exception:
         git_worktree_paths = set()
 
@@ -1871,7 +2121,9 @@ def check_worktree_hygiene(root: Path = ROOT) -> CheckResult:
                 team_status_path = run_dir / "status.json"
                 team_status = {}
                 try:
-                    team_status = _json.loads(team_status_path.read_text(encoding="utf-8"))
+                    team_status = _json.loads(
+                        team_status_path.read_text(encoding="utf-8")
+                    )
                 except Exception:
                     pass
                 team_state = team_status.get("state", "")
@@ -1924,6 +2176,7 @@ def check_skill_catalog_consistency(root: Path = ROOT) -> CheckResult:
         text = readme.read_text(encoding="utf-8")
         # Find line matching "**N skills** — name1, name2, ..."
         import re as _re
+
         m = _re.search(r"\*\*\d+ skills\*\*\s*—\s*([^\n]+)", text)
         if m:
             raw = m.group(1)
@@ -1942,6 +2195,7 @@ def check_skill_catalog_consistency(root: Path = ROOT) -> CheckResult:
     agents_skills: set[str] = set()
     if agents_md.exists():
         import re as _re2
+
         text = agents_md.read_text(encoding="utf-8")
         skill_section_m = _re2.search(
             r"## Skill catalog.*?(?=\n## |\Z)", text, _re2.DOTALL | _re2.IGNORECASE
@@ -1969,9 +2223,7 @@ def check_skill_catalog_consistency(root: Path = ROOT) -> CheckResult:
         )
     if readme_missing:
         ok = False
-        messages.append(
-            f"  FAIL README.md missing skills: {sorted(readme_missing)}"
-        )
+        messages.append(f"  FAIL README.md missing skills: {sorted(readme_missing)}")
     if agents_extra:
         ok = False
         messages.append(
@@ -1979,9 +2231,7 @@ def check_skill_catalog_consistency(root: Path = ROOT) -> CheckResult:
         )
     if agents_missing:
         ok = False
-        messages.append(
-            f"  FAIL AGENTS.md missing skills: {sorted(agents_missing)}"
-        )
+        messages.append(f"  FAIL AGENTS.md missing skills: {sorted(agents_missing)}")
 
     if ok:
         messages.append(
@@ -1998,21 +2248,21 @@ def check_skill_catalog_consistency(root: Path = ROOT) -> CheckResult:
 # Forbidden token patterns enforcing ADR-0000 decisions 1 (Copilot-CLI host
 # only) and 7 (no external CLIs invoked).
 _EXTERNAL_CLI_PATTERNS: tuple[str, ...] = (
-    r":hud",                                          # Claude Code statusline marker
-    r"statusLine",                                    # Claude Code config key (case-sensitive)
-    r"omni-hud",                                      # deleted HUD wrapper
-    r"/copilot-omni:hud",                             # deleted slash command
-    r"/copilot-omni:ask",                             # deleted slash command
-    r"/copilot-omni:omni-teams",                      # deleted slash command
-    r"\bccg\b",                                       # deleted CCG orchestration skill
-    r"@openai/codex",                                 # npm package for external Codex CLI
-    r"@google/gemini-cli",                            # npm package for external Gemini CLI
-    r"claude\s+--",                                   # invoking claude binary with flag
-    r"codex\s+--",                                    # invoking codex binary with flag
-    r"gemini\s+--",                                   # invoking gemini binary with flag
-    r"\bomc ask\s+(claude|codex|gemini)\b",           # old wrapper pattern
-    r"omni-teams",                                    # deleted skill name (hyphen form only)
-    r"parallel\s+\(?(claude|codex|gemini)",           # router scoring pattern
+    r":hud",  # Claude Code statusline marker
+    r"statusLine",  # Claude Code config key (case-sensitive)
+    r"omni-hud",  # deleted HUD wrapper
+    r"/copilot-omni:hud",  # deleted slash command
+    r"/copilot-omni:ask",  # deleted slash command
+    r"/copilot-omni:omni-teams",  # deleted slash command
+    r"\bccg\b",  # deleted CCG orchestration skill
+    r"@openai/codex",  # npm package for external Codex CLI
+    r"@google/gemini-cli",  # npm package for external Gemini CLI
+    r"claude\s+--",  # invoking claude binary with flag
+    r"codex\s+--",  # invoking codex binary with flag
+    r"gemini\s+--",  # invoking gemini binary with flag
+    r"\bomc ask\s+(claude|codex|gemini)\b",  # old wrapper pattern
+    r"omni-teams",  # deleted skill name (hyphen form only)
+    r"parallel\s+\(?(claude|codex|gemini)",  # router scoring pattern
 )
 
 # Paths excluded from the external-CLI check (false-positive zone).
@@ -2043,10 +2293,25 @@ _EXTERNAL_CLI_SCAN_FILES: tuple[str, ...] = (
     "docs/SKILLS.md",
 )
 
-_EXTERNAL_CLI_SCAN_EXTS: frozenset[str] = frozenset({
-    ".md", ".py", ".json", ".yaml", ".yml", ".toml", ".txt",
-    ".sh", ".bash", ".zsh", ".ps1", ".cmd", ".bat", ".js", ".ts",
-})
+_EXTERNAL_CLI_SCAN_EXTS: frozenset[str] = frozenset(
+    {
+        ".md",
+        ".py",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".txt",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".ps1",
+        ".cmd",
+        ".bat",
+        ".js",
+        ".ts",
+    }
+)
 
 
 def _is_external_cli_excluded(rel: str) -> bool:
@@ -2165,12 +2430,13 @@ def run_checks(names: list, strict: bool = False) -> int:
         # In strict mode: if a check passes but produced exemption messages, fail it
         if strict and ok:
             has_exemption = any(
-                "exempt" in m.lower() or "exemption" in m.lower()
-                for m in messages
+                "exempt" in m.lower() or "exemption" in m.lower() for m in messages
             )
             if has_exemption:
                 ok = False
-                messages.append("FAIL (--all-strict): non-zero exemption count not allowed")
+                messages.append(
+                    "FAIL (--all-strict): non-zero exemption count not allowed"
+                )
 
         status = "ok" if ok else "FAIL"
         print(f"[{status}] {name}")
@@ -2182,18 +2448,34 @@ def run_checks(names: list, strict: bool = False) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Phase-B plugin-contract verifier")
-    parser.add_argument("--all", action="store_true",
-                        help="Run every registered check (exemptions up to budget cap accepted)")
-    parser.add_argument("--all-strict", action="store_true",
-                        help="Run every check AND treat any non-zero exemption count as failure")
-    parser.add_argument("--list-checks", action="store_true",
-                        help="Print the registered checks and exit")
-    parser.add_argument("--list-rename-exemptions", action="store_true",
-                        help="Print the inline rename-allowlist exemption map and exit")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Run every registered check (exemptions up to budget cap accepted)",
+    )
+    parser.add_argument(
+        "--all-strict",
+        action="store_true",
+        help="Run every check AND treat any non-zero exemption count as failure",
+    )
+    parser.add_argument(
+        "--list-checks",
+        action="store_true",
+        help="Print the registered checks and exit",
+    )
+    parser.add_argument(
+        "--list-rename-exemptions",
+        action="store_true",
+        help="Print the inline rename-allowlist exemption map and exit",
+    )
     for name in CHECKS:
-        parser.add_argument(f"--check-{name}", action="append_const",
-                            dest="requested", const=name,
-                            help=f"Run only the {name} check")
+        parser.add_argument(
+            f"--check-{name}",
+            action="append_const",
+            dest="requested",
+            const=name,
+            help=f"Run only the {name} check",
+        )
     parser.set_defaults(requested=[])
     args = parser.parse_args()
 
