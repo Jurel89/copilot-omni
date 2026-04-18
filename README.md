@@ -171,7 +171,8 @@ GitHub Copilot CLI
                                      WAL mode · UNIQUE(mode, session_id)
 
 Model selection is owned by the Copilot CLI host via the `/model` slash
-command — the plugin ships no router or category resolver of its own.
+command. The plugin keeps a lightweight category-to-config passthrough, but it
+does not auto-probe or auto-select provider-specific models on its own.
 ```
 
 Dive deeper: [ARCHITECTURE](docs/ARCHITECTURE.md) · [TEAM](docs/TEAM.md) · [STATE_MODES](docs/STATE_MODES.md)

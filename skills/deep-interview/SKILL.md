@@ -69,7 +69,7 @@ When arguments include `--autoresearch`, Deep Interview becomes the zero-learnin
    - Run `explore` agent (quick category): check if cwd has existing source code, package files, or git history
    - If source files exist AND the user's idea references modifying/extending something: **brownfield**
    - Otherwise: **greenfield**
-3. **For brownfield**: Run `explore` agent to map relevant codebase areas, store as `codebase_context`
+3. **For brownfield**: Run `explore` agent to map relevant codebase areas, then capture a repository map with `codebase_graph` (or `omni codebase graph --json`) and store the result as `codebase_context`
 4. **Initialize state** via `state_write(mode="deep-interview")`:
 
 ```json
