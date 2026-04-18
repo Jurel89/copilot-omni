@@ -58,7 +58,7 @@ The name "deep dive" naturally implies this flow: first dig deep into the proble
 1. **Parse the user's idea** from `{{ARGUMENTS}}`
 2. **Generate slug**: kebab-case from first 5 words of ARGUMENTS, lowercased, special characters stripped. Example: "Why does the auth token expire early?" becomes `why-does-the-auth-token`
 3. **Detect brownfield vs greenfield**:
-   - Run `explore` agent (haiku): check if cwd has existing source code, package files, or git history
+   - Run `explore` agent (quick category): check if cwd has existing source code, package files, or git history
    - If source files exist AND the user's idea references modifying/extending something: **brownfield**
    - Otherwise: **greenfield**
 4. **Generate 3 trace lane hypotheses**:
@@ -121,9 +121,9 @@ After confirmation, update state to `current_phase: "trace-executing"`.
 
 Run the trace autonomously using the `copilot-omni:trace` skill's behavioral contract.
 
-### Team Mode Orchestration
+### Parallel Lane Orchestration
 
-Use **Claude built-in team mode** to run 3 parallel tracer lanes:
+Run 3 parallel tracer lanes via `scripts/subagent.py`:
 
 1. **Restate the observed result** or "why" question precisely
 2. **Spawn 3 tracer lanes** — one per confirmed hypothesis
@@ -138,7 +138,7 @@ Use **Claude built-in team mode** to run 3 parallel tracer lanes:
 5. **Detect convergence**: if two "different" hypotheses reduce to the same mechanism, merge them explicitly
 6. **Leader synthesis**: produce the ranked output below
 
-**Team mode fallback**: If team mode is unavailable or fails, fall back to sequential lane execution: run each lane's investigation serially, then synthesize results. The output structure remains identical — only the parallelism is lost.
+**Fallback**: If parallel execution is unavailable, run each lane's investigation serially, then synthesize results. The output structure remains identical — only the parallelism is lost.
 
 ### Trace Output Structure
 
@@ -308,7 +308,7 @@ Output: spec.md            Output: consensus-plan.md        Output: working code
 
 <Tool_Usage>
 - Emit lane confirmation (Phase 2) and each interview question (Phase 4) as plain chat; the next user turn carries the answer
-- Use `python3 scripts/subagent.py explore "<prompt>"` (Haiku tier) for brownfield codebase exploration (Phase 1)
+- Use `python3 scripts/subagent.py explore "<prompt>"` (quick category) for brownfield codebase exploration (Phase 1)
 - Run 3 parallel tracer lanes as sequential or background shell subagents via `scripts/subagent.py tracer "..."` (Phase 3)
 - Use `state_write(mode="deep-interview")` with `state.source = "deep-dive"` for all state persistence
 - Use `state_read(mode="deep-interview")` for resume — check `state.source === "deep-dive"` to distinguish
@@ -424,17 +424,15 @@ Why bad: Duplicates deep-interview's behavioral contract. These values should be
 <Advanced>
 ## Configuration
 
-Optional settings in `.claude/settings.json`:
+Optional settings in `.omni/config.json`:
 
 ```json
 {
-  "omc": {
-    "deepDive": {
-      "ambiguityThreshold": 0.2,
-      "defaultTraceLanes": 3,
-      "enableTeamMode": true,
-      "sequentialFallback": true
-    }
+  "deepDive": {
+    "ambiguityThreshold": 0.2,
+    "defaultTraceLanes": 3,
+    "enableParallelLanes": true,
+    "sequentialFallback": true
   }
 }
 ```

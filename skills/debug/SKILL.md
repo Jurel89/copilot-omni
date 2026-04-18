@@ -5,7 +5,7 @@ description: Diagnose the current copilot-omni session or repo state using logs,
 
 # Debug
 
-Use this skill when the user wants help diagnosing a current copilot-omni/Claude-Code session problem, workflow breakage, or confusing runtime behavior.
+Use this skill when the user wants help diagnosing a current copilot-omni/Copilot-CLI session problem, workflow breakage, or confusing runtime behavior.
 
 ## Goal
 Find the real failure signal quickly and explain the next corrective step.
