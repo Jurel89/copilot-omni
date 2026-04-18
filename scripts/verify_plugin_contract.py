@@ -1571,7 +1571,7 @@ def check_state_store_canonical(root: Path = ROOT) -> CheckResult:
 # WS4: No raw model names check
 # ---------------------------------------------------------------------------
 
-# Patterns that must not appear in skills/, agents/, commands/, hooks/
+# Patterns that must not appear in active shipped surfaces.
 # Uses character classes to defeat 'hai' + 'ku' string concatenation evasion
 # (per critic §4 WS4).
 _RAW_MODEL_PATTERNS: tuple[re.Pattern, ...] = (
@@ -1583,13 +1583,12 @@ _RAW_MODEL_PATTERNS: tuple[re.Pattern, ...] = (
 )
 
 # Directories in scope for this check
-_RAW_MODEL_SCAN_DIRS: tuple[str, ...] = ("skills", "agents", "commands", "hooks")
+_RAW_MODEL_SCAN_DIRS: tuple[str, ...] = ("skills", "agents", "commands", "hooks", "scripts")
 
 # Paths allowlisted for the raw-model-names check (relative to ROOT)
 _RAW_MODEL_ALLOWLIST: tuple[str, ...] = (
     "docs/MODELS.md",
     ".omni/config.json",
-    "scripts/category_resolver.py",
     "docs/ADR/ADR-0003-",  # prefix match
     ".omni/plans/wave-2-WS4-report.md",
     "scripts/verify_plugin_contract.py",
@@ -1613,7 +1612,7 @@ def _is_raw_model_allowlisted(rel: str) -> bool:
 
 
 def check_no_raw_model_names(root: Path = ROOT) -> CheckResult:
-    """Verify no raw model names appear in skills/, agents/, commands/, hooks/.
+    """Verify no raw model names appear in active shipped surfaces.
 
     Patterns checked (WS4):
     - claude-haiku (any case variant)
