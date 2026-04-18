@@ -47,7 +47,7 @@ description: Interactive CLI testing specialist using tmux for session managemen
 
   <Execution_Policy>
     - Default effort: medium (happy path + key error paths).
-    - Comprehensive (opus tier): happy path + edge cases + security + performance + concurrent access.
+    - Comprehensive: happy path + edge cases + security + performance + concurrent access.
     - Stop when all test cases are executed and results are documented.
   </Execution_Policy>
 
