@@ -6,7 +6,7 @@ level: 2
 
 # MCP Setup
 
-copilot-omni serves 28 MCP tools over stdio JSON-RPC 2.0 via `mcp/server.py`. This skill helps you verify the MCP layer is healthy and understand what tools are available.
+copilot-omni serves 30 MCP tools over stdio JSON-RPC 2.0 via `mcp/server.py`. This skill helps you verify the MCP layer is healthy and understand what tools are available.
 
 ## Overview
 
@@ -48,6 +48,10 @@ copilot-omni provides these MCP tool categories:
 - `wiki_list` — list all wiki entries
 - `wiki_ingest` — ingest external content
 - `wiki_graph` — build a relationship graph
+
+**Codebase:**
+- `codebase_graph` — build a repository file/import/reference graph
+- `codebase_impact` — show immediate refactor impact for a file
 
 **Notepad:**
 - `notepad_write` — write to the project notepad
@@ -113,7 +117,7 @@ PY
 MCP Configuration Check Complete!
 
 BUILT-IN TOOLS:
-- 28 MCP tools available via mcp/server.py
+- 30 MCP tools available via mcp/server.py
 - All tools schema-validated on every call
 - Storage: WAL-mode SQLite at $OMNI_HOME/omni.db
 
@@ -137,7 +141,7 @@ TROUBLESHOOTING:
 
 ## Custom MCP Servers
 
-If you need additional MCP servers beyond the 28 built-in tools, configure them through Copilot CLI's plugin system or your shell environment. copilot-omni does not provide a custom MCP installer; refer to the Copilot CLI documentation for adding external MCP servers.
+If you need additional MCP servers beyond the 30 built-in tools, configure them through Copilot CLI's plugin system or your shell environment. copilot-omni does not provide a custom MCP installer; refer to the Copilot CLI documentation for adding external MCP servers.
 
 ## Common Issues
 

@@ -68,6 +68,8 @@ omni wiki validate
 
 Use `[[slug]]`, `[[Title|slug]]`, or local markdown links like `[docs](./other-page.md)` to create wiki graph edges.
 
+For repository-level file/import/refactor analysis, use `codebase_graph` / `codebase_impact` or the CLI surface `omni codebase graph|impact` instead of `wiki_graph`.
+
 ## Storage
 - Backing store: `$OMNI_HOME/omni.db`
 - Table: `wiki`

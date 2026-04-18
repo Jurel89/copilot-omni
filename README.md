@@ -18,7 +18,7 @@
   <img alt="Platform" src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-64748b">
   <img alt="Skills" src="https://img.shields.io/badge/skills-27-6366f1">
   <img alt="Agents" src="https://img.shields.io/badge/agents-19-8b5cf6">
-  <img alt="MCP tools" src="https://img.shields.io/badge/MCP%20tools-28-a855f7">
+  <img alt="MCP tools" src="https://img.shields.io/badge/MCP%20tools-30-a855f7">
   <a href="CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-d946ef"></a>
 </p>
 
@@ -121,9 +121,9 @@ Routing cheatsheet in [AGENTS.md](AGENTS.md).
 ### 0 slash commands
 Slash commands were removed in v2.1.0. Use skills directly via Copilot CLI prompts.
 
-### 28 MCP tools
+### 30 MCP tools
 Over stdio JSON-RPC 2.0, schema-validated on every call:
-`memory` · `wiki` · `notepad` · `state` · `shared-memory` · `trace` · `policy` · `health` · `doctor` · `lsp` · `ast-grep`.
+`memory` · `wiki` · `codebase` · `notepad` · `state` · `shared-memory` · `trace` · `policy` · `health` · `doctor` · `lsp` · `ast-grep`.
 
 Storage: WAL-mode SQLite with `UNIQUE(mode, session_id)`.
 
@@ -146,6 +146,17 @@ python3 scripts/omni.py wiki validate
 python3 scripts/omni.py state list
 python3 scripts/omni.py trace timeline
 ```
+
+### Inspect the repository knowledge graph
+
+The plugin now exposes a real codebase graph for repository files, local import/reference edges, and immediate refactor impact.
+
+```bash
+python3 scripts/omni.py codebase graph --json
+python3 scripts/omni.py codebase impact scripts/omni.py --json
+```
+
+> The graphical explorer was intentionally deferred. The current priority is a corporate-safe JSON/CLI surface that agents and users can query reliably without adding dependencies or UI infrastructure.
 
 ## 🏗️ Architecture
 

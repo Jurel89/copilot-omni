@@ -6,37 +6,37 @@ user-invocable: false
 
 # copilot-omni Reference
 
-Use this built-in reference when you need detailed copilot-omni catalog information that does not need to live in every `CLAUDE.md` session.
+Use this built-in reference when you need detailed copilot-omni catalog information that does not need to live in the always-loaded session instructions.
 
 ## Agent Catalog
 
 Prefix: `copilot-omni:`. See `agents/*.md` for full prompts.
 
-- `explore` (haiku) — fast codebase search and mapping
-- `analyst` (opus) — requirements clarity and hidden constraints
-- `planner` (opus) — sequencing and execution plans
-- `architect` (opus) — system design, boundaries, and long-horizon tradeoffs
-- `debugger` (sonnet) — root-cause analysis and failure diagnosis
-- `executor` (sonnet) — implementation and refactoring
-- `verifier` (sonnet) — completion evidence and validation
-- `tracer` (sonnet) — trace gathering and evidence capture
-- `security-reviewer` (sonnet) — trust boundaries and vulnerabilities
-- `code-reviewer` (opus) — comprehensive code review
-- `test-engineer` (sonnet) — testing strategy and regression coverage
-- `designer` (sonnet) — UX and interaction design
-- `writer` (haiku) — documentation and concise content work
-- `qa-tester` (sonnet) — runtime/manual validation
-- `scientist` (sonnet) — data analysis and statistical reasoning
-- `document-specialist` (sonnet) — SDK/API/framework documentation lookup
-- `git-master` (sonnet) — commit strategy and history hygiene
-- `code-simplifier` (opus) — behavior-preserving simplification
-- `critic` (opus) — plan/design challenge and review
+- `explore` — fast codebase search and mapping
+- `analyst` — requirements clarity and hidden constraints
+- `planner` — sequencing and execution plans
+- `architect` — system design, boundaries, and long-horizon tradeoffs
+- `debugger` — root-cause analysis and failure diagnosis
+- `executor` — implementation and refactoring
+- `verifier` — completion evidence and validation
+- `tracer` — trace gathering and evidence capture
+- `security-reviewer` — trust boundaries and vulnerabilities
+- `code-reviewer` — comprehensive code review
+- `test-engineer` — testing strategy and regression coverage
+- `designer` — UX and interaction design
+- `writer` — documentation and concise content work
+- `qa-tester` — runtime/manual validation
+- `scientist` — data analysis and statistical reasoning
+- `document-specialist` — SDK/API/framework documentation lookup
+- `git-master` — commit strategy and history hygiene
+- `code-simplifier` — behavior-preserving simplification
+- `critic` — plan/design challenge and review
 
-## Model Routing
+## Execution Routing
 
-- `haiku` — quick lookups, lightweight inspection, narrow docs work
-- `sonnet` — standard implementation, debugging, and review
-- `opus` — architecture, deep analysis, consensus planning, and high-risk review
+- quick category — lightweight inspection and narrow docs work
+- standard implementation lanes — implementation, debugging, and review
+- deep/consensus lanes — architecture, deep analysis, and high-risk planning
 
 ## Tools Reference
 
@@ -62,6 +62,11 @@ Prefix: `copilot-omni:`. See `agents/*.md` for full prompts.
 ### Wiki
 - `wiki_write`, `wiki_read`, `wiki_query`, `wiki_list`, `wiki_ingest`, `wiki_graph`
 - CLI: `omni wiki list`, `omni wiki show <slug>`, `omni wiki search "query"`, `omni wiki graph`, `omni wiki validate`
+
+### Codebase graph
+- `codebase_graph`, `codebase_impact`
+- CLI: `omni codebase graph`, `omni codebase impact <path>`
+- Use this for repository-level file/import/reference relationships and immediate refactor impact; use wiki graph only for stored wiki-page links
 
 ### Shared memory
 - `shared_memory_read`, `shared_memory_write`
@@ -95,7 +100,7 @@ Invoke built-in workflows via `/copilot-omni:<name>`.
 ### Utility skills
 - `cancel`, `remember`, `omni-setup`, `mcp-setup`, `omni-doctor`, `omni-reference`, `trace`, `release`, `skill`
 
-### Keyword triggers kept compact in CLAUDE.md
+### Keyword triggers kept compact in the always-loaded session instructions
 - `"autopilot"→autopilot`
 - `"ralph"→ralph`
 - `"ulw"→ultrawork`
@@ -138,12 +143,12 @@ Use git trailers to preserve decision context in every commit message.
 ```text
 feat(docs): reduce always-loaded copilot-omni instruction footprint
 
-Move reference-only orchestration content into a native Claude skill so
+Move reference-only orchestration content into a native copilot-omni skill so
 session-start guidance stays small while detailed copilot-omni reference remains available.
 
-Constraint: Preserve CLAUDE.md marker-based installation flow
+Constraint: Preserve the lightweight always-loaded instruction footprint
 Rejected: Sync all built-in skills in legacy install | broader behavior change than issue requires
 Confidence: high
 Scope-risk: narrow
-Not-tested: End-to-end plugin marketplace install in a fresh Claude profile
+Not-tested: End-to-end plugin marketplace install in a fresh Copilot CLI profile
 ```

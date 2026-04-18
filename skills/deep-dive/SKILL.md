@@ -66,7 +66,7 @@ The name "deep dive" naturally implies this flow: first dig deep into the proble
      1. **Code-path / implementation cause**
      2. **Config / environment / orchestration cause**
      3. **Measurement / artifact / assumption mismatch cause**
-   - For brownfield: run `explore` agent to identify relevant codebase areas, store as `codebase_context` for later injection
+   - For brownfield: run `explore` agent to identify relevant codebase areas, then capture a repository map with `codebase_graph` (or `omni codebase graph --json`) and store the result as `codebase_context` for later injection
 5. **Initialize state** via `state_write(mode="deep-interview")`:
 
 ```json
