@@ -110,7 +110,7 @@ Without cleanup, the stop hook blocks all subsequent stops with `[RALPLAN - CONS
 9. On user approval (--interactive only): Call `state_write(mode="ralplan", active=false, session_id=<current_session_id>)` **before** invoking the execution skill (ralph/team), so the stop hook does not interfere with the execution mode's own enforcement. Do NOT use `state_clear` here — it writes a cancel signal that disables enforcement for the newly launched mode.
    - **Approve and implement via team**: **MUST** invoke the team skill via `/copilot-omni:team` OR read `skills/team/SKILL.md` and follow it with the approved plan path from `.omni/plans/` as context. Do NOT implement directly.
    - **Approve and execute via ralph**: **MUST** invoke the ralph skill via `/copilot-omni:ralph` OR read `skills/ralph/SKILL.md` and follow it with the approved plan path from `.omni/plans/` as context. Do NOT implement directly. Do NOT edit source code files in the planning agent.
-   - **Clear context and implement**: First run `python3 scripts/state_write.py ralplan active=false` to deactivate ralplan state, then invoke the ralph skill via `/copilot-omni:ralph` OR read `skills/ralph/SKILL.md` with the approved plan path. This path is recommended when the context window is 50%+ full after the planning session.
+   - **Clear context and implement**: First deactivate ralplan state via `state_write(mode="ralplan", session_id=<current_session_id>, body={"active": false})`, then invoke the ralph skill via `/copilot-omni:ralph` OR read `skills/ralph/SKILL.md` with the approved plan path. This path is recommended when the context window is 50%+ full after the planning session.
 
 ### Review Mode (`--review`)
 
