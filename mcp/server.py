@@ -2,7 +2,7 @@
 """
 Copilot Omni MCP server — pure stdlib, stdio JSON-RPC 2.0, MCP 2024-11-05.
 
-Exposes 28 tools across memory, state, wiki, notepad,
+Exposes 30 tools across memory, state, wiki, codebase, notepad,
 shared_memory, trace, policy, health, doctor, LSP, and ast-grep families.
 
 Runtime contract:
@@ -22,6 +22,7 @@ Storage:
 
 from __future__ import annotations
 
+import ast
 import atexit
 import hashlib as _hashlib
 import importlib.util as _importlib_util
@@ -949,6 +950,20 @@ def _tool_wiki_ingest(args: Dict[str, Any]) -> Dict[str, Any]:
 # (the segment AFTER the pipe), not the display title. Codex P2 fix.
 _WIKI_LINK_RE = re.compile(r"\[\[\s*(?:[^\]|]*\|)?\s*([^\]|]+?)\s*\]\]")
 _MD_LINK_RE = re.compile(r"\[[^\]]*?\]\(\s*([^)\s]+?)\s*\)")
+_CODEBASE_FILE_EXTENSIONS = {".py", ".md", ".json", ".toml", ".yaml", ".yml"}
+_CODEBASE_SKIP_DIRS = {
+    ".git",
+    ".omni",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "node_modules",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+}
 
 
 def _extract_wiki_targets(body: str) -> List[str]:
@@ -978,6 +993,251 @@ def _extract_wiki_targets(body: str) -> List[str]:
             seen.add(t)
             unique.append(t)
     return unique
+
+
+def _resolve_graph_root(root_arg: Optional[str]) -> Path:
+    root = Path(root_arg).expanduser().resolve() if root_arg else Path(_current_project()).resolve()
+    if not root.exists() or not root.is_dir():
+        raise ValueError(f"root does not exist or is not a directory: {root}")
+    return root
+
+
+def _iter_codebase_files(root: Path) -> List[Path]:
+    files: List[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [
+            name for name in dirnames if name not in _CODEBASE_SKIP_DIRS and not name.startswith(".")
+        ]
+        for filename in filenames:
+            if filename.startswith("."):
+                continue
+            path = Path(dirpath) / filename
+            if path.suffix.lower() in _CODEBASE_FILE_EXTENSIONS:
+                files.append(path)
+    files.sort()
+    return files
+
+
+def _module_name_for(path: Path, root: Path) -> str:
+    rel = path.relative_to(root).with_suffix("")
+    parts = list(rel.parts)
+    if parts and parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def _build_module_index(files: List[Path], root: Path) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    for path in files:
+        if path.suffix != ".py":
+            continue
+        module_name = _module_name_for(path, root)
+        if module_name:
+            out[module_name] = path.relative_to(root).as_posix()
+    return out
+
+
+def _resolve_local_import(
+    module_index: Dict[str, str],
+    current_module: str,
+    module_name: Optional[str],
+    level: int,
+) -> Optional[str]:
+    base_parts = current_module.split(".") if current_module else []
+    if current_module and level > 0:
+        base_parts = base_parts[:-1]
+        if level > 1:
+            trim = min(level - 1, len(base_parts))
+            base_parts = base_parts[:-trim]
+    candidates: List[str] = []
+    if module_name:
+        parts = module_name.split(".") if level == 0 else base_parts + module_name.split(".")
+        for end in range(len(parts), 0, -1):
+            candidates.append(".".join(parts[:end]))
+    elif base_parts:
+        candidates.append(".".join(base_parts))
+    for candidate in candidates:
+        if candidate in module_index:
+            return module_index[candidate]
+        init_name = f"{candidate}.__init__"
+        if init_name in module_index:
+            return module_index[init_name]
+    return None
+
+
+def _extract_python_graph(
+    path: Path,
+    root: Path,
+    module_index: Dict[str, str],
+) -> Tuple[List[str], List[str]]:
+    rel_path = path.relative_to(root).as_posix()
+    current_module = _module_name_for(path, root)
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=rel_path)
+    except (SyntaxError, UnicodeDecodeError, OSError):
+        return [], []
+    symbols: List[str] = []
+    imports: List[str] = []
+    seen_imports: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            symbols.append(node.name)
+    for node in ast.walk(tree):
+        target: Optional[str] = None
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                target = _resolve_local_import(module_index, current_module, alias.name, 0)
+                if target and target != rel_path and target not in seen_imports:
+                    seen_imports.add(target)
+                    imports.append(target)
+        elif isinstance(node, ast.ImportFrom):
+            target = _resolve_local_import(module_index, current_module, node.module, node.level)
+            if not target and node.module:
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    qualified = f"{node.module}.{alias.name}"
+                    target = _resolve_local_import(module_index, current_module, qualified, node.level)
+                    if target:
+                        break
+            if target and target != rel_path and target not in seen_imports:
+                seen_imports.add(target)
+                imports.append(target)
+    return symbols, imports
+
+
+def _extract_markdown_graph(path: Path, root: Path) -> List[str]:
+    try:
+        body = path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return []
+    targets: List[str] = []
+    seen: set[str] = set()
+    for match in _MD_LINK_RE.finditer(body):
+        destination = match.group(1)
+        if "://" in destination or destination.startswith("#"):
+            continue
+        candidate = (path.parent / destination).resolve()
+        options = [candidate]
+        if candidate.suffix == "":
+            options.append(candidate.with_suffix(".md"))
+            options.append(candidate.with_suffix(".py"))
+        for option in options:
+            if not option.exists() or not option.is_file():
+                continue
+            try:
+                rel = option.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if rel not in seen:
+                seen.add(rel)
+                targets.append(rel)
+            break
+    return targets
+
+
+def _build_codebase_graph(root_arg: Optional[str], include_symbols: bool = True) -> Dict[str, Any]:
+    root = _resolve_graph_root(root_arg)
+    files = _iter_codebase_files(root)
+    module_index = _build_module_index(files, root)
+    file_nodes: List[Dict[str, Any]] = []
+    nodes: List[Dict[str, Any]] = []
+    edges: List[Dict[str, str]] = []
+    symbol_count = 0
+    for path in files:
+        rel_path = path.relative_to(root).as_posix()
+        language = path.suffix.lstrip(".") or "text"
+        symbols: List[str] = []
+        imports: List[str] = []
+        references: List[str] = []
+        if path.suffix == ".py":
+            symbols, imports = _extract_python_graph(path, root, module_index)
+        elif path.suffix == ".md":
+            references = _extract_markdown_graph(path, root)
+        file_node = {
+            "id": rel_path,
+            "kind": "file",
+            "path": rel_path,
+            "language": language,
+            "symbol_count": len(symbols),
+        }
+        file_nodes.append(file_node)
+        nodes.append(file_node)
+        for target in imports:
+            edges.append({"source": rel_path, "target": target, "type": "imports"})
+        for target in references:
+            edges.append({"source": rel_path, "target": target, "type": "references"})
+        if include_symbols:
+            for symbol in symbols:
+                symbol_count += 1
+                symbol_id = f"{rel_path}#{symbol}"
+                nodes.append({"id": symbol_id, "kind": "symbol", "path": rel_path, "symbol": symbol})
+                edges.append({"source": rel_path, "target": symbol_id, "type": "defines"})
+    return {
+        "root": str(root),
+        "files": file_nodes,
+        "nodes": nodes,
+        "edges": edges,
+        "file_count": len(file_nodes),
+        "symbol_count": symbol_count,
+        "edge_count": len(edges),
+    }
+
+
+def _normalize_target_path(root: Path, raw_path: str) -> str:
+    path = Path(raw_path)
+    resolved = path.expanduser().resolve() if path.is_absolute() else (root / path).resolve()
+    return resolved.relative_to(root).as_posix()
+
+
+def _compute_codebase_impact(graph: Dict[str, Any], path_arg: str) -> Dict[str, Any]:
+    root = Path(graph["root"])
+    target = _normalize_target_path(root, path_arg)
+    file_paths = {node["path"] for node in graph["files"]}
+    if target not in file_paths:
+        raise ValueError(f"path not found in analyzed graph: {path_arg}")
+    incoming = sorted(
+        {
+            edge["source"]
+            for edge in graph["edges"]
+            if edge["target"] == target and edge["type"] in {"imports", "references"}
+        }
+    )
+    outgoing = sorted(
+        {
+            edge["target"]
+            for edge in graph["edges"]
+            if edge["source"] == target and edge["type"] in {"imports", "references"}
+        }
+    )
+    defines = sorted(
+        node["symbol"]
+        for node in graph["nodes"]
+        if node["kind"] == "symbol" and node["path"] == target
+    )
+    return {
+        "root": graph["root"],
+        "path": target,
+        "imported_by": incoming,
+        "references": outgoing,
+        "defines": defines,
+        "imported_by_count": len(incoming),
+        "references_count": len(outgoing),
+        "defines_count": len(defines),
+    }
+
+
+def _tool_codebase_graph(args: Dict[str, Any]) -> Dict[str, Any]:
+    graph = _build_codebase_graph(args.get("root"), include_symbols=bool(args.get("include_symbols", True)))
+    return _json_result(graph)
+
+
+def _tool_codebase_impact(args: Dict[str, Any]) -> Dict[str, Any]:
+    raw_path = args.get("path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        raise ValueError("path required (non-empty string)")
+    graph = _build_codebase_graph(args.get("root"), include_symbols=bool(args.get("include_symbols", True)))
+    return _json_result(_compute_codebase_impact(graph, raw_path))
 
 
 def _tool_wiki_graph(_args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1445,6 +1705,38 @@ TOOLS: Dict[str, Dict[str, Any]] = {
             "additionalProperties": False,
         },
         "handler": _tool_wiki_graph,
+    },
+    "codebase_graph": {
+        "description": (
+            "Return a codebase graph for the current project or a provided root. "
+            "Includes file nodes, local import/reference edges, and optional symbol nodes."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "root": {"type": "string"},
+                "include_symbols": {"type": "boolean"},
+            },
+            "additionalProperties": False,
+        },
+        "handler": _tool_codebase_graph,
+    },
+    "codebase_impact": {
+        "description": (
+            "Return immediate refactor-impact context for a file path: who imports/references it, "
+            "what it references, and which top-level symbols it defines."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "path": {"type": "string"},
+                "root": {"type": "string"},
+                "include_symbols": {"type": "boolean"},
+            },
+            "additionalProperties": False,
+        },
+        "handler": _tool_codebase_impact,
     },
     "notepad_write": {
         "description": "Append a notepad entry (kind: working|priority|manual).",
