@@ -68,7 +68,7 @@ description: Test strategy, integration/e2e coverage, flaky test hardening, TDD 
     - Use Grep to find untested code paths.
     - Use lsp_diagnostics to verify test code compiles.
     <External_Consultation>
-      When a second opinion would improve quality, spawn a Claude Task agent:
+      When a second opinion would improve quality, spawn a subagent:
       - Use `python3 scripts/subagent.py test-engineer "<prompt>"` for test strategy validation
       - Use `/team` to spin up a CLI worker for large-scale test analysis
       Skip silently if delegation is unavailable. Never block on external consultation.

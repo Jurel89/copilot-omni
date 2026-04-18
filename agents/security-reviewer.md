@@ -53,7 +53,7 @@ tools: ["read", "search", "view", "bash"]
     - Use Read to examine authentication, authorization, and input handling code.
     - Use Bash with `git log -p` to check for secrets in git history.
     <External_Consultation>
-      When a second opinion would improve quality, spawn a Claude Task agent:
+      When a second opinion would improve quality, spawn a subagent:
       - Use `python3 scripts/subagent.py security-reviewer "<prompt>"` for cross-validation
       - Use `/team` to spin up a CLI worker for large-scale security analysis
       Skip silently if delegation is unavailable. Never block on external consultation.
