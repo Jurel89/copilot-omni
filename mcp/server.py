@@ -84,9 +84,12 @@ def _current_project() -> str:
 # destructive ALTER); new columns must be NULLable or have defaults.
 # Exception: v6 is a one-time structural rebuild of the state table to swap
 # the scalar-mode PRIMARY KEY for a composite PRIMARY KEY(mode, session_id).
-# The rebuild is wrapped in its own BEGIN/COMMIT, runs under _MIGRATE_LOCK,
-# and the schema_version bump is executed inside the same transaction so a
-# crash cannot leave the DB half-migrated.
+# The rebuild is wrapped in its own BEGIN/COMMIT inside the SQL so the
+# DROP TABLE state + ALTER TABLE state_new RENAME pair is atomic — a crash
+# mid-rebuild rolls back and leaves the old table intact. The schema_version
+# bump happens right after the rebuild in a separate autocommit statement;
+# on a crash between those two steps the DB is still consistent (table
+# state exists) and the migration is simply re-run next startup.
 MIGRATIONS: List[Tuple[int, str]] = [
     (
         1,
