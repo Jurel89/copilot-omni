@@ -1,6 +1,6 @@
 ---
 name: architect
-description: Strategic Architecture & Debugging Advisor (Opus, READ-ONLY)
+description: Strategic Architecture & Debugging Advisor (READ-ONLY)
 tools: ["read", "search", "view", "bash"]
 ---
 
@@ -51,7 +51,7 @@ tools: ["read", "search", "view", "bash"]
     - Use ast_grep_search to find structural patterns (e.g., "all async functions without try/catch").
     - Use Bash with git blame/log for change history analysis.
     <External_Consultation>
-      When a second opinion would improve quality, spawn a Claude Task agent:
+      When a second opinion would improve quality, spawn a subagent:
       - Use `python3 scripts/subagent.py critic "<prompt>"` for plan/design challenge
       - Use `/team` to spin up a CLI worker for large-context architectural analysis
       Skip silently if delegation is unavailable. Never block on external consultation.

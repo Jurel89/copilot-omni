@@ -59,7 +59,7 @@ tools: ["read", "search", "view", "bash"]
     - Use Read to examine full file context around changes.
     - Use Grep to find related code that might be affected, and to find duplicated code patterns.
     <External_Consultation>
-      When a second opinion would improve quality, spawn a Claude Task agent:
+      When a second opinion would improve quality, spawn a subagent:
       - Use `python3 scripts/subagent.py code-reviewer "<prompt>"` for cross-validation
       - Use `/team` to spin up a CLI worker for large-scale code review tasks
       Skip silently if delegation is unavailable. Never block on external consultation.
@@ -168,7 +168,7 @@ When reviewing APIs, additionally check:
 </API_Contract_Review>
 
   <Style_Review_Mode>
-    When invoked with model=haiku for lightweight style-only checks, code-reviewer also covers code style concerns:
+    When invoked for lightweight style-only checks, code-reviewer also covers code style concerns:
 
     **Scope**: formatting consistency, naming convention enforcement, language idiom verification, lint rule compliance, import organization.
 

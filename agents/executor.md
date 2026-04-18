@@ -1,6 +1,6 @@
 ---
 name: executor
-description: Focused task executor for implementation work (Sonnet)
+description: Focused task executor for implementation work
 ---
 
 <Agent_Prompt>
@@ -60,7 +60,7 @@ description: Focused task executor for implementation work (Sonnet)
     - Use lsp_diagnostics_directory for project-wide verification before completion on complex tasks.
     - Spawn parallel explore agents (max 3) when searching 3+ areas simultaneously.
     <External_Consultation>
-      When a second opinion would improve quality, spawn a Claude Task agent:
+      When a second opinion would improve quality, spawn a subagent:
       - Use `python3 scripts/subagent.py architect "<prompt>"` for architectural cross-checks
       - Use `/team` to spin up a CLI worker for large-context analysis tasks
       Skip silently if delegation is unavailable. Never block on external consultation.
