@@ -134,6 +134,19 @@ Storage: WAL-mode SQLite with `UNIQUE(mode, session_id)`.
 </tr>
 </table>
 
+### Inspect persistent stores from the main CLI
+
+You can inspect the plugin's persisted SQLite-backed stores without calling MCP tools directly. Default output is human-readable; add `--json` for automation.
+
+```bash
+python3 scripts/omni.py memory list
+python3 scripts/omni.py wiki list
+python3 scripts/omni.py wiki graph
+python3 scripts/omni.py wiki validate
+python3 scripts/omni.py state list
+python3 scripts/omni.py trace timeline
+```
+
 ## 🏗️ Architecture
 
 ```

@@ -1,71 +1,78 @@
 ---
 name: wiki
-description: LLM Wiki — persistent markdown knowledge base that compounds across sessions (Karpathy model)
-triggers: ["wiki", "wiki this", "wiki add", "wiki lint", "wiki query"]
+description: Persistent wiki store for long-lived project knowledge, with query, graph, and CLI validation surfaces.
+triggers: ["wiki", "wiki this", "wiki add", "wiki query", "wiki graph", "wiki validate"]
 ---
 
 # Wiki
 
-Persistent, self-maintained markdown knowledge base for project and session knowledge. Inspired by Karpathy's LLM Wiki concept.
+Persistent project knowledge base stored in the Omni SQLite state store.
+
+Use the MCP tools for writes and structured reads. Use the `omni wiki ...` CLI for human-readable inspection and validation.
 
 ## Operations
 
-### Ingest
-Process knowledge into wiki pages with SHA-256-based content de-duplication.
-Re-ingesting an identical body is a no-op (returns `deduped: true`).
+### Ingest / write
+
+Use `wiki_ingest` when you want SHA-256 de-duplication by body. Re-ingesting the same body is a no-op (`deduped: true`).
 
 ```
 wiki_ingest({ title: "Auth Architecture", body: "...", tags: ["auth", "architecture"] })
 ```
 
-The slug is auto-derived from `title` when omitted. The tool accepts
-`body` (not `content`); pass the markdown source as `body`.
+Use `wiki_write` for direct upserts when de-duplication is not the point.
+
+```
+wiki_write({ slug: "auth-architecture", title: "Auth Architecture", body: "...", tags: ["auth"] })
+```
+
+The canonical content field is `body`.
 
 ### Query
-Search across all wiki pages by keywords and tags. Returns matching pages with snippets — YOU (the LLM) synthesize answers with citations from the results.
+Search across wiki pages by title, body, and tags.
 
 ```
-wiki_query({ query: "authentication", tags: ["auth"], category: "architecture" })
+wiki_query({ query: "authentication" })
 ```
 
-### Lint
-Run health checks on the wiki. Detects orphan pages, stale content, broken cross-references, oversized pages, and structural contradictions.
+### List / read
 
 ```
-wiki_lint()
+wiki_list()
+wiki_read({ slug: "auth-architecture" })
 ```
 
-### Quick Add
-Add a single page quickly (simpler than ingest).
+### Graph
+
+The MCP server exposes `wiki_graph`, which returns `{nodes, edges, dangling}` derived from wiki-link and local markdown-link references.
 
 ```
-wiki_add({ title: "Page Title", content: "...", tags: ["tag1"], category: "decision" })
+wiki_graph({})
 ```
 
-### List / Read / Delete
+### CLI inspection
+
+Use the main CLI for read-only navigation with human-readable output by default and `--json` when you need machine-readable output.
+
 ```
-wiki_list()           # Show all pages (reads index.md)
-wiki_read({ page: "auth-architecture" })  # Read specific page
-wiki_delete({ page: "outdated-page" })    # Delete a page
+omni wiki list
+omni wiki show auth-architecture
+omni wiki search authentication
+omni wiki graph
+omni wiki validate
 ```
 
-### Log
-View wiki operation history by reading `.omni/wiki/log.md`.
+`omni wiki validate` exits non-zero when dangling links are present, so it can be used as a lightweight integrity check.
 
-## Categories
-Pages are organized by category: `architecture`, `decision`, `pattern`, `debugging`, `environment`, `session-log`
+## Cross-references
+
+Use `[[slug]]`, `[[Title|slug]]`, or local markdown links like `[docs](./other-page.md)` to create wiki graph edges.
 
 ## Storage
-- Pages: `.omni/wiki/*.md` (markdown with YAML frontmatter)
-- Index: `.omni/wiki/index.md` (auto-maintained catalog)
-- Log: `.omni/wiki/log.md` (append-only operation chronicle)
-
-## Cross-References
-Use `[[page-name]]` wiki-link syntax to create cross-references between pages.
-
-## Auto-Capture
-At session end, significant discoveries are automatically captured as session-log pages. Configure via `wiki.autoCapture` in `.omni-config.json` (default: enabled).
+- Backing store: `$OMNI_HOME/omni.db`
+- Table: `wiki`
+- Graph source: stored page bodies parsed for wiki/local markdown links
 
 ## Hard Constraints
-- NO vector embeddings — query uses keyword + tag matching only
-- Wiki pages are git-ignored by default (`.omni/wiki/` is project-local)
+- NO vector embeddings — query is keyword/tag matching over stored rows
+- Validation today is bounded to graph integrity (dangling-link detection), not a full semantic linter

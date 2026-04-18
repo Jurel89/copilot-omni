@@ -45,6 +45,7 @@ Prefix: `copilot-omni:`. See `agents/*.md` for full prompts.
 
 ### copilot-omni state
 - `state_read`, `state_write`, `state_clear`
+- CLI: `omni state list`, `omni state show <mode>`
 
 ### Team runtime (Copilot CLI — via scripts/subagent.py or omni_team.py)
 - `python3 scripts/subagent.py <agent> "<prompt>"` — spawn a single agent
@@ -52,10 +53,23 @@ Prefix: `copilot-omni:`. See `agents/*.md` for full prompts.
 
 ### Notepad
 - `notepad_read`, `notepad_write`, `notepad_prune`
+- CLI: `omni notepad list`, `omni notepad show <id>`
 
 ### Project memory
 - `memory_capture`, `memory_search`, `memory_prune`, `memory_export`
 - CLI: `omni memory search "query"`, `omni memory list`, `omni memory capture "text"`, `omni memory prune`, `omni memory export`
+
+### Wiki
+- `wiki_write`, `wiki_read`, `wiki_query`, `wiki_list`, `wiki_ingest`, `wiki_graph`
+- CLI: `omni wiki list`, `omni wiki show <slug>`, `omni wiki search "query"`, `omni wiki graph`, `omni wiki validate`
+
+### Shared memory
+- `shared_memory_read`, `shared_memory_write`
+- CLI: `omni shared-memory list`, `omni shared-memory show <key>`
+
+### Trace
+- `trace_summary`, `trace_timeline`
+- CLI: `omni trace list`, `omni trace show <id>`, `omni trace timeline`
 
 ### Code intelligence
 - LSP: `lsp_hover`, `lsp_goto_definition`, `lsp_find_references`
