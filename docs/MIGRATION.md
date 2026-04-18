@@ -216,7 +216,7 @@ upgrading from the original Go-based release.
 | `plugin/plugin.json` | `.claude-plugin/plugin.json` |
 | `plugin/.mcp.json` | `.mcp.json` at repo root |
 | `plugin/hooks.json` (inline bash) | `hooks/hooks.json` + `hooks/*.py` |
-| 5 agents, 8 skills | 19 agents, 27 skills |
+| 5 agents, 8 skills | 19 agents, 27 skills, 30 MCP tools |
 | SQLite via Go `modernc.org/sqlite` | SQLite via Python stdlib `sqlite3` |
 | `go build` to install | `git clone`, done |
 

@@ -41,7 +41,7 @@ Idempotent; no-op when already calibrated. Skip on POSIX.
 python3 scripts/omni.py doctor
 ```
 
-Expect `OK` on every line, with `skills: 28`, `agents: 19`, `mcp tools: 30`.
+Expect `OK` on every line, with `skills: 27`, `agents: 19`, `mcp tools: 30`.
 
 If `doctor` flags a missing hook file, policy directory, or MCP binding, open an
 issue with the redacted output — it is the most useful single diagnostic we have.

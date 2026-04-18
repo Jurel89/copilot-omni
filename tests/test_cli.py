@@ -148,7 +148,7 @@ class TestCli(unittest.TestCase):
     def test_version(self):
         out, _, rc = run(["version"])
         self.assertEqual(rc, 0)
-        self.assertIn("1.0.0", out)
+        self.assertIn("2.1.1", out)
 
     def test_init_creates_config(self):
         with tempfile.TemporaryDirectory() as td:

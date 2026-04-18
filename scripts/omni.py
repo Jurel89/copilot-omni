@@ -34,12 +34,28 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-VERSION = "1.0.0"
+VERSION = "2.1.1"
 
 
 def _plugin_root() -> Path:
     here = Path(__file__).resolve().parent
     return here.parent
+
+
+def _count_mcp_tools(server_py: Path) -> int:
+    """Count registered MCP tools by counting _tool_<name> function defs.
+
+    Pure static analysis — does not import the module. Reads the source
+    and returns 0 if the file is missing so doctor can still advertise a
+    meaningful value.
+    """
+    try:
+        text = server_py.read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    import re
+
+    return len(re.findall(r"^def _tool_[a-z_]+\(", text, re.MULTILINE))
 
 
 def _cmd_version(_args: argparse.Namespace) -> int:
@@ -83,6 +99,13 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     agents = list((root / "agents").glob("*.md"))
     print(f"agents:        {len(agents)} " + ("OK" if len(agents) >= 15 else "FAIL"))
     ok = ok and (len(agents) >= 15)
+
+    mcp_tools_count = _count_mcp_tools(root / "mcp" / "server.py")
+    print(
+        f"mcp tools:     {mcp_tools_count} "
+        + ("OK" if mcp_tools_count >= 25 else "FAIL")
+    )
+    ok = ok and (mcp_tools_count >= 25)
 
     print(f"platform:      {platform.system()} {platform.release()}")
     home = Path(os.environ.get("OMNI_HOME") or (Path.home() / ".omni"))

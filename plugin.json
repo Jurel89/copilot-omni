@@ -1,7 +1,7 @@
 {
   "name": "copilot-omni",
   "description": "Enterprise-safe multi-agent orchestration for GitHub Copilot CLI. Pure Python stdlib + Markdown, zero compiled binaries, no external AI dependencies.",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "author": {
     "name": "Copilot Omni Team",
     "url": "https://github.com/Jurel89/copilot-omni"
