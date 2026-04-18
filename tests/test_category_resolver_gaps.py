@@ -94,6 +94,9 @@ class TestLoadConfig(unittest.TestCase):
         self.assertIn("quick", cfg)
         self.assertIn("deep", cfg)
         self.assertIn("ultrabrain", cfg)
+        self.assertIsNone(cfg["quick"]["model"])
+        self.assertIsNone(cfg["deep"]["model"])
+        self.assertIsNone(cfg["ultrabrain"]["model"])
 
     def test_malformed_json_returns_defaults(self):
         with tempfile.TemporaryDirectory() as td:
@@ -111,8 +114,8 @@ class TestLoadConfig(unittest.TestCase):
             )
             cfg = self._mod.load_config(p)
         self.assertEqual(cfg["deep"]["model"], "gpt-5")
-        # Untouched categories keep their defaults.
-        self.assertEqual(cfg["quick"]["model"], "claude-haiku-4-5")
+        # Untouched categories stay unset until the user configures them.
+        self.assertIsNone(cfg["quick"]["model"])
 
 
 if __name__ == "__main__":

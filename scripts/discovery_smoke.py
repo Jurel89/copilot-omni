@@ -133,7 +133,7 @@ def probe_a1_parallel_agents(offline: bool) -> ProbeResult:
         return ("A1", "fail", {"reason": "copilot CLI not on PATH"})
 
     prompt = "Reply with the single word OK."
-    model = os.environ.get("OMNI_PROBE_MODEL", "claude-sonnet-4.5")
+    model = os.environ.get("OMNI_PROBE_MODEL")
     cmd = [copilot, "-p", prompt, "--allow-all-tools", "--no-color"]
     if model:
         cmd += ["--model", model]
@@ -301,7 +301,7 @@ def probe_a4_agent_turns(offline: bool) -> ProbeResult:
     if not copilot:
         return ("A4", "fail", {"reason": "copilot CLI not on PATH"})
 
-    model = os.environ.get("OMNI_PROBE_MODEL", "claude-sonnet-4.5")
+    model = os.environ.get("OMNI_PROBE_MODEL")
     base = [copilot, "--allow-all-tools", "--no-color"]
     if model:
         base += ["--model", model]
@@ -406,9 +406,11 @@ def probe_a6_bg_auth(offline: bool) -> ProbeResult:
     if not copilot:
         return ("A6", "fail", {"reason": "copilot CLI not on PATH"})
 
-    model = os.environ.get("OMNI_PROBE_MODEL", "claude-sonnet-4.5")
+    model = os.environ.get("OMNI_PROBE_MODEL")
     prompt = "Reply with the single word OK."
-    cmd = [copilot, "-p", prompt, "--allow-all-tools", "--no-color", "--model", model]
+    cmd = [copilot, "-p", prompt, "--allow-all-tools", "--no-color"]
+    if model:
+        cmd += ["--model", model]
 
     procs = []
     for _ in range(3):

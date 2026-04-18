@@ -40,14 +40,15 @@ from typing import Optional
 
 _KNOWN_CATEGORIES: frozenset[str] = frozenset({"quick", "deep", "ultrabrain"})
 
-# Default category → model mapping. These are Copilot-CLI-hosted model IDs.
-# Users can override any entry in `.omni/config.json` under the `categories`
-# key. If Copilot CLI does not expose the chosen model for the active
-# subscription, the user-side `/model` command takes precedence at runtime.
+# Default category → model mapping.
+#
+# By default, copilot-omni no longer hardcodes any model identifiers. Model
+# selection belongs to the Copilot CLI host or explicit user configuration in
+# `.omni/config.json`.
 _DEFAULT_CONFIG: dict = {
-    "quick": {"model": "claude-haiku-4-5"},
-    "deep": {"model": "claude-sonnet-4.5"},
-    "ultrabrain": {"model": "gpt-5"},
+    "quick": {"model": None},
+    "deep": {"model": None},
+    "ultrabrain": {"model": None},
 }
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
