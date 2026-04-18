@@ -1689,11 +1689,21 @@ def _cmd_state_list(args: argparse.Namespace) -> int:
         print("Omni database not found. Run `omni init` first.", file=sys.stderr)
         return 1
     try:
-        rows = _query_all(
-            conn,
-            "SELECT mode, updated_at FROM state ORDER BY updated_at DESC LIMIT ?",
-            (getattr(args, "limit", 20),),
-        )
+        has_session_col = _state_has_session_column(conn)
+        if has_session_col:
+            rows = _query_all(
+                conn,
+                "SELECT mode, COALESCE(session_id,'') AS session_id, updated_at "
+                "FROM state ORDER BY updated_at DESC LIMIT ?",
+                (getattr(args, "limit", 20),),
+            )
+        else:
+            rows = _query_all(
+                conn,
+                "SELECT mode, '' AS session_id, updated_at FROM state "
+                "ORDER BY updated_at DESC LIMIT ?",
+                (getattr(args, "limit", 20),),
+            )
         entries = [dict(row) for row in rows]
         if getattr(args, "json", False):
             _dump_json({"modes": entries, "count": len(entries)})
@@ -1702,12 +1712,27 @@ def _cmd_state_list(args: argparse.Namespace) -> int:
             print("No state entries.")
             return 0
         _print_table(
-            ["Mode", "Updated"],
-            [[entry["mode"], _format_timestamp(entry["updated_at"])] for entry in entries],
+            ["Mode", "Session", "Updated"],
+            [
+                [
+                    entry["mode"],
+                    entry["session_id"] or "(default)",
+                    _format_timestamp(entry["updated_at"]),
+                ]
+                for entry in entries
+            ],
         )
         return 0
     finally:
         conn.close()
+
+
+def _state_has_session_column(conn) -> bool:
+    try:
+        info = _query_all(conn, "PRAGMA table_info(state)", ())
+    except Exception:
+        return False
+    return any(r["name"] == "session_id" for r in info)
 
 
 def _cmd_state_show(args: argparse.Namespace) -> int:
@@ -1716,19 +1741,37 @@ def _cmd_state_show(args: argparse.Namespace) -> int:
         print("Omni database not found. Run `omni init` first.", file=sys.stderr)
         return 1
     try:
-        row = _query_one(
-            conn,
-            "SELECT mode, body, updated_at FROM state WHERE mode=?",
-            (args.mode,),
-        )
+        session_id = getattr(args, "session_id", None) or ""
+        has_session_col = _state_has_session_column(conn)
+        if has_session_col:
+            row = _query_one(
+                conn,
+                "SELECT mode, body, COALESCE(session_id,'') AS session_id, updated_at "
+                "FROM state WHERE mode=? AND COALESCE(session_id,'')=?",
+                (args.mode, session_id),
+            )
+        else:
+            row = _query_one(
+                conn,
+                "SELECT mode, body, '' AS session_id, updated_at "
+                "FROM state WHERE mode=?",
+                (args.mode,),
+            )
         if row is None:
             if getattr(args, "json", False):
-                _dump_json({"error": "not found", "mode": args.mode})
+                _dump_json(
+                    {"error": "not found", "mode": args.mode, "session_id": session_id}
+                )
             else:
-                print(f"No state entry for mode '{args.mode}'.", file=sys.stderr)
+                label = session_id or "(default)"
+                print(
+                    f"No state entry for mode '{args.mode}' session '{label}'.",
+                    file=sys.stderr,
+                )
             return 1
         payload = {
             "mode": row["mode"],
+            "session_id": row["session_id"],
             "body": _parse_json_text(row["body"]),
             "updated_at": row["updated_at"],
         }
@@ -2398,6 +2441,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     state_show = state_sub.add_parser("show", help="Show a stored state body")
     state_show.add_argument("mode", help="State mode to inspect")
+    state_show.add_argument(
+        "--session-id",
+        default=None,
+        help="Session id scope (defaults to the empty-session row)",
+    )
     state_show.add_argument("--json", action="store_true", help="JSON output")
     state_show.set_defaults(func=_cmd_state_show)
 

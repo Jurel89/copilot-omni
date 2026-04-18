@@ -245,8 +245,13 @@ def _write_status(job_dir: Path, status_dict: dict) -> None:
 def _mcp_write_best_effort(mode: str, body: dict, session_id: Optional[str]) -> None:
     """Write a row to MCP state table (best-effort; never raises).
 
-    The state table uses composite PK (mode, session_id) since schema v6.
-    session_id is normalized to '' when unset so the ON CONFLICT target
+    Handles two schema shapes so upgrades from a pre-v6 DB do not lose
+    writes before the MCP server has had a chance to run _migrate():
+
+      v6+:   composite PRIMARY KEY(mode, session_id); ON CONFLICT(mode, session_id).
+      v1-v5: scalar PRIMARY KEY(mode); ON CONFLICT(mode).
+
+    session_id is normalized to '' when unset so the v6 conflict target
     always matches a real row.
     """
     try:
@@ -264,13 +269,38 @@ def _mcp_write_best_effort(mode: str, body: dict, session_id: Optional[str]) -> 
         now = time.time()
         sid = session_id or ""
         with sqlite3.connect(str(db_path), timeout=5) as conn:
-            conn.execute(
-                "INSERT INTO state(mode, body, session_id, updated_at)"
-                " VALUES (?, ?, ?, ?)"
-                " ON CONFLICT(mode, session_id) DO UPDATE SET"
-                " body=excluded.body, updated_at=excluded.updated_at",
-                (mode, body_str, sid, now),
-            )
+            try:
+                conn.execute(
+                    "INSERT INTO state(mode, body, session_id, updated_at)"
+                    " VALUES (?, ?, ?, ?)"
+                    " ON CONFLICT(mode, session_id) DO UPDATE SET"
+                    " body=excluded.body, updated_at=excluded.updated_at",
+                    (mode, body_str, sid, now),
+                )
+            except sqlite3.OperationalError:
+                # Legacy schema (v1-v5): scalar PK on mode. Retry on the
+                # legacy conflict target; session_id is still written when
+                # the column exists (v2+).
+                try:
+                    conn.execute(
+                        "INSERT INTO state(mode, body, session_id, updated_at)"
+                        " VALUES (?, ?, ?, ?)"
+                        " ON CONFLICT(mode) DO UPDATE SET"
+                        " body=excluded.body,"
+                        " session_id=excluded.session_id,"
+                        " updated_at=excluded.updated_at",
+                        (mode, body_str, sid, now),
+                    )
+                except sqlite3.OperationalError:
+                    # Pre-v2 schema — no session_id column.
+                    conn.execute(
+                        "INSERT INTO state(mode, body, updated_at)"
+                        " VALUES (?, ?, ?)"
+                        " ON CONFLICT(mode) DO UPDATE SET"
+                        " body=excluded.body, updated_at=excluded.updated_at",
+                        (mode, body_str, now),
+                    )
+            conn.commit()
     except Exception as exc:
         print(f"warning: MCP state write failed (non-fatal): {exc}", file=sys.stderr)
 

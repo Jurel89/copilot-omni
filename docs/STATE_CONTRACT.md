@@ -51,8 +51,8 @@ Back-compat preserved so pre-schema-v6 callers see no shape change:
 |------------------------------|--------------|
 | `mode` only                  | the default empty-session row: `{mode, session_id:"", body, updated_at}` |
 | `mode + session_id`          | that specific row |
-| neither `mode` nor `list`    | `{modes: [{mode, updated_at}, ...]}` — only empty-session rows (legacy listing) |
-| `list=true`                  | `{rows: [{mode, session_id, updated_at}, ...]}` — full enumeration |
+| neither `mode` nor `list`    | `{modes: [{mode, updated_at}, ...]}` — only empty-session rows (legacy listing; per-session rows are **deliberately** excluded to prevent cross-session bleed) |
+| `list=true`                  | `{rows: [{mode, session_id, updated_at}, ...]}` — full enumeration; the supported discovery path for per-session rows |
 
 ### `state_clear(mode?, session_id?, all?)`
 

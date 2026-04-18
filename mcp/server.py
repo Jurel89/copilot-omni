@@ -80,8 +80,13 @@ def _current_project() -> str:
 # ------------------------------------------------------------------ migration framework
 
 # Each entry: (target_version: int, sql_statements: str)
-# Migrations MUST be additive-only: no DROP COLUMN, no rename, no destructive ALTER.
-# New columns must be NULLable or have defaults.
+# Default rule: migrations are additive-only (no DROP COLUMN, no rename, no
+# destructive ALTER); new columns must be NULLable or have defaults.
+# Exception: v6 is a one-time structural rebuild of the state table to swap
+# the scalar-mode PRIMARY KEY for a composite PRIMARY KEY(mode, session_id).
+# The rebuild is wrapped in its own BEGIN/COMMIT, runs under _MIGRATE_LOCK,
+# and the schema_version bump is executed inside the same transaction so a
+# crash cannot leave the DB half-migrated.
 MIGRATIONS: List[Tuple[int, str]] = [
     (
         1,
@@ -194,7 +199,10 @@ MIGRATIONS: List[Tuple[int, str]] = [
         -- The original table had mode as a scalar PK, which blocked
         -- per-session rows even after session_id was added. This rebuild is
         -- data-preserving: every existing row is copied with its (normalized)
-        -- session_id intact.
+        -- session_id intact. The whole block is wrapped in BEGIN/COMMIT so a
+        -- crash between DROP TABLE state and ALTER TABLE state_new RENAME
+        -- cannot leave the database missing its state table.
+        BEGIN;
         DROP INDEX IF EXISTS idx_state_mode_session;
         CREATE TABLE state_new (
             mode TEXT NOT NULL,
@@ -209,6 +217,7 @@ MIGRATIONS: List[Tuple[int, str]] = [
         ALTER TABLE state_new RENAME TO state;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_state_mode_session
             ON state(mode, session_id);
+        COMMIT;
     """,
     ),
 ]
@@ -234,6 +243,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
         for target_version, sql in MIGRATIONS:
             if current < target_version:
+                # Each migration step either:
+                #   - wraps its own BEGIN/COMMIT inside the SQL (destructive
+                #     rebuilds — e.g. v6), or
+                #   - runs additive statements that SQLite can atomically
+                #     autocommit one at a time.
+                # In both cases we record the version bump only after the
+                # migration SQL succeeds, so a crash mid-step leaves
+                # schema_version pointing at the last fully-applied version.
                 try:
                     conn.executescript(sql)
                 except sqlite3.OperationalError as exc:

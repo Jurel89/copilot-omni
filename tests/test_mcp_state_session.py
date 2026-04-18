@@ -129,7 +129,14 @@ def test_list_true_returns_all_scoped_rows(tmp_path, monkeypatch):
 
 
 def test_legacy_modes_listing_shape_preserved(tmp_path, monkeypatch):
-    """No mode + no list flag → legacy {modes: [...]} shape, empty-session rows only."""
+    """No mode + no list flag → legacy {modes: [...]} shape, empty-session rows only.
+
+    This is the explicit back-compat promise in docs/STATE_CONTRACT.md:
+    external MCP consumers that never pass session_id see the exact
+    pre-v6 shape. Per-session rows are deliberately excluded from this
+    aggregate to prevent cross-session state bleed. `list=true` is the
+    discovery path for per-session rows.
+    """
     srv = _load_server(tmp_path, monkeypatch)
     srv._tool_state_write({"mode": "ralph", "body": {"x": 1}})
     srv._tool_state_write(
@@ -138,9 +145,15 @@ def test_legacy_modes_listing_shape_preserved(tmp_path, monkeypatch):
     got = _body_of(srv._tool_state_read({}))
     assert "modes" in got
     mode_names = {r["mode"] for r in got["modes"]}
-    # per-session row MUST NOT leak into the legacy listing
+    # Deliberate: per-session row MUST NOT leak into the legacy listing.
     assert "ralph" in mode_names
     assert "per-session" not in mode_names
+
+    # And list=true IS the documented way to discover per-session rows.
+    listed = _body_of(srv._tool_state_read({"list": True}))
+    listed_pairs = {(r["mode"], r["session_id"]) for r in listed["rows"]}
+    assert ("ralph", "") in listed_pairs
+    assert ("per-session", "s1") in listed_pairs
 
 
 def test_migration_v4_to_v6_normalizes_null_session_id(tmp_path, monkeypatch):
