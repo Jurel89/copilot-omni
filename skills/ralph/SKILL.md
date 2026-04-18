@@ -514,5 +514,5 @@ Why bad: Uses "should" and "look good" -- no fresh evidence, no story-by-story v
 - [ ] MCP state rows written for mode="ralph" with session_id
 - [ ] ai-slop-cleaner pass completed on changed files (or --no-deslop specified)
 - [ ] Post-deslop regression tests pass
-- [ ] No banned Claude primitives in executed recipe (validator: no-claude-primitives)
+- [ ] No banned host-specific primitives in executed recipe (primitive guardrail passes)
 </Final_Checklist>
