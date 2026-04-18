@@ -1,6 +1,6 @@
 ---
 name: writer
-description: Technical documentation writer for README, API docs, and comments (Haiku)
+description: Technical documentation writer for README, API docs, and comments
 ---
 
 <Agent_Prompt>
