@@ -97,18 +97,25 @@ See `docs/STATE_MODES.md` for the full mode-key registry and ownership matrix (A
 
 ## Hook contract
 
-One lifecycle hook is active:
+Two lifecycle hooks are active:
 
-| Hook | Script | Key responsibilities |
-|------|--------|---------------------|
-| `sessionStart` | `hooks/session_start.py` | Banner, policy permission checks, metrics |
+| Hook           | Script                       | Key responsibilities                                              |
+|----------------|------------------------------|-------------------------------------------------------------------|
+| `sessionStart` | `hooks/session_start.py`     | Banner + project memory context, policy permission checks, metrics|
+| `preToolUse`   | `hooks/pre_tool_use.py`      | shlex-safe command parse, deny-commands + protected-path policy   |
 
-`preToolUse`, `postToolUse`, and `userPromptSubmit` were removed in v2.1.0 — these lifecycle events are not emitted by GitHub Copilot CLI. Policy enforcement is via the MCP `policy_check` tool.
+Both hooks fail open: any unhandled error exits 0 with `{}` so the plugin can
+never block a Copilot session. `postToolUse`, `userPromptSubmitted`,
+`errorOccurred`, and `sessionEnd` are allowed events but no handler ships; add
+one under `hooks/` and register it in `hooks/hooks.json` if needed.
 
-Kill switches: `OMNI_SKIP_HOOKS=1`, `DISABLE_OMNI=1`, `OMNI_SKIP_SESSION_START=1`.
+Kill switches: `OMNI_SKIP_HOOKS=1`, `DISABLE_OMNI=1`,
+`OMNI_SKIP_SESSION_START=1`, `OMNI_SKIP_PRE_TOOL_USE=1`.
 Deprecated aliases (removed in v3.0.0): `OMC_SKIP_HOOKS=1`, `DISABLE_OMC=1`. <!-- omni-rename-allow: OMC legacy env var names documented here -->
 
 Full event shapes, audit schema, and metrics schema: `docs/HOOK_CONTRACT.md`.
+A regression test (`tests/test_hook_contract_alignment.py`) keeps the shipped
+`hooks/hooks.json` and the doc in sync.
 
 ## How skills invoke subagents
 
