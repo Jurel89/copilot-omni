@@ -1,6 +1,6 @@
 ---
 name: omni-setup
-description: Install or refresh copilot-omni for plugin, npm, and local-dev setups from the canonical setup flow
+description: Install or refresh copilot-omni for plugin and local-dev setups from the canonical setup flow
 level: 2
 ---
 
@@ -10,23 +10,19 @@ This is the **only command you need to learn**. After running this, everything e
 
 **When this skill is invoked, immediately execute the workflow below. Do not only restate or summarize these instructions back to the user.**
 
-Note: All `~/.claude/...` paths in this guide respect `CLAUDE_CONFIG_DIR` when that environment variable is set.
-
 ## Best-Fit Use
 
 Choose this setup flow when the user wants to **install, refresh, or repair copilot-omni itself**.
 
-- Marketplace/plugin install users should land here after `/plugin install copilot-omni`
-- npm users should land here after `npm i -g oh-my-claude-sisyphus@latest`
-- local-dev and worktree users should land here after updating the checked-out repo and rerunning setup
+- Marketplace/plugin install users should land here after `copilot plugin install copilot-omni@copilot-omni`
+- Local-dev and worktree users should land here after updating the checked-out repo and rerunning setup
 
 ## Flag Parsing
 
 Check for flags in the user's invocation:
 - `--help` → Show Help Text (below) and stop
 - `--local` → Phase 1 only (target=local), then stop
-- `--global` → Phase 1 only (target=global), then stop
-- `--force` → Skip Pre-Setup Check, run full setup (Phase 1 → 2 → 3 → 4)
+- `--force` → Skip Pre-Setup Check, run full setup (Phase 1 → 2 → 3)
 - No flags → Run Pre-Setup Check, then full setup if needed
 
 ## Help Text
@@ -38,34 +34,22 @@ copilot-omni Setup - Configure copilot-omni
 
 USAGE:
   /copilot-omni:omni-setup           Run initial setup wizard (or update if already configured)
-  /copilot-omni:omni-setup --local   Configure local project (.claude/CLAUDE.md)
-  /copilot-omni:omni-setup --global  Configure global settings (~/.claude/CLAUDE.md)
+  /copilot-omni:omni-setup --local   Configure local project (.omni/ directory)
   /copilot-omni:omni-setup --force   Force full setup wizard even if already configured
   /copilot-omni:omni-setup --help    Show this help
 
 MODES:
   Initial Setup (no flags)
     - Interactive wizard for first-time setup
-    - Configures CLAUDE.md (local or global)
+    - Initializes .omni/ state directory
     - Checks for updates
-    - Offers MCP server configuration
-    - Configures team mode defaults (agent count, type, model)
+    - Offers MCP configuration
     - If already configured, offers quick update option
 
   Local Configuration (--local)
-    - Downloads fresh CLAUDE.md to ./.claude/
-    - Backs up existing CLAUDE.md to .claude/CLAUDE.md.backup.YYYY-MM-DD
+    - Ensures .omni/ directory exists
     - Project-specific settings
     - Use this to update project config after copilot-omni upgrades
-
-  Global Configuration (--global)
-    - Downloads fresh CLAUDE.md to ~/.claude/
-    - Backs up existing CLAUDE.md to ~/.claude/CLAUDE.md.backup.YYYY-MM-DD
-    - Default: explicitly overwrites ~/.claude/CLAUDE.md so plain `claude` also uses copilot-omni
-    - Optional preserve mode keeps the user's base `CLAUDE.md` and installs copilot-omni into `CLAUDE-omc.md` for `omc` launches
-    - Applies to all Claude Code sessions
-    - Cleans up legacy hooks
-    - Use this to update global config after copilot-omni upgrades
 
   Force Full Setup (--force)
     - Bypasses the "already configured" check
@@ -73,12 +57,9 @@ MODES:
     - Use when you want to reconfigure preferences
 
 EXAMPLES:
-  /copilot-omni:omni-setup           # First time setup (or update CLAUDE.md if configured)
+  /copilot-omni:omni-setup           # First time setup (or update if configured)
   /copilot-omni:omni-setup --local   # Update this project
-  /copilot-omni:omni-setup --global  # Update all projects
   /copilot-omni:omni-setup --force   # Re-run full setup wizard
-
-For more info: https://github.com/Yeachan-Heo/copilot-omni
 ```
 
 ## Pre-Setup Check: Already Configured?
@@ -86,39 +67,30 @@ For more info: https://github.com/Yeachan-Heo/copilot-omni
 **CRITICAL**: Before doing anything else, check if setup has already been completed. This prevents users from having to re-run the full setup wizard after every update.
 
 ```bash
-# Check if setup was already completed
-CONFIG_FILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.omni-config.json"
-
-if [ -f "$CONFIG_FILE" ]; then
-  SETUP_COMPLETED=$(jq -r '.setupCompleted // empty' "$CONFIG_FILE" 2>/dev/null)
-  SETUP_VERSION=$(jq -r '.setupVersion // empty' "$CONFIG_FILE" 2>/dev/null)
-
-  if [ -n "$SETUP_COMPLETED" ] && [ "$SETUP_COMPLETED" != "null" ]; then
-    echo "copilot-omni setup was already completed on: $SETUP_COMPLETED"
-    [ -n "$SETUP_VERSION" ] && echo "Setup version: $SETUP_VERSION"
-    ALREADY_CONFIGURED="true"
-  fi
+# Check if .omni/config.json exists
+if [ -f ".omni/config.json" ]; then
+  echo "copilot-omni setup was already completed."
+  ALREADY_CONFIGURED="true"
+else
+  ALREADY_CONFIGURED="false"
 fi
 ```
 
 ### If Already Configured (and no --force flag)
 
-If `ALREADY_CONFIGURED` is true AND the user did NOT pass `--force`, `--local`, or `--global` flags:
+If `ALREADY_CONFIGURED` is true AND the user did NOT pass `--force` or `--local` flags:
 
 Emit as plain chat and wait for the user's reply:
 
 **Question:** "copilot-omni is already configured. What would you like to do?"
 
 **Options:**
-1. **Update CLAUDE.md only** - Download latest CLAUDE.md without re-running full setup
+1. **Quick update** - Refresh .omni/ config without re-running full setup
 2. **Run full setup again** - Go through the complete setup wizard
 3. **Cancel** - Exit without changes
 
-**If user chooses "Update CLAUDE.md only":**
-- Detect if local (.claude/CLAUDE.md) or global (~/.claude/CLAUDE.md) config exists
-- If local exists, run: `bash "${OMNI_PLUGIN_ROOT}/scripts/setup-claude-md.sh" local`
-- If only global exists, run: `bash "${OMNI_PLUGIN_ROOT}/scripts/setup-claude-md.sh" global`
-- Skip all other steps
+**If user chooses "Quick update":**
+- Ensure `.omni/` directory and subdirectories exist
 - Report success and exit
 
 **If user chooses "Run full setup again":**
@@ -154,20 +126,18 @@ bash "${OMNI_PLUGIN_ROOT}/scripts/setup-progress.sh" clear
 
 ## Phase Execution
 
-### For `--local` or `--global` flags:
-Read the file at `${OMNI_PLUGIN_ROOT}/skills/omni-setup/phases/01-install-claude-md.md` and follow its instructions.
+### For `--local` flag:
+Read the file at `${OMNI_PLUGIN_ROOT}/skills/omni-setup/phases/01-install.md` and follow its instructions.
 (The phase file handles early exit for flag mode.)
 
 ### For full setup (default or --force):
 Execute phases sequentially. For each phase, read the corresponding file and follow its instructions:
 
-1. **Phase 1 - Install CLAUDE.md**: Read `${OMNI_PLUGIN_ROOT}/skills/omni-setup/phases/01-install-claude-md.md` and follow its instructions.
+1. **Phase 1 - Initialize Project**: Read `${OMNI_PLUGIN_ROOT}/skills/omni-setup/phases/01-install.md` and follow its instructions.
 
 2. **Phase 2 - Environment Configuration**: Read `${OMNI_PLUGIN_ROOT}/skills/omni-setup/phases/02-configure.md` and follow its instructions.
 
 3. **Phase 3 - Integration Setup**: Read `${OMNI_PLUGIN_ROOT}/skills/omni-setup/phases/03-integrations.md` and follow its instructions.
-
-4. **Phase 4 - Completion**: Read `${OMNI_PLUGIN_ROOT}/skills/omni-setup/phases/04-welcome.md` and follow its instructions.
 
 ## Graceful Interrupt Handling
 
@@ -175,13 +145,12 @@ Execute phases sequentially. For each phase, read the corresponding file and fol
 
 ## Keeping Up to Date
 
-After installing copilot-omni updates (via npm or plugin update):
+After installing copilot-omni updates (via plugin update):
 
-**Automatic**: Just run `/copilot-omni:omni-setup` - it will detect you've already configured and offer a quick "Update CLAUDE.md only" option that skips the full wizard.
+**Automatic**: Just run `/copilot-omni:omni-setup` - it will detect you've already configured and offer a quick update option that skips the full wizard.
 
 **Manual options**:
 - `/copilot-omni:omni-setup --local` to update project config only
-- `/copilot-omni:omni-setup --global` to update global config only
 - `/copilot-omni:omni-setup --force` to re-run the full wizard (reconfigure preferences)
 
-This ensures you have the newest features and agent configurations without the token cost of repeating the full setup.
+This ensures you have the newest features and agent configurations without repeating the full setup.

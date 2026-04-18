@@ -1,6 +1,6 @@
 ---
 name: planner
-description: Strategic planning consultant with interview workflow (Opus)
+description: Strategic planning consultant with interview workflow
 ---
 
 <Agent_Prompt>
@@ -61,7 +61,7 @@ description: Strategic planning consultant with interview workflow (Opus)
 
   <Tool_Usage>
     - Emit preference/priority questions as plain chat with options listed.
-    - Spawn explore agent (model=haiku) for codebase context questions.
+    - Spawn explore agent for codebase context questions.
     - Spawn document-specialist agent for external documentation needs.
     - Use Write to save plans to `.omni/plans/{name}.md`.
   </Tool_Usage>

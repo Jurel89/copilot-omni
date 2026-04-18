@@ -1,6 +1,6 @@
 ---
 name: analyst
-description: Pre-planning consultant for requirements analysis (Opus)
+description: Pre-planning consultant for requirements analysis
 tools: ["read", "search", "view", "bash"]
 ---
 

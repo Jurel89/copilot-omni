@@ -6,6 +6,12 @@ Pure-Python, stdlib-only. Provides:
   omni doctor         Check environment (python, copilot CLI, MCP server)
   omni status         Show current run and mode state
   omni memory         Interact with the memory store (search, list, capture, prune, export)
+  omni wiki           Inspect the persistent wiki store (list, show, search, graph, validate)
+  omni state          Inspect persisted mode state
+  omni notepad        Inspect persisted notes
+  omni shared-memory  Inspect shared memory entries
+  omni trace          Inspect stored traces
+  omni codebase       Inspect the codebase graph and immediate refactor impact
   omni plugin-install Install the plugin into the local Copilot CLI
   omni mcp            Launch the MCP server in the foreground (stdio)
   omni version        Print version
@@ -14,9 +20,11 @@ Pure-Python, stdlib-only. Provides:
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import platform
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -24,7 +32,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 VERSION = "1.0.0"
 
@@ -144,7 +152,7 @@ def _doctor_fix_python(root: Path, *, apply_: bool) -> bool:
     print("")
     print(f"fix-python:    current interpreter -> {current}")
     print(
-        f"fix-python:    mode               -> "
+        "fix-python:    mode               -> "
         + ("APPLY (in-place rewrite)" if apply_ else "DRY-RUN")
     )
 
@@ -688,7 +696,7 @@ def _cmd_status(_args: argparse.Namespace) -> int:
     print(config.read_text(encoding="utf-8"))
     runs = cwd / ".omni" / "runs"
     if runs.exists():
-        print(f"\nruns:")
+        print("\nruns:")
         for run in sorted(runs.iterdir()):
             print(f"  - {run.name}")
     return 0
@@ -905,6 +913,15 @@ def _current_project() -> str:
     return os.getcwd()
 
 
+def _omni_db() -> Optional[sqlite3.Connection]:
+    db_path = _omni_home() / "omni.db"
+    if not db_path.exists():
+        return None
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def _ensure_memory_project_column(conn: sqlite3.Connection) -> None:
     rows = conn.execute("PRAGMA table_info(memory)").fetchall()
     if not rows or any(row[1] == "project" for row in rows):
@@ -918,13 +935,388 @@ def _ensure_memory_project_column(conn: sqlite3.Connection) -> None:
 
 
 def _memory_db():
-    db_path = _omni_home() / "omni.db"
-    if not db_path.exists():
+    conn = _omni_db()
+    if conn is None:
         return None
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
     _ensure_memory_project_column(conn)
     return conn
+
+
+def _dump_json(data: Any) -> None:
+    json.dump(data, sys.stdout, indent=2, default=str)
+    print()
+
+
+def _format_timestamp(raw: object) -> str:
+    if raw in (None, ""):
+        return "-"
+    try:
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(float(raw)))
+    except (TypeError, ValueError, OSError):
+        return str(raw)
+
+
+def _preview_text(value: object, *, limit: int = 60) -> str:
+    text = str(value or "").replace("\n", " ").strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(limit - 3, 0)] + "..."
+
+
+def _query_all(
+    conn: sqlite3.Connection, query: str, params: tuple[object, ...] = ()
+) -> list[sqlite3.Row]:
+    try:
+        return conn.execute(query, params).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc).lower():
+            return []
+        raise
+
+
+def _query_one(
+    conn: sqlite3.Connection, query: str, params: tuple[object, ...] = ()
+) -> Optional[sqlite3.Row]:
+    try:
+        return conn.execute(query, params).fetchone()
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc).lower():
+            return None
+        raise
+
+
+def _print_fields(fields: list[tuple[str, object]]) -> None:
+    for label, value in fields:
+        print(f"{label}: {value}")
+
+
+def _print_body(value: object) -> None:
+    if isinstance(value, (dict, list)):
+        print(json.dumps(value, indent=2, sort_keys=True))
+        return
+    print(value if value not in (None, "") else "-")
+
+
+def _parse_json_text(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+_CODEBASE_FILE_EXTENSIONS = {".py", ".md", ".json", ".toml", ".yaml", ".yml"}
+_CODEBASE_SKIP_DIRS = {
+    ".git",
+    ".omni",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "node_modules",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+}
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+_WIKI_LINK_RE = re.compile(r"\[\[\s*(?:[^\]|]*\|)?\s*([^\]|]+?)\s*\]\]")
+_MD_LINK_RE = re.compile(r"\[[^\]]*?\]\(\s*([^)\s]+?)\s*\)")
+_PY_FILE_LITERAL_RE = re.compile(r"['\"]([^'\"]+\.py)['\"]")
+
+
+def _slugify(text: str) -> str:
+    slug = _SLUG_RE.sub("-", text.lower()).strip("-")
+    return slug[:80] or "untitled"
+
+
+def _extract_wiki_targets(body: str) -> list[str]:
+    targets: list[str] = []
+    for match in _WIKI_LINK_RE.finditer(body):
+        targets.append(_slugify(match.group(1)))
+    for match in _MD_LINK_RE.finditer(body):
+        destination = match.group(1)
+        if "://" in destination or destination.startswith("#"):
+            continue
+        target = destination.rsplit("/", 1)[-1]
+        if target.endswith(".md"):
+            target = target[:-3]
+        targets.append(_slugify(target))
+    seen: set[str] = set()
+    unique: list[str] = []
+    for target in targets:
+        if target and target not in seen:
+            seen.add(target)
+            unique.append(target)
+    return unique
+
+
+def _resolve_graph_root(root_arg: str | None) -> Path:
+    root = Path(root_arg).expanduser().resolve() if root_arg else Path.cwd().resolve()
+    if not root.exists() or not root.is_dir():
+        raise ValueError(f"root does not exist or is not a directory: {root}")
+    return root
+
+
+def _iter_codebase_files(root: Path) -> list[Path]:
+    files: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [
+            name for name in dirnames if name not in _CODEBASE_SKIP_DIRS and not name.startswith(".")
+        ]
+        for filename in filenames:
+            if filename.startswith("."):
+                continue
+            path = Path(dirpath) / filename
+            if path.suffix.lower() in _CODEBASE_FILE_EXTENSIONS:
+                files.append(path)
+    files.sort()
+    return files
+
+
+def _module_name_for(path: Path, root: Path) -> str:
+    rel = path.relative_to(root).with_suffix("")
+    parts = list(rel.parts)
+    if parts and parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def _build_module_index(files: list[Path], root: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for path in files:
+        if path.suffix != ".py":
+            continue
+        module_name = _module_name_for(path, root)
+        if module_name:
+            out[module_name] = path.relative_to(root).as_posix()
+    return out
+
+
+def _resolve_local_import(
+    module_index: dict[str, str],
+    current_module: str,
+    module_name: str | None,
+    level: int,
+) -> str | None:
+    base_parts = current_module.split(".") if current_module else []
+    if current_module and level > 0:
+        base_parts = base_parts[:-1]
+        if level > 1:
+            trim = min(level - 1, len(base_parts))
+            base_parts = base_parts[:-trim]
+    candidates: list[str] = []
+    if module_name:
+        parts = module_name.split(".") if level == 0 else base_parts + module_name.split(".")
+        for end in range(len(parts), 0, -1):
+            candidates.append(".".join(parts[:end]))
+    elif base_parts:
+        candidates.append(".".join(base_parts))
+    for candidate in candidates:
+        if candidate in module_index:
+            return module_index[candidate]
+        init_name = f"{candidate}.__init__"
+        if init_name in module_index:
+            return module_index[init_name]
+    return None
+
+
+def _extract_python_graph(
+    path: Path, root: Path, module_index: dict[str, str]
+) -> tuple[list[str], list[str]]:
+    rel_path = path.relative_to(root).as_posix()
+    current_module = _module_name_for(path, root)
+    try:
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=rel_path)
+    except (SyntaxError, UnicodeDecodeError, OSError):
+        return [], []
+    symbols: list[str] = []
+    imports: list[str] = []
+    seen_imports: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            symbols.append(node.name)
+    for node in ast.walk(tree):
+        target: str | None = None
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                target = _resolve_local_import(module_index, current_module, alias.name, 0)
+                if target and target != rel_path and target not in seen_imports:
+                    seen_imports.add(target)
+                    imports.append(target)
+        elif isinstance(node, ast.ImportFrom):
+            target = _resolve_local_import(module_index, current_module, node.module, node.level)
+            if not target and node.module:
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    qualified = f"{node.module}.{alias.name}"
+                    target = _resolve_local_import(module_index, current_module, qualified, node.level)
+                    if target:
+                        break
+            if target and target != rel_path and target not in seen_imports:
+                seen_imports.add(target)
+                imports.append(target)
+    for match in _PY_FILE_LITERAL_RE.finditer(source):
+        candidate = (path.parent / match.group(1)).resolve()
+        if not candidate.exists() or not candidate.is_file():
+            continue
+        try:
+            rel = candidate.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if rel != rel_path and rel not in seen_imports:
+            seen_imports.add(rel)
+            imports.append(rel)
+    return symbols, imports
+
+
+def _extract_markdown_graph(path: Path, root: Path) -> list[str]:
+    try:
+        body = path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return []
+    targets: list[str] = []
+    seen: set[str] = set()
+    for match in _MD_LINK_RE.finditer(body):
+        destination = match.group(1)
+        if "://" in destination or destination.startswith("#"):
+            continue
+        candidate = (path.parent / destination).resolve()
+        options = [candidate]
+        if candidate.suffix == "":
+            options.append(candidate.with_suffix(".md"))
+            options.append(candidate.with_suffix(".py"))
+        for option in options:
+            if not option.exists() or not option.is_file():
+                continue
+            try:
+                rel = option.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if rel not in seen:
+                seen.add(rel)
+                targets.append(rel)
+            break
+    return targets
+
+
+def _build_codebase_graph(root_arg: str | None, include_symbols: bool = True) -> dict[str, Any]:
+    root = _resolve_graph_root(root_arg)
+    files = _iter_codebase_files(root)
+    module_index = _build_module_index(files, root)
+    file_nodes: list[dict[str, Any]] = []
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, str]] = []
+    symbol_count = 0
+    for path in files:
+        rel_path = path.relative_to(root).as_posix()
+        language = path.suffix.lstrip(".") or "text"
+        symbols: list[str] = []
+        imports: list[str] = []
+        references: list[str] = []
+        if path.suffix == ".py":
+            symbols, imports = _extract_python_graph(path, root, module_index)
+        elif path.suffix == ".md":
+            references = _extract_markdown_graph(path, root)
+        file_node = {
+            "id": rel_path,
+            "kind": "file",
+            "path": rel_path,
+            "language": language,
+            "symbol_count": len(symbols),
+        }
+        file_nodes.append(file_node)
+        nodes.append(file_node)
+        for target in imports:
+            edges.append({"source": rel_path, "target": target, "type": "imports"})
+        for target in references:
+            edges.append({"source": rel_path, "target": target, "type": "references"})
+        if include_symbols:
+            for symbol in symbols:
+                symbol_count += 1
+                symbol_id = f"{rel_path}#{symbol}"
+                nodes.append({"id": symbol_id, "kind": "symbol", "path": rel_path, "symbol": symbol})
+                edges.append({"source": rel_path, "target": symbol_id, "type": "defines"})
+    return {
+        "root": str(root),
+        "files": file_nodes,
+        "nodes": nodes,
+        "edges": edges,
+        "file_count": len(file_nodes),
+        "symbol_count": symbol_count,
+        "edge_count": len(edges),
+    }
+
+
+def _normalize_target_path(root: Path, raw_path: str) -> str:
+    path = Path(raw_path)
+    resolved = path.expanduser().resolve() if path.is_absolute() else (root / path).resolve()
+    return resolved.relative_to(root).as_posix()
+
+
+def _compute_codebase_impact(graph: dict[str, Any], path_arg: str) -> dict[str, Any]:
+    root = Path(graph["root"])
+    target = _normalize_target_path(root, path_arg)
+    file_paths = {node["path"] for node in graph["files"]}
+    if target not in file_paths:
+        raise ValueError(f"path not found in analyzed graph: {path_arg}")
+    imported_by = sorted(
+        {
+            edge["source"]
+            for edge in graph["edges"]
+            if edge["target"] == target and edge["type"] in {"imports", "references"}
+        }
+    )
+    references = sorted(
+        {
+            edge["target"]
+            for edge in graph["edges"]
+            if edge["source"] == target and edge["type"] in {"imports", "references"}
+        }
+    )
+    defines = sorted(
+        node["symbol"]
+        for node in graph["nodes"]
+        if node["kind"] == "symbol" and node["path"] == target
+    )
+    return {
+        "root": graph["root"],
+        "path": target,
+        "imported_by": imported_by,
+        "references": references,
+        "defines": defines,
+        "imported_by_count": len(imported_by),
+        "references_count": len(references),
+        "defines_count": len(defines),
+    }
+
+
+def _wiki_graph(conn: sqlite3.Connection) -> dict[str, Any]:
+    rows = _query_all(conn, "SELECT slug, title, body FROM wiki ORDER BY slug")
+    slugs = {row["slug"] for row in rows}
+    nodes = [{"slug": row["slug"], "title": row["title"]} for row in rows]
+    edges: list[dict[str, str]] = []
+    dangling: list[dict[str, str]] = []
+    for row in rows:
+        for target in _extract_wiki_targets(row["body"] or ""):
+            if target == row["slug"]:
+                continue
+            edge = {"source": row["slug"], "target": target}
+            if target in slugs:
+                edges.append(edge)
+            else:
+                dangling.append(edge)
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "dangling": dangling,
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+        "dangling_count": len(dangling),
+    }
 
 
 def _print_table(headers: list[str], rows: list[list[str]]) -> None:
@@ -1179,6 +1571,578 @@ def _cmd_memory_export(args: argparse.Namespace) -> int:
         conn.close()
 
 
+def _cmd_state_list(args: argparse.Namespace) -> int:
+    conn = _omni_db()
+    if conn is None:
+        print("Omni database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        rows = _query_all(
+            conn,
+            "SELECT mode, updated_at FROM state ORDER BY updated_at DESC LIMIT ?",
+            (getattr(args, "limit", 20),),
+        )
+        entries = [dict(row) for row in rows]
+        if getattr(args, "json", False):
+            _dump_json({"modes": entries, "count": len(entries)})
+            return 0
+        if not entries:
+            print("No state entries.")
+            return 0
+        _print_table(
+            ["Mode", "Updated"],
+            [[entry["mode"], _format_timestamp(entry["updated_at"])] for entry in entries],
+        )
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_state_show(args: argparse.Namespace) -> int:
+    conn = _omni_db()
+    if conn is None:
+        print("Omni database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        row = _query_one(
+            conn,
+            "SELECT mode, body, updated_at FROM state WHERE mode=?",
+            (args.mode,),
+        )
+        if row is None:
+            if getattr(args, "json", False):
+                _dump_json({"error": "not found", "mode": args.mode})
+            else:
+                print(f"No state entry for mode '{args.mode}'.", file=sys.stderr)
+            return 1
+        payload = {
+            "mode": row["mode"],
+            "body": _parse_json_text(row["body"]),
+            "updated_at": row["updated_at"],
+        }
+        if getattr(args, "json", False):
+            _dump_json(payload)
+            return 0
+        _print_fields(
+            [
+                ("Mode", payload["mode"]),
+                ("Updated", _format_timestamp(payload["updated_at"])),
+            ]
+        )
+        print()
+        _print_body(payload["body"])
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_wiki_list(args: argparse.Namespace) -> int:
+    conn = _omni_db()
+    if conn is None:
+        print("Omni database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        rows = _query_all(
+            conn,
+            "SELECT slug, title, updated_at FROM wiki ORDER BY updated_at DESC LIMIT ?",
+            (getattr(args, "limit", 20),),
+        )
+        entries = [dict(row) for row in rows]
+        if getattr(args, "json", False):
+            _dump_json({"entries": entries, "count": len(entries)})
+            return 0
+        if not entries:
+            print("No wiki entries.")
+            return 0
+        _print_table(
+            ["Slug", "Title", "Updated"],
+            [
+                [entry["slug"], entry["title"], _format_timestamp(entry["updated_at"])]
+                for entry in entries
+            ],
+        )
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_wiki_search(args: argparse.Namespace) -> int:
+    conn = _omni_db()
+    if conn is None:
+        print("Omni database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        query = f"%{args.query}%"
+        rows = _query_all(
+            conn,
+            "SELECT slug, title, updated_at FROM wiki"
+            " WHERE body LIKE ? OR title LIKE ? OR tags LIKE ?"
+            " ORDER BY updated_at DESC LIMIT ?",
+            (query, query, query, getattr(args, "limit", 20)),
+        )
+        entries = [dict(row) for row in rows]
+        if getattr(args, "json", False):
+            _dump_json({"results": entries, "count": len(entries)})
+            return 0
+        if not entries:
+            print("No matches found.")
+            return 0
+        _print_table(
+            ["Slug", "Title", "Updated"],
+            [
+                [entry["slug"], entry["title"], _format_timestamp(entry["updated_at"])]
+                for entry in entries
+            ],
+        )
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_wiki_show(args: argparse.Namespace) -> int:
+    conn = _omni_db()
+    if conn is None:
+        print("Omni database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        row = _query_one(
+            conn,
+            "SELECT slug, title, body, tags, updated_at FROM wiki WHERE slug=?",
+            (args.slug,),
+        )
+        if row is None:
+            if getattr(args, "json", False):
+                _dump_json({"error": "not found", "slug": args.slug})
+            else:
+                print(f"No wiki page for slug '{args.slug}'.", file=sys.stderr)
+            return 1
+        entry = dict(row)
+        if getattr(args, "json", False):
+            _dump_json(entry)
+            return 0
+        _print_fields(
+            [
+                ("Slug", entry["slug"]),
+                ("Title", entry["title"]),
+                ("Tags", entry["tags"] or "-"),
+                ("Updated", _format_timestamp(entry["updated_at"])),
+            ]
+        )
+        print()
+        print(entry["body"])
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_wiki_graph(args: argparse.Namespace) -> int:
+    conn = _omni_db()
+    if conn is None:
+        print("Omni database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        graph = _wiki_graph(conn)
+        if getattr(args, "json", False):
+            _dump_json(graph)
+            return 0
+        print(
+            "Wiki graph: "
+            f"{graph['node_count']} node(s), {graph['edge_count']} edge(s), "
+            f"{graph['dangling_count']} dangling link(s)."
+        )
+        nodes = graph["nodes"]
+        edges = graph["edges"]
+        dangling = graph["dangling"]
+        if nodes:
+            print()
+            _print_table(
+                ["Slug", "Title"],
+                [[node["slug"], node["title"]] for node in nodes],
+            )
+        if edges:
+            print()
+            _print_table(
+                ["Source", "Target"],
+                [[edge["source"], edge["target"]] for edge in edges],
+            )
+        if dangling:
+            print()
+            _print_table(
+                ["Dangling From", "Missing Target"],
+                [[edge["source"], edge["target"]] for edge in dangling],
+            )
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_wiki_validate(args: argparse.Namespace) -> int:
+    conn = _omni_db()
+    if conn is None:
+        print("Omni database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        report = _wiki_graph(conn)
+        report["ok"] = report["dangling_count"] == 0
+        if getattr(args, "json", False):
+            _dump_json(report)
+        else:
+            status = "OK" if report["ok"] else "FAIL"
+            print(f"Wiki validation: {status}")
+            print(f"Nodes:    {report['node_count']}")
+            print(f"Edges:    {report['edge_count']}")
+            print(f"Dangling: {report['dangling_count']}")
+            if report["dangling"]:
+                print()
+                _print_table(
+                    ["Dangling From", "Missing Target"],
+                    [
+                        [edge["source"], edge["target"]]
+                        for edge in report["dangling"]
+                    ],
+                )
+        return 0 if report["ok"] else 1
+    finally:
+        conn.close()
+
+
+def _cmd_notepad_list(args: argparse.Namespace) -> int:
+    conn = _omni_db()
+    if conn is None:
+        print("Omni database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        limit = getattr(args, "limit", 20)
+        kind = getattr(args, "kind", None)
+        if kind:
+            rows = _query_all(
+                conn,
+                "SELECT id, kind, body, created_at FROM notepad"
+                " WHERE kind=? ORDER BY created_at DESC LIMIT ?",
+                (kind, limit),
+            )
+        else:
+            rows = _query_all(
+                conn,
+                "SELECT id, kind, body, created_at FROM notepad"
+                " ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            )
+        entries = [dict(row) for row in rows]
+        if getattr(args, "json", False):
+            _dump_json({"notes": entries, "count": len(entries)})
+            return 0
+        if not entries:
+            print("No notepad notes.")
+            return 0
+        _print_table(
+            ["ID", "Kind", "Body", "Created"],
+            [
+                [
+                    entry["id"],
+                    entry["kind"],
+                    _preview_text(entry["body"]),
+                    _format_timestamp(entry["created_at"]),
+                ]
+                for entry in entries
+            ],
+        )
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_notepad_show(args: argparse.Namespace) -> int:
+    conn = _omni_db()
+    if conn is None:
+        print("Omni database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        row = _query_one(
+            conn,
+            "SELECT id, kind, body, created_at FROM notepad WHERE id=?",
+            (args.note_id,),
+        )
+        if row is None:
+            if getattr(args, "json", False):
+                _dump_json({"error": "not found", "id": args.note_id})
+            else:
+                print(f"No notepad note with id '{args.note_id}'.", file=sys.stderr)
+            return 1
+        note = dict(row)
+        if getattr(args, "json", False):
+            _dump_json(note)
+            return 0
+        _print_fields(
+            [
+                ("ID", note["id"]),
+                ("Kind", note["kind"]),
+                ("Created", _format_timestamp(note["created_at"])),
+            ]
+        )
+        print()
+        print(note["body"])
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_shared_memory_list(args: argparse.Namespace) -> int:
+    conn = _omni_db()
+    if conn is None:
+        print("Omni database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        rows = _query_all(
+            conn,
+            "SELECT key, updated_at FROM shared_memory"
+            " ORDER BY updated_at DESC LIMIT ?",
+            (getattr(args, "limit", 20),),
+        )
+        entries = [dict(row) for row in rows]
+        if getattr(args, "json", False):
+            _dump_json({"entries": entries, "count": len(entries)})
+            return 0
+        if not entries:
+            print("No shared memory entries.")
+            return 0
+        _print_table(
+            ["Key", "Updated"],
+            [[entry["key"], _format_timestamp(entry["updated_at"])] for entry in entries],
+        )
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_shared_memory_show(args: argparse.Namespace) -> int:
+    conn = _omni_db()
+    if conn is None:
+        print("Omni database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        row = _query_one(
+            conn,
+            "SELECT key, body, updated_at FROM shared_memory WHERE key=?",
+            (args.key,),
+        )
+        if row is None:
+            if getattr(args, "json", False):
+                _dump_json({"error": "not found", "key": args.key})
+            else:
+                print(f"No shared memory entry for key '{args.key}'.", file=sys.stderr)
+            return 1
+        entry = dict(row)
+        entry["body"] = _parse_json_text(entry["body"])
+        if getattr(args, "json", False):
+            _dump_json(entry)
+            return 0
+        _print_fields(
+            [
+                ("Key", entry["key"]),
+                ("Updated", _format_timestamp(entry["updated_at"])),
+            ]
+        )
+        print()
+        _print_body(entry["body"])
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_trace_list(args: argparse.Namespace) -> int:
+    conn = _omni_db()
+    if conn is None:
+        print("Omni database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        rows = _query_all(
+            conn,
+            "SELECT id, observation, verdict, created_at FROM trace"
+            " ORDER BY created_at DESC LIMIT ?",
+            (getattr(args, "limit", 20),),
+        )
+        entries = [dict(row) for row in rows]
+        if getattr(args, "json", False):
+            _dump_json({"traces": entries, "count": len(entries)})
+            return 0
+        if not entries:
+            print("No trace entries.")
+            return 0
+        _print_table(
+            ["ID", "Observation", "Verdict", "Created"],
+            [
+                [
+                    entry["id"],
+                    _preview_text(entry["observation"]),
+                    entry["verdict"] or "-",
+                    _format_timestamp(entry["created_at"]),
+                ]
+                for entry in entries
+            ],
+        )
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_trace_show(args: argparse.Namespace) -> int:
+    conn = _omni_db()
+    if conn is None:
+        print("Omni database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        row = _query_one(
+            conn,
+            "SELECT id, observation, hypothesis, evidence, verdict, created_at"
+            " FROM trace WHERE id=?",
+            (args.trace_id,),
+        )
+        if row is None:
+            if getattr(args, "json", False):
+                _dump_json({"error": "not found", "id": args.trace_id})
+            else:
+                print(f"No trace entry with id '{args.trace_id}'.", file=sys.stderr)
+            return 1
+        trace = dict(row)
+        if getattr(args, "json", False):
+            _dump_json(trace)
+            return 0
+        _print_fields(
+            [
+                ("ID", trace["id"]),
+                ("Created", _format_timestamp(trace["created_at"])),
+                ("Verdict", trace["verdict"] or "-"),
+            ]
+        )
+        print()
+        print("Observation:")
+        print(trace["observation"])
+        if trace.get("hypothesis"):
+            print()
+            print("Hypothesis:")
+            print(trace["hypothesis"])
+        if trace.get("evidence"):
+            print()
+            print("Evidence:")
+            _print_body(_parse_json_text(trace["evidence"]))
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_trace_timeline(args: argparse.Namespace) -> int:
+    conn = _omni_db()
+    if conn is None:
+        print("Omni database not found. Run `omni init` first.", file=sys.stderr)
+        return 1
+    try:
+        limit = getattr(args, "limit", 20)
+        contains = getattr(args, "contains", None)
+        if contains:
+            rows = _query_all(
+                conn,
+                "SELECT id, observation, verdict, created_at FROM trace"
+                " WHERE observation LIKE ? ORDER BY created_at LIMIT ?",
+                (f"%{contains}%", limit),
+            )
+        else:
+            rows = _query_all(
+                conn,
+                "SELECT id, observation, verdict, created_at FROM trace"
+                " ORDER BY created_at LIMIT ?",
+                (limit,),
+            )
+        entries = [dict(row) for row in rows]
+        if getattr(args, "json", False):
+            _dump_json({"timeline": entries, "count": len(entries)})
+            return 0
+        if not entries:
+            print("No trace timeline entries.")
+            return 0
+        _print_table(
+            ["ID", "Observation", "Verdict", "Created"],
+            [
+                [
+                    entry["id"],
+                    _preview_text(entry["observation"]),
+                    entry["verdict"] or "-",
+                    _format_timestamp(entry["created_at"]),
+                ]
+                for entry in entries
+            ],
+        )
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_codebase_graph(args: argparse.Namespace) -> int:
+    try:
+        graph = _build_codebase_graph(
+            getattr(args, "root", None),
+            include_symbols=not getattr(args, "no_symbols", False),
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    if getattr(args, "json", False):
+        _dump_json(graph)
+        return 0
+    print(
+        "Codebase graph: "
+        f"{graph['file_count']} file node(s), {graph['symbol_count']} symbol node(s), "
+        f"{graph['edge_count']} edge(s)."
+    )
+    file_nodes = graph["files"]
+    if file_nodes:
+        print()
+        _print_table(
+            ["Path", "Language", "Symbols"],
+            [[node["path"], node["language"], str(node["symbol_count"])] for node in file_nodes[:20]],
+        )
+    return 0
+
+
+def _cmd_codebase_impact(args: argparse.Namespace) -> int:
+    try:
+        graph = _build_codebase_graph(
+            getattr(args, "root", None),
+            include_symbols=not getattr(args, "no_symbols", False),
+        )
+        report = _compute_codebase_impact(graph, args.path)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    if getattr(args, "json", False):
+        _dump_json(report)
+        return 0
+    _print_fields(
+        [
+            ("Path", report["path"]),
+            ("Imported by", report["imported_by_count"]),
+            ("References", report["references_count"]),
+            ("Defines", report["defines_count"]),
+        ]
+    )
+    if report["imported_by"]:
+        print()
+        print("Imported by:")
+        for item in report["imported_by"]:
+            print(f"- {item}")
+    if report["references"]:
+        print()
+        print("References:")
+        for item in report["references"]:
+            print(f"- {item}")
+    if report["defines"]:
+        print()
+        print("Defines:")
+        for item in report["defines"]:
+            print(f"- {item}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="omni", description="Copilot Omni CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1309,6 +2273,150 @@ def build_parser() -> argparse.ArgumentParser:
         "--output", "-o", default=None, help="Output file (default: stdout)"
     )
     mem_export.set_defaults(func=_cmd_memory_export)
+
+    state = sub.add_parser("state", help="Inspect persisted state")
+    state_sub = state.add_subparsers(dest="state_cmd", required=True)
+
+    state_list = state_sub.add_parser("list", help="List stored state modes")
+    state_list.add_argument(
+        "--limit", type=int, default=20, help="Max results (default: 20)"
+    )
+    state_list.add_argument("--json", action="store_true", help="JSON output")
+    state_list.set_defaults(func=_cmd_state_list)
+
+    state_show = state_sub.add_parser("show", help="Show a stored state body")
+    state_show.add_argument("mode", help="State mode to inspect")
+    state_show.add_argument("--json", action="store_true", help="JSON output")
+    state_show.set_defaults(func=_cmd_state_show)
+
+    wiki = sub.add_parser("wiki", help="Inspect the persistent wiki store")
+    wiki_sub = wiki.add_subparsers(dest="wiki_cmd", required=True)
+
+    wiki_list = wiki_sub.add_parser("list", help="List wiki pages")
+    wiki_list.add_argument(
+        "--limit", type=int, default=20, help="Max results (default: 20)"
+    )
+    wiki_list.add_argument("--json", action="store_true", help="JSON output")
+    wiki_list.set_defaults(func=_cmd_wiki_list)
+
+    wiki_show = wiki_sub.add_parser("show", help="Show a wiki page")
+    wiki_show.add_argument("slug", help="Wiki slug to inspect")
+    wiki_show.add_argument("--json", action="store_true", help="JSON output")
+    wiki_show.set_defaults(func=_cmd_wiki_show)
+
+    wiki_search = wiki_sub.add_parser("search", help="Search wiki pages")
+    wiki_search.add_argument("query", help="Search query")
+    wiki_search.add_argument(
+        "--limit", type=int, default=20, help="Max results (default: 20)"
+    )
+    wiki_search.add_argument("--json", action="store_true", help="JSON output")
+    wiki_search.set_defaults(func=_cmd_wiki_search)
+
+    wiki_graph = wiki_sub.add_parser("graph", help="Show the wiki knowledge graph")
+    wiki_graph.add_argument("--json", action="store_true", help="JSON output")
+    wiki_graph.set_defaults(func=_cmd_wiki_graph)
+
+    wiki_validate = wiki_sub.add_parser(
+        "validate", help="Validate wiki cross-references"
+    )
+    wiki_validate.add_argument("--json", action="store_true", help="JSON output")
+    wiki_validate.set_defaults(func=_cmd_wiki_validate)
+
+    notepad = sub.add_parser("notepad", help="Inspect persisted notes")
+    notepad_sub = notepad.add_subparsers(dest="notepad_cmd", required=True)
+
+    notepad_list = notepad_sub.add_parser("list", help="List recent notes")
+    notepad_list.add_argument("--kind", default=None, help="Filter by note kind")
+    notepad_list.add_argument(
+        "--limit", type=int, default=20, help="Max results (default: 20)"
+    )
+    notepad_list.add_argument("--json", action="store_true", help="JSON output")
+    notepad_list.set_defaults(func=_cmd_notepad_list)
+
+    notepad_show = notepad_sub.add_parser("show", help="Show a note body")
+    notepad_show.add_argument("note_id", help="Note id to inspect")
+    notepad_show.add_argument("--json", action="store_true", help="JSON output")
+    notepad_show.set_defaults(func=_cmd_notepad_show)
+
+    shared_memory = sub.add_parser("shared-memory", help="Inspect shared memory")
+    shared_memory_sub = shared_memory.add_subparsers(
+        dest="shared_memory_cmd", required=True
+    )
+
+    shared_memory_list = shared_memory_sub.add_parser(
+        "list", help="List shared memory keys"
+    )
+    shared_memory_list.add_argument(
+        "--limit", type=int, default=20, help="Max results (default: 20)"
+    )
+    shared_memory_list.add_argument(
+        "--json", action="store_true", help="JSON output"
+    )
+    shared_memory_list.set_defaults(func=_cmd_shared_memory_list)
+
+    shared_memory_show = shared_memory_sub.add_parser(
+        "show", help="Show a shared memory entry"
+    )
+    shared_memory_show.add_argument("key", help="Shared memory key to inspect")
+    shared_memory_show.add_argument(
+        "--json", action="store_true", help="JSON output"
+    )
+    shared_memory_show.set_defaults(func=_cmd_shared_memory_show)
+
+    trace = sub.add_parser("trace", help="Inspect stored traces")
+    trace_sub = trace.add_subparsers(dest="trace_cmd", required=True)
+
+    trace_list = trace_sub.add_parser("list", help="List recent trace entries")
+    trace_list.add_argument(
+        "--limit", type=int, default=20, help="Max results (default: 20)"
+    )
+    trace_list.add_argument("--json", action="store_true", help="JSON output")
+    trace_list.set_defaults(func=_cmd_trace_list)
+
+    trace_show = trace_sub.add_parser("show", help="Show a trace entry")
+    trace_show.add_argument("trace_id", help="Trace id to inspect")
+    trace_show.add_argument("--json", action="store_true", help="JSON output")
+    trace_show.set_defaults(func=_cmd_trace_show)
+
+    trace_timeline = trace_sub.add_parser(
+        "timeline", help="Show trace entries in chronological order"
+    )
+    trace_timeline.add_argument(
+        "--contains", default=None, help="Filter observations by substring"
+    )
+    trace_timeline.add_argument(
+        "--limit", type=int, default=20, help="Max results (default: 20)"
+    )
+    trace_timeline.add_argument("--json", action="store_true", help="JSON output")
+    trace_timeline.set_defaults(func=_cmd_trace_timeline)
+
+    codebase = sub.add_parser(
+        "codebase", help="Inspect the current codebase graph and refactor impact"
+    )
+    codebase_sub = codebase.add_subparsers(dest="codebase_cmd", required=True)
+
+    codebase_graph = codebase_sub.add_parser("graph", help="Show the codebase graph")
+    codebase_graph.add_argument(
+        "--root", default=None, help="Root directory to analyze (default: cwd)"
+    )
+    codebase_graph.add_argument(
+        "--no-symbols", action="store_true", help="Skip symbol nodes in the graph"
+    )
+    codebase_graph.add_argument("--json", action="store_true", help="JSON output")
+    codebase_graph.set_defaults(func=_cmd_codebase_graph)
+
+    codebase_impact = codebase_sub.add_parser(
+        "impact", help="Show immediate refactor impact for a file path"
+    )
+    codebase_impact.add_argument("path", help="File path to inspect")
+    codebase_impact.add_argument(
+        "--root", default=None, help="Root directory to analyze (default: cwd)"
+    )
+    codebase_impact.add_argument(
+        "--no-symbols", action="store_true", help="Skip symbol nodes in the graph"
+    )
+    codebase_impact.add_argument("--json", action="store_true", help="JSON output")
+    codebase_impact.set_defaults(func=_cmd_codebase_impact)
 
     return parser
 

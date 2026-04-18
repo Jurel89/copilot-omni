@@ -1,186 +1,160 @@
 ---
 name: mcp-setup
-description: Configure popular MCP servers for enhanced agent capabilities
+description: Understand and verify the MCP tools provided by copilot-omni
 level: 2
 ---
 
 # MCP Setup
 
-Configure Model Context Protocol (MCP) servers to extend Claude Code's capabilities with external tools like web search, file system access, and GitHub integration.
+copilot-omni serves 30 MCP tools over stdio JSON-RPC 2.0 via `mcp/server.py`. This skill helps you verify the MCP layer is healthy and understand what tools are available.
 
 ## Overview
 
-MCP servers provide additional tools that Claude Code agents can use. This skill helps you configure popular MCP servers using the `claude mcp add` command-line interface.
+MCP (Model Context Protocol) tools extend Copilot CLI sessions with structured capabilities for memory, state, tracing, and more. All copilot-omni MCP tools are served by a single Python file (`mcp/server.py`) using only the Python 3.9 stdlib.
 
-## Step 1: Show Available MCP Servers
+## Step 1: Verify MCP Server Health
 
-Present the user with available MCP server options as plain chat and wait for their reply:
-
-**Question:** "Which MCP server would you like to configure?"
-
-**Options:**
-1. **Context7** - Documentation and code context from popular libraries
-2. **Exa Web Search** - Enhanced web search (replaces built-in websearch)
-3. **Filesystem** - Extended file system access with additional capabilities
-4. **GitHub** - GitHub API integration for issues, PRs, and repository management
-5. **All of the above** - Configure all recommended MCP servers
-6. **Custom** - Add a custom MCP server
-
-## Step 2: Gather Required Information
-
-### For Context7:
-No API key required. Ready to use immediately.
-
-### For Exa Web Search:
-Ask for API key:
-```
-Do you have an Exa API key?
-- Get one at: https://exa.ai
-- Enter your API key, or type 'skip' to configure later
-```
-
-### For Filesystem:
-Ask for allowed directories:
-```
-Which directories should the filesystem MCP have access to?
-Default: Current working directory
-Enter comma-separated paths, or press Enter for default
-```
-
-### For GitHub:
-Ask for token:
-```
-Do you have a GitHub Personal Access Token?
-- Create one at: https://github.com/settings/tokens
-- Recommended scopes: repo, read:org
-- Enter your token, or type 'skip' to configure later
-```
-
-## Step 3: Add MCP Servers Using CLI
-
-Use the `claude mcp add` command to configure each MCP server. The CLI automatically handles settings.json updates and merging.
-
-### Context7 Configuration:
-```bash
-claude mcp add context7 -- npx -y @upstash/context7-mcp
-```
-
-### Exa Web Search Configuration:
-```bash
-claude mcp add -e EXA_API_KEY=<user-provided-key> exa -- npx -y exa-mcp-server
-```
-
-### Filesystem Configuration:
-```bash
-claude mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem <allowed-directories>
-```
-
-### GitHub Configuration:
-
-**Option 1: Docker (local)**
-```bash
-claude mcp add -e GITHUB_PERSONAL_ACCESS_TOKEN=<user-provided-token> github -- docker run -i --rm -e GITHUB_PERSONAL_ACCESS_TOKEN ghcr.io/github/github-mcp-server
-```
-
-**Option 2: HTTP (remote)**
-```bash
-claude mcp add --transport http github https://api.githubcopilot.com/mcp/
-```
-
-> Note: Docker option requires Docker installed. HTTP option is simpler but may have different capabilities.
-
-## Step 4: Verify Installation
-
-After configuration, verify the MCP servers are properly set up:
+Run the built-in health check:
 
 ```bash
-# List configured MCP servers
-claude mcp list
+python3 scripts/omni.py doctor
 ```
 
-This will display all configured MCP servers and their status.
+Or test the MCP server directly:
 
-## Step 5: Show Completion Message
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | python3 mcp/server.py
+```
+
+## Step 2: List Available MCP Tools
+
+copilot-omni provides these MCP tool categories:
+
+**Memory:**
+- `memory_capture` — save a note to the memory store
+- `memory_search` — query saved memories
+- `memory_prune` — remove old memories
+- `memory_export` — export memories to a file
+
+**State:**
+- `state_write` — persist key-value state
+- `state_read` — read persisted state
+- `state_clear` — remove state entries
+
+**Wiki:**
+- `wiki_write` — create or update a wiki entry
+- `wiki_read` — read a wiki entry
+- `wiki_query` — search the wiki
+- `wiki_list` — list all wiki entries
+- `wiki_ingest` — ingest external content
+- `wiki_graph` — build a relationship graph
+
+**Codebase:**
+- `codebase_graph` — build a repository file/import/reference graph
+- `codebase_impact` — show immediate refactor impact for a file
+
+**Notepad:**
+- `notepad_write` — write to the project notepad
+- `notepad_read` — read from the notepad
+- `notepad_prune` — clean old notepad entries
+
+**Shared Memory:**
+- `shared_memory_write` — write to shared memory
+- `shared_memory_read` — read from shared memory
+
+**Trace:**
+- `trace_summary` — aggregate trace evidence
+- `trace_timeline` — build a causal timeline
+
+**Code Intelligence:**
+- `lsp_hover` — get symbol info via LSP
+- `lsp_goto_definition` — jump to definition
+- `lsp_find_references` — find symbol references
+- `ast_grep_search` — search code with AST patterns
+- `ast_grep_replace` — replace code with AST patterns
+
+**Policy + Health:**
+- `policy_check` — validate against policy rules
+- `health` — check plugin health
+- `doctor` — run full diagnostics
+
+## Step 3: Verify Tool Registration
+
+Ensure the plugin manifest (`plugin.json`) correctly registers the MCP server:
+
+```bash
+python3 -c "import json; d=json.load(open('plugin.json')); print('mcpServer' in d and 'mcp/server.py' in str(d))"
+```
+
+The `.mcp.json` file at the plugin root should point to `mcp/server.py`:
+
+```json
+{
+  "command": "python3",
+  "args": ["mcp/server.py"]
+}
+```
+
+## Step 4: Test a Tool Call
+
+Test a simple state write/read cycle to confirm the full pipeline works:
+
+```bash
+# Write state
+cat <<'PY' | python3 mcp/server.py
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"state_write","arguments":{"mode":"test","body":{"value":42}}}}
+PY
+
+# Read it back
+cat <<'PY' | python3 mcp/server.py
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"state_read","arguments":{"mode":"test"}}}
+PY
+```
+
+## Completion Message
 
 ```
-MCP Server Configuration Complete!
+MCP Configuration Check Complete!
 
-CONFIGURED SERVERS:
-[List the servers that were configured]
+BUILT-IN TOOLS:
+- 30 MCP tools available via mcp/server.py
+- All tools schema-validated on every call
+- Storage: WAL-mode SQLite at $OMNI_HOME/omni.db
 
 NEXT STEPS:
-1. Restart Claude Code for changes to take effect
-2. The configured MCP tools will be available to all agents
-3. Run `claude mcp list` to verify configuration
+1. Use `/copilot-omni:omni-doctor` if any check failed
+2. Tools are automatically available to all agents
+3. See docs/STATE_MODES.md for the mode-key registry
 
 USAGE TIPS:
-- Context7: Ask about library documentation (e.g., "How do I use React hooks?")
-- Exa: Use for web searches (e.g., "Search the web for latest TypeScript features")
-- Filesystem: Extended file operations beyond the working directory
-- GitHub: Interact with GitHub repos, issues, and PRs
+- Memory: persist notes across sessions with memory_capture
+- State: track workflow progress with state_write/state_read
+- Wiki: build project knowledge bases with wiki_write
+- Trace: investigate issues with trace_summary and trace_timeline
 
 TROUBLESHOOTING:
-- If MCP servers don't appear, run `claude mcp list` to check status
-- Ensure you have Node.js 18+ installed for npx-based servers
-- For GitHub Docker option, ensure Docker is installed and running
+- If mcp/server.py fails to start, run `python3 scripts/omni.py doctor --fix-python`
+- Ensure Python 3.9+ is on PATH
+- Check that $OMNI_HOME/omni.db is writable
 - Run /copilot-omni:omni-doctor to diagnose issues
-
-MANAGING MCP SERVERS:
-- Add more servers: /copilot-omni:mcp-setup or `claude mcp add ...`
-- List servers: `claude mcp list`
-- Remove a server: `claude mcp remove <server-name>`
 ```
 
-## Custom MCP Server
+## Custom MCP Servers
 
-If user selects "Custom":
-
-Ask for:
-1. Server name (identifier)
-2. Transport type: `stdio` (default) or `http`
-3. For stdio: Command and arguments (e.g., `npx my-mcp-server`)
-4. For http: URL (e.g., `https://example.com/mcp`)
-5. Environment variables (optional, key=value pairs)
-6. HTTP headers (optional, for http transport only)
-
-Then construct and run the appropriate `claude mcp add` command:
-
-**For stdio servers:**
-```bash
-# Without environment variables
-claude mcp add <server-name> -- <command> [args...]
-
-# With environment variables
-claude mcp add -e KEY1=value1 -e KEY2=value2 <server-name> -- <command> [args...]
-```
-
-**For HTTP servers:**
-```bash
-# Basic HTTP server
-claude mcp add --transport http <server-name> <url>
-
-# HTTP server with headers
-claude mcp add --transport http --header "Authorization: Bearer <token>" <server-name> <url>
-```
+If you need additional MCP servers beyond the 30 built-in tools, configure them through Copilot CLI's plugin system or your shell environment. copilot-omni does not provide a custom MCP installer; refer to the Copilot CLI documentation for adding external MCP servers.
 
 ## Common Issues
 
-### MCP Server Not Loading
-- Ensure Node.js 18+ is installed
-- Check that npx is available in PATH
-- Run `claude mcp list` to verify server status
-- Check server logs for errors
+### MCP Server Not Responding
+- Ensure Python 3.9+ is installed and `python3` is on PATH
+- Check that `mcp/server.py` exists in the plugin directory
+- Run `python3 scripts/omni.py doctor` for full diagnostics
 
-### API Key Issues
-- Exa: Verify key at https://dashboard.exa.ai
-- GitHub: Ensure token has required scopes (repo, read:org)
-- Re-run `claude mcp add` with correct credentials if needed
+### State Tool Errors
+- Verify `$OMNI_HOME/omni.db` exists and is writable (default: `~/.omni/omni.db`)
+- Run `python3 scripts/omni.py doctor` to check database schema
 
-### Agents Still Using Built-in Tools
-- Restart Claude Code after configuration
-- The built-in websearch will be deprioritized when exa is configured
-- Run `claude mcp list` to confirm servers are active
-
-### Removing or Updating a Server
-- Remove: `claude mcp remove <server-name>`
-- Update: Remove the old server, then add it again with new configuration
+### Agents Not Using MCP Tools
+- Confirm the plugin is installed: `copilot plugin list`
+- Check `.mcp.json` points to the correct server path
+- Restart your Copilot CLI session after plugin changes

@@ -659,7 +659,7 @@ Why bad: This is an exploration/brainstorming request. Respond conversationally 
 - [ ] All validators approved in Phase 5
 - [ ] Phase status.json files written for all 5 phases with state="done"
 - [ ] MCP state rows written for mode="autopilot" with session_id
-- [ ] No banned Claude primitives in executed recipe (validator: no-claude-primitives)
+- [ ] No banned host-specific primitives in executed recipe (primitive guardrail passes)
 - [ ] Cancel signal file absent (or handled cleanly)
 - [ ] User informed of completion with summary of what was built
 </Final_Checklist>

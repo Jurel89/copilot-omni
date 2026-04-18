@@ -1,29 +1,17 @@
 # Phase 4: Completion
 
-## Detect Upgrade from 2.x
-
-Check if user has existing 2.x configuration:
-
-```bash
-ls "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/commands/ralph-loop.md 2>/dev/null || ls "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/commands/ultrawork.md 2>/dev/null
-```
-
-If found, this is an upgrade from 2.x. Set `IS_UPGRADE=true`.
-
 ## Show Welcome Message
-
-### For New Users (IS_UPGRADE is not true):
 
 ```
 copilot-omni Setup Complete!
 
-You don't need to learn any commands. I now have intelligent behaviors that activate automatically.
+You don't need to learn any commands. Intelligent behaviors activate automatically.
 
 WHAT HAPPENS AUTOMATICALLY:
-- Complex tasks -> I parallelize and delegate to specialists
-- "plan this" -> I start a planning interview
-- "don't stop until done" -> I persist until verified complete
-- "stop" or "cancel" -> I intelligently stop current operation
+- Complex tasks -> parallelize and delegate to specialists
+- "plan this" -> start a planning interview
+- "don't stop until done" -> persist until verified complete
+- "stop" or "cancel" -> intelligently stop current operation
 
 MAGIC KEYWORDS (optional power-user shortcuts):
 Just include these words naturally in your request:
@@ -34,67 +22,28 @@ Just include these words naturally in your request:
 | ralplan | Iterative planning | "ralplan this feature" |
 | ulw | Max parallelism | "ulw refactor the API" |
 | plan | Planning interview | "plan the new endpoints" |
-| team | Coordinated agents | "/team 3:executor fix errors" |
+| team | Coordinated agents | "/copilot-omni:team 3:executor fix errors" |
 
 **ralph includes ultrawork:** When you activate ralph mode, it automatically includes ultrawork's parallel execution. No need to combine keywords.
 
 TEAMS:
-Spawn coordinated agents with shared task lists and real-time messaging:
+Spawn coordinated agents with shared task lists:
 - /copilot-omni:team 3:executor "fix all TypeScript errors"
 - /copilot-omni:team 5:debugger "fix build errors in src/"
-Teams use `python3 scripts/subagent.py` for agent invocation (WS5b will add full team orchestration).
+Teams use `python3 scripts/subagent.py` for agent invocation.
 
 MCP SERVERS:
-Run /copilot-omni:mcp-setup to add tools like web search, GitHub, etc.
+Run /copilot-omni:mcp-setup to verify the 28 built-in MCP tools.
 
-copilot-omni CLI HELPERS (if installed):
-- omc teleport    - Create an isolated git worktree
-- omc team status - Inspect a running team job
+CLI HELPERS (if installed):
 - Session summaries are written to `.omni/sessions/*.json`
 
-That's it! Just use Claude Code normally.
-```
-
-### For Users Upgrading from 2.x (IS_UPGRADE is true):
-
-```
-copilot-omni Setup Complete! (Upgraded from 2.x)
-
-GOOD NEWS: Your existing skills still work!
-- /copilot-omni:ralph, /copilot-omni:ultrawork, /copilot-omni:plan, etc. all still function
-
-WHAT'S NEW in 3.0:
-You no longer NEED to type skill invocations. Everything is automatic now:
-- Just say "don't stop until done" instead of /copilot-omni:ralph
-- Just say "fast" or "parallel" instead of /copilot-omni:ultrawork
-- Just say "plan this" instead of /copilot-omni:plan
-- Just say "stop" instead of /copilot-omni:cancel
-
-MAGIC KEYWORDS (power-user shortcuts):
-| Keyword | Same as... | Example |
-|---------|------------|---------|
-| ralph | /copilot-omni:ralph | "ralph: fix the bug" |
-| ralplan | /copilot-omni:ralplan | "ralplan this feature" |
-| ulw | /copilot-omni:ultrawork | "ulw refactor API" |
-| plan | /copilot-omni:plan | "plan the endpoints" |
-| team | /copilot-omni:team | "/copilot-omni:team 3:executor fix errors" |
-
-TEAMS (NEW!):
-Spawn coordinated agents with shared task lists and real-time messaging:
-- /copilot-omni:team 3:executor "fix all TypeScript errors"
-- Uses `python3 scripts/subagent.py` for agent invocation (WS5b will add full team orchestration)
-
-copilot-omni CLI HELPERS (if installed):
-- omc teleport    - Create an isolated git worktree
-- omc team status - Inspect a running team job
-- Session summaries are written to `.omni/sessions/*.json`
-
-Your workflow won't break - it just got easier!
+That's it! Just use Copilot CLI normally.
 ```
 
 ## Optional Rule Templates
 
-copilot-omni includes rule templates you can copy to your project's `.claude/rules/` directory for automatic context injection:
+copilot-omni includes rule templates you can copy to your project for automatic context injection:
 
 | Template | Purpose |
 |----------|---------|
@@ -107,8 +56,8 @@ copilot-omni includes rule templates you can copy to your project's `.claude/rul
 
 Copy with:
 ```bash
-mkdir -p .claude/rules
-cp "${OMNI_PLUGIN_ROOT}/templates/rules/"*.md .claude/rules/
+mkdir -p .copilot/rules
+cp "${OMNI_PLUGIN_ROOT}/templates/rules/"*.md .copilot/rules/
 ```
 
 See `templates/rules/README.md` for details.
@@ -126,7 +75,7 @@ gh auth status &>/dev/null
 **Before prompting, check if the repository is already starred:**
 
 ```bash
-gh api user/starred/Yeachan-Heo/copilot-omni &>/dev/null
+gh api user/starred/Jurel89/copilot-omni &>/dev/null
 ```
 
 **If already starred (exit code 0):**
@@ -147,7 +96,7 @@ Emit as plain chat and wait for the user's reply:
 If user chooses "Yes, star it!":
 
 ```bash
-gh api -X PUT /user/starred/Yeachan-Heo/copilot-omni 2>/dev/null && echo "Thanks for starring!" || true
+gh api -X PUT /user/starred/Jurel89/copilot-omni 2>/dev/null && echo "Thanks for starring!" || true
 ```
 
 **Note:** Fail silently if the API call doesn't work - never block setup completion.
@@ -157,7 +106,7 @@ gh api -X PUT /user/starred/Yeachan-Heo/copilot-omni 2>/dev/null && echo "Thanks
 ```bash
 echo ""
 echo "If you enjoy copilot-omni, consider starring the repo:"
-echo "  https://github.com/Yeachan-Heo/copilot-omni"
+echo "  https://github.com/Jurel89/copilot-omni"
 echo ""
 ```
 
@@ -166,15 +115,10 @@ echo ""
 Get the current copilot-omni version and mark setup complete:
 
 ```bash
-# Get current copilot-omni version from CLAUDE.md
+# Get current copilot-omni version from plugin.json
 OMC_VERSION=""
-if [ -f ".claude/CLAUDE.md" ]; then
-  OMC_VERSION=$(grep -m1 'copilot-omni:VERSION:' .claude/CLAUDE.md 2>/dev/null | sed -E 's/.*copilot-omni:VERSION:([^ ]+).*/\1/' || true)
-elif [ -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/CLAUDE.md" ]; then
-  OMC_VERSION=$(grep -m1 'copilot-omni:VERSION:' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/CLAUDE.md" 2>/dev/null | sed -E 's/.*copilot-omni:VERSION:([^ ]+).*/\1/' || true)
-fi
-if [ -z "$OMC_VERSION" ]; then
-  OMC_VERSION=$(omc --version 2>/dev/null | head -1 || true)
+if [ -f "plugin.json" ]; then
+  OMC_VERSION=$(python3 -c "import json; print(json.load(open('plugin.json')).get('version', 'unknown'))" 2>/dev/null || true)
 fi
 if [ -z "$OMC_VERSION" ]; then
   OMC_VERSION="unknown"

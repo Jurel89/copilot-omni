@@ -7,7 +7,7 @@ level: 4
 
 # External Context Skill
 
-Fetch external documentation, references, and context for a query. Decomposes into 2-5 facets and spawns parallel document-specialist Claude agents.
+Fetch external documentation, references, and context for a query. Decomposes into 2-5 facets and spawns parallel document-specialist agents.
 
 ## Usage
 

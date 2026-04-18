@@ -66,10 +66,10 @@ When arguments include `--autoresearch`, Deep Interview becomes the zero-learnin
 
 1. **Parse the user's idea** from `{{ARGUMENTS}}`
 2. **Detect brownfield vs greenfield**:
-   - Run `explore` agent (haiku): check if cwd has existing source code, package files, or git history
+   - Run `explore` agent (quick category): check if cwd has existing source code, package files, or git history
    - If source files exist AND the user's idea references modifying/extending something: **brownfield**
    - Otherwise: **greenfield**
-3. **For brownfield**: Run `explore` agent to map relevant codebase areas, store as `codebase_context`
+3. **For brownfield**: Run `explore` agent to map relevant codebase areas, then capture a repository map with `codebase_graph` (or `omni codebase graph --json`) and store the result as `codebase_context`
 4. **Initialize state** via `state_write(mode="deep-interview")`:
 
 ```json
@@ -143,7 +143,7 @@ Options should include contextually relevant choices plus free-text.
 
 After receiving the user's answer, score clarity across all dimensions.
 
-**Scoring prompt** (use opus model, temperature 0.1 for consistency):
+**Scoring prompt** (use deep category for consistency, temperature 0.1):
 
 ```
 Given the following interview transcript for a {greenfield|brownfield} project, score clarity on each dimension from 0.0 to 1.0:
@@ -257,7 +257,7 @@ Challenge modes are used ONCE each, then return to normal Socratic questioning. 
 
 When ambiguity ≤ threshold (or hard cap / early exit):
 
-1. **Generate the specification** using opus model with the full interview transcript
+1. **Generate the specification** using the deep category with the full interview transcript
 2. **Write to file**: `.omni/specs/deep-interview-{slug}.md`
 
 Spec structure:
@@ -402,8 +402,8 @@ Skipping any stage is possible but reduces quality assurance:
 
 <Tool_Usage>
 - Emit each interview question as plain chat; the next user turn carries the answer
-- Use `python3 scripts/subagent.py explore "<prompt>"` (Haiku tier) for brownfield codebase exploration (run BEFORE asking user about codebase)
-- Use opus model (temperature 0.1) for ambiguity scoring — consistency is critical
+- Use `python3 scripts/subagent.py explore "<prompt>"` (quick category) for brownfield codebase exploration (run BEFORE asking user about codebase)
+- Use deep category (temperature 0.1) for ambiguity scoring — consistency is critical
 - Use `state_write` / `state_read` for interview state persistence
 - Use `Write` tool to save the final spec to `.omni/specs/`
 - Invoke execution mode skills via `/copilot-omni:<name>` OR read `skills/<name>/SKILL.md` and follow it — never implement directly
@@ -541,21 +541,18 @@ Why bad: 45% ambiguity means nearly half the requirements are unclear. The mathe
 <Advanced>
 ## Configuration
 
-Optional settings in `.claude/settings.json`:
+Optional settings in `.omni/config.json`:
 
 ```json
 {
-  "omc": {
-    "deepInterview": {
-      "ambiguityThreshold": 0.2,
-      "maxRounds": 20,
-      "softWarningRounds": 10,
-      "minRoundsBeforeExit": 3,
-      "enableChallengeAgents": true,
-      "autoExecuteOnComplete": false,
-      "defaultExecutionMode": "autopilot",
-      "scoringModel": "opus"
-    }
+  "deepInterview": {
+    "ambiguityThreshold": 0.2,
+    "maxRounds": 20,
+    "softWarningRounds": 10,
+    "minRoundsBeforeExit": 3,
+    "enableChallengeAgents": true,
+    "autoExecuteOnComplete": false,
+    "defaultExecutionMode": "autopilot"
   }
 }
 ```

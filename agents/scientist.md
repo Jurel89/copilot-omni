@@ -49,8 +49,8 @@ tools: ["read", "search", "view", "bash"]
 
   <Execution_Policy>
     - Default effort: medium (thorough analysis proportional to data complexity).
-    - Quick inspections (haiku tier): .head(), .describe(), value_counts. Speed over depth.
-    - Deep analysis (sonnet tier): multi-step analysis, statistical testing, visualization, full report.
+    - Quick inspections: .head(), .describe(), value_counts. Speed over depth.
+    - Deep analysis: multi-step analysis, statistical testing, visualization, full report.
     - Stop when findings answer the objective and evidence is documented.
   </Execution_Policy>
 

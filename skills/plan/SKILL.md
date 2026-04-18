@@ -57,7 +57,7 @@ Jumping into code without understanding requirements leads to rework, scope cree
 2. **Ask one focused question** as plain chat for preferences, scope, and constraints; the next user turn carries the answer
 3. **Gather codebase facts first**: Before asking "what patterns does your code use?", spawn an `explore` agent to find out, then ask informed follow-up questions
 4. **Build on answers**: Each question builds on the previous answer
-5. **Consult Analyst** (Opus) for hidden requirements, edge cases, and risks
+5. **Consult Analyst** (deep category) for hidden requirements, edge cases, and risks
 6. **Create plan** when the user signals readiness: "create the plan", "I'm ready", "make it a work plan"
 
 ### Direct Mode (detailed requests)
@@ -136,7 +136,7 @@ Plans are saved to `.omni/plans/`. Drafts go to `.omni/drafts/`.
 <Tool_Usage>
 - Emit preference questions (scope, priority, timeline, risk tolerance) as plain chat; the next user turn carries the answer
 - Use plain text for all questions — specific values, follow-up clarifications, and approval prompts
-- Use `python3 scripts/subagent.py explore "<prompt>"` (Haiku tier) to gather codebase facts before asking the user
+- Use `python3 scripts/subagent.py explore "<prompt>"` (quick category) to gather codebase facts before asking the user
 - Use `python3 scripts/subagent.py planner "<prompt>"` for planning validation on large-scope plans
 - Use `python3 scripts/subagent.py analyst "<prompt>"` for requirements analysis
 - Use `python3 scripts/subagent.py critic "<prompt>"` for plan review in consensus and review modes

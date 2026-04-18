@@ -35,7 +35,7 @@ Capture a successful multi-step workflow as a concrete skill draft instead of re
      ---
      ```
    - Write learned/user/project skills to:
-     - `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/omni-learned/<skill-name>.md`
+      - `${OMNI_HOME:-~/.omni}/skills/<skill-name>.md`
      - `.omni/skills/<skill-name>.md`
 5. Draft the rest of the skill file with clear triggers, steps, and success criteria.
 6. Point out anything still too fuzzy to encode safely.

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Subagent helper — invoke a specialized agent via `copilot -p ... --agent <name>`.
 
-This is the Copilot-CLI equivalent of Claude Code's `Task(subagent_type=...)`.
-Ported skills call this module to spawn an agent and capture its output.
+Skills call this module to spawn an agent and capture its output.
 
 WS5a additions
 --------------

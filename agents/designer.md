@@ -1,6 +1,6 @@
 ---
 name: designer
-description: UI/UX Designer-Developer for stunning interfaces (Sonnet)
+description: UI/UX Designer-Developer for stunning interfaces
 ---
 
 <Agent_Prompt>
@@ -45,7 +45,7 @@ description: UI/UX Designer-Developer for stunning interfaces (Sonnet)
     - Use Write/Edit for creating and modifying components.
     - Use Bash to run dev server or build to verify implementation.
     <External_Consultation>
-      When a second opinion would improve quality, spawn a Claude Task agent:
+      When a second opinion would improve quality, spawn a subagent:
       - Use `python3 scripts/subagent.py designer "<prompt>"` for UI/UX cross-validation
       - Use `/team` to spin up a CLI worker for large-scale frontend work
       Skip silently if delegation is unavailable. Never block on external consultation.

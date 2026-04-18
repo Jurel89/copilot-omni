@@ -17,7 +17,7 @@ Show all available skills organized by scope.
 
 **Behavior:**
 1. Scan bundled built-in skills in the plugin `skills/` directory (read-only)
-2. Scan user skills at `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/omni-learned/`
+2. Scan user skills at `${OMNI_HOME:-~/.omni}/skills/`
 3. Scan project skills at `.omni/skills/`
 4. Parse YAML frontmatter for metadata
 5. Display in organized table format:
@@ -29,7 +29,7 @@ BUILT-IN SKILLS (bundled with copilot-omni):
 | visual-verdict    | Structured visual QA verdicts  | built-in |
 | ralph             | Persistence loop               | built-in |
 
-USER SKILLS (~/.claude/skills/omni-learned/):
+USER SKILLS (~/.omni/skills/):
 | Name              | Triggers           | Quality | Usage | Scope |
 |-------------------|--------------------|---------|-------|-------|
 | error-handler     | fix, error         | 95%     | 42    | user  |
@@ -61,7 +61,7 @@ Interactive wizard for creating a new skill.
 4. **Ask for argument hint** (optional)
    - Example: "<file> [options]"
 5. **Ask for scope:**
-   - `user` → `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/omni-learned/<name>/SKILL.md`
+   - `user` → `${OMNI_HOME:-~/.omni}/skills/<name>/SKILL.md`
    - `project` → `.omni/skills/<name>/SKILL.md`
 6. **Create skill file** with template:
 
@@ -115,7 +115,7 @@ Triggers (comma-separated): log, logger, logging
 Argument hint (optional): <level> [message]
 Scope (user/project): user
 
-✓ Created skill at ~/.claude/skills/omni-learned/custom-logger/SKILL.md
+✓ Created skill at ~/.omni/skills/custom-logger/SKILL.md
 → Edit with: /skill edit custom-logger
 ```
 
@@ -127,13 +127,13 @@ Remove a skill by name.
 
 **Behavior:**
 1. **Search for skill** in both scopes:
-   - `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/omni-learned/<name>/SKILL.md`
+   - `${OMNI_HOME:-~/.omni}/skills/<name>/SKILL.md`
    - `.omni/skills/<name>/SKILL.md`
 2. **If found:**
    - Display skill info (name, description, scope)
    - **Ask for confirmation:** "Delete '<name>' skill from <scope>? (yes/no)"
 3. **If confirmed:**
-   - Delete entire skill directory (e.g., `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/omni-learned/<name>/`)
+   - Delete entire skill directory (e.g., `${OMNI_HOME:-~/.omni}/skills/<name>/`)
    - Report: "✓ Removed skill '<name>' from <scope>"
 4. **If not found:**
    - Report: "✗ Skill '<name>' not found in user or project scope"
@@ -145,7 +145,7 @@ Remove a skill by name.
 User: /skill remove old-logger
 Assistant: Found skill 'old-logger' in user scope:
   Description: Legacy logging utility
-  Scope: user (~/.claude/skills/omni-learned/)
+  Scope: user (~/.omni/skills/)
 
 Delete 'old-logger' skill? (yes/no)
 
@@ -261,13 +261,13 @@ Show detailed information about a skill.
 
 ```
 Skill: custom-logger
-Scope: user (~/.claude/skills/omni-learned/custom-logger/)
+Scope: user (~/.omni/skills/custom-logger/)
 Description: Enhanced logging with structured output
 Triggers: log, logger, logging
 Argument Hint: <level> [message]
 Quality: 95% (if available)
 Usage Count: 42 times (if available)
-File Path: /home/user/.claude/skills/omni-learned/custom-logger/SKILL.md
+File Path: /home/user/.omni/skills/custom-logger/SKILL.md
 
 --- FULL CONTENT ---
 [entire markdown content]
@@ -282,7 +282,7 @@ Assistant: Skill: custom-logger
 Scope: user
 Description: Enhanced logging with structured output
 Triggers: log, logger, logging
-File: ~/.claude/skills/omni-learned/custom-logger/SKILL.md
+File: ~/.omni/skills/custom-logger/SKILL.md
 
 --- CONTENT ---
 # Custom Logger Skill
@@ -300,7 +300,7 @@ Sync skills between user and project scopes.
 
 **Behavior:**
 1. **Scan both scopes:**
-   - User skills: `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/omni-learned/`
+   - User skills: `${OMNI_HOME:-~/.omni}/skills/`
    - Project skills: `.omni/skills/`
 2. **Compare and categorize:**
    - User-only skills (not in project)
@@ -370,7 +370,7 @@ First, check if skill directories exist and create them if needed:
 
 ```bash
 # Check and create user-level skills directory
-USER_SKILLS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/omni-learned"
+USER_SKILLS_DIR="${OMNI_HOME:-$HOME/.omni}/skills"
 if [ -d "$USER_SKILLS_DIR" ]; then
   echo "User skills directory exists: $USER_SKILLS_DIR"
 else
@@ -394,15 +394,15 @@ Scan both directories and show a comprehensive inventory:
 
 ```bash
 # Scan user-level skills
-echo "=== USER-LEVEL SKILLS (~/.claude/skills/omni-learned/) ==="
-if [ -d "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/omni-learned" ]; then
-  USER_COUNT=$(find "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/omni-learned" -name "*.md" 2>/dev/null | wc -l)
+echo "=== USER-LEVEL SKILLS (~/.omni/skills/) ==="
+if [ -d "${OMNI_HOME:-$HOME/.omni}/skills" ]; then
+  USER_COUNT=$(find "${OMNI_HOME:-$HOME/.omni}/skills" -name "*.md" 2>/dev/null | wc -l)
   echo "Total skills: $USER_COUNT"
 
   if [ $USER_COUNT -gt 0 ]; then
     echo ""
     echo "Skills found:"
-    find "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/omni-learned" -name "*.md" -type f -exec sh -c '
+    find "${OMNI_HOME:-$HOME/.omni}/skills" -name "*.md" -type f -exec sh -c '
       FILE="$1"
       NAME=$(grep -m1 "^name:" "$FILE" 2>/dev/null | sed "s/name: //")
       DESC=$(grep -m1 "^description:" "$FILE" 2>/dev/null | sed "s/description: //")
@@ -477,7 +477,7 @@ Ask user to provide either:
 - **Paste content**: Paste skill markdown content directly
 
 Then ask for scope:
-- **User-level** (~/.claude/skills/omni-learned/) - Available across all projects
+- **User-level** (~/.omni/skills/) - Available across all projects
 - **Project-level** (.omni/skills/) - Only for this project
 
 Validate the skill format and save to the chosen location.
@@ -723,13 +723,13 @@ When invoked without arguments, run the full guided wizard.
 
 ## Benefits of Local Skills
 
-**Automatic Application**: Claude detects triggers and applies skills automatically - no need to remember or search for solutions.
+**Automatic Application**: The plugin detects triggers and applies skills automatically - no need to remember or search for solutions.
 
 **Version Control**: Project-level skills (.omni/skills/) are committed with your code, so the whole team benefits.
 
 **Evolving Knowledge**: Skills improve over time as you discover better approaches and refine triggers.
 
-**Reduced Token Usage**: Instead of re-solving the same problems, Claude applies known patterns efficiently.
+**Reduced Token Usage**: Instead of re-solving the same problems, the plugin applies known patterns efficiently.
 
 **Codebase Memory**: Preserves institutional knowledge that would otherwise be lost in conversation history.
 
@@ -772,7 +772,7 @@ Good skills are:
 > /copilot-omni:skill list
 
 Checking skill directories...
-✓ User skills directory exists: ~/.claude/skills/omni-learned/
+✓ User skills directory exists: ~/.omni/skills/
 ✓ Project skills directory exists: .omni/skills/
 
 Scanning for skills...

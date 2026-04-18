@@ -38,12 +38,12 @@ Or say: "cancelomc", "stopomc"
 
 ## Critical: Deferred Tool Handling
 
-The state management tools (`state_clear`, `state_read`, `state_write`) may be registered as **deferred tools** by Claude Code. Before calling
+The state management tools (`state_clear`, `state_read`, `state_write`) may be registered as **deferred tools**. Before calling
 any state tool, you MUST first load all of them:
 
 ```bash
 # Load state MCP tools before calling any state_* function
-# (Copilot CLI: use scripts/subagent.py state_clear / state_read / state_write as fallback)
+# (Fallback: use scripts/subagent.py state_clear / state_read / state_write)
 python3 scripts/subagent.py state_read "check active mode" 2>/dev/null || true
 ```
 
@@ -109,7 +109,7 @@ Active modes are still cancelled in dependency order:
 5. Swarm (standalone)
 6. Ultrapilot (standalone)
 7. Pipeline (standalone)
-8. Team (Claude Code native)
+8. Team
 9. Plan Consensus (standalone)
 10. Self-Improve (standalone — clear state, clean orphaned worktrees, preserve iteration_state for resume, set status: "user_stopped" in .omni/self-improve/state/agent-settings.json)
 
@@ -129,8 +129,7 @@ Steps under the hood:
 1. `state_read` enumerates `.omni/state/sessions/{sessionId}/…` to find every known session.
 2. `state_clear` runs once per session to drop that session’s files.
 3. A global `state_clear` without `session_id` removes legacy files under `.omni/state/*.json`, `.omni/state/swarm*.db`, and compatibility artifacts (see list).
-4. Team artifacts (`~/.claude/teams/*/`, `~/.claude/tasks/*/`, `.omni/state/team-state.json`) are best-effort cleared as part of the legacy fallback.
-   - Cancel for native team clears team state files.
+4. Team artifacts (`.omni/state/team-state.json`, `.omni/runs/team-*`) are best-effort cleared as part of the legacy fallback.
 
 Every `state_clear` command honors the `session_id` argument, so even force mode still uses the session-aware paths first before deleting legacy files.
 
@@ -187,13 +186,13 @@ Use force mode to clear every session plus legacy artifacts via `state_clear`. D
 
 ### 3B. Smart Cancellation (default)
 
-#### If Team Active (Claude Code native)
+#### If Team Active
 
-Teams are detected by checking for config files in `${CLAUDE_CONFIG_DIR:-~/.claude}/teams/`:
+Teams are detected by checking for active run directories:
 
 ```bash
-# Check for active teams
-TEAM_CONFIGS=$(find "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/teams -name config.json -maxdepth 2 2>/dev/null)
+# Check for active team runs
+TEAM_RUNS=$(find .omni/runs -name "team-*" -type d 2>/dev/null)
 ```
 
 **Cancellation protocol (WS6 — omni_team.py):**
@@ -296,7 +295,7 @@ The cancel skill runs as follows:
 2. Use `state_read` to enumerate known session ids and learn the active mode (`autopilot`, `ralph`, `ultrawork`, etc.) for each session.
 3. When operating in default mode, call `state_clear` with that session_id to remove only the session’s files, then run mode-specific cleanup (autopilot → ralph → …) based on the state tool signals.
 4. In force mode, iterate every active session, call `state_clear` per session, then run a global `state_clear` without `session_id` to drop legacy files (`.omni/state/*.json`, compatibility artifacts) and report success. Swarm remains a shared SQLite/marker mode outside session scoping.
-5. Team artifacts (`~/.claude/teams/*/`, `~/.claude/tasks/*/`, `.omni/state/team-state.json`) remain best-effort cleanup items invoked during the legacy/global pass.
+5. Team artifacts (`.omni/state/team-state.json`, `.omni/runs/team-*`) remain best-effort cleanup items invoked during the legacy/global pass.
 6. **Always** clear skill-active state as the final step, regardless of which mode was active or whether `--force` was used:
    ```
    state_clear(mode="skill-active", session_id)
@@ -342,7 +341,7 @@ Mode-specific subsections below describe what extra cleanup each handler perform
 - **Safe**: Only clears linked Ultrawork, preserves standalone Ultrawork
 - **Local-only**: Clears state files in `.omni/state/` directory
 - **Resume-friendly**: Autopilot state is preserved for seamless resume
-- **Team-aware**: Detects native Claude Code teams and performs graceful shutdown
+- **Team-aware**: Detects active team runs and performs graceful shutdown
 
 ## MCP Worker Cleanup
 

@@ -10,7 +10,7 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 | Skills | 27 | `skills/<name>/SKILL.md` |
 | Agents | 19 | `agents/<name>.md` |
 | Slash commands | 0 | (commands/ removed in v2.1.0) |
-| MCP tools | 28 | served by `mcp/server.py` |
+| MCP tools | 29 | served by `mcp/server.py` |
 | Lifecycle hooks | 1 | `hooks/session_start.py` |
 
 ## Operating principles
@@ -77,7 +77,7 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 | `deepinit` | Deep project initialisation with full scan |
 | `configure-notifications` | Wire Telegram / Slack / Discord webhooks for run events |
 
-## MCP tools (28 tools, schema-validated)
+## MCP tools (30 tools, schema-validated)
 
 All tools are served by `mcp/server.py` (stdio JSON-RPC 2.0, stdlib only).
 Every `tools/call` is schema-validated; invalid payloads return a structured error.
@@ -86,6 +86,7 @@ Every `tools/call` is schema-validated; invalid payloads return a structured err
 **Artifacts:** write to `.omni/runs/<run-id>/` directly; the canonical store is the filesystem. (The SQLite mirror `artifact_write` / `run_status` was removed in Phase-C C23 — see docs/ADR/ADR-0007-state-store-ownership.md.)
 **State:** `state_write`, `state_read`, `state_clear`.
 **Wiki:** `wiki_write`, `wiki_read`, `wiki_query`, `wiki_list`, `wiki_ingest`, `wiki_graph`.
+**Codebase:** `codebase_graph`, `codebase_impact`.
 **Notepad:** `notepad_write`, `notepad_read`, `notepad_prune`.
 **Shared memory:** `shared_memory_write`, `shared_memory_read`.
 **Trace:** `trace_summary`, `trace_timeline`.
