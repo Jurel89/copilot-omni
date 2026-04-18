@@ -352,19 +352,13 @@ try:
                 conn.execute(
                     "INSERT INTO state(mode, body, session_id, updated_at)"
                     " VALUES (?, ?, ?, ?)"
-                    " ON CONFLICT(mode) DO UPDATE SET"
-                    " body=excluded.body, session_id=excluded.session_id,"
+                    " ON CONFLICT(mode, session_id) DO UPDATE SET"
+                    " body=excluded.body,"
                     " updated_at=excluded.updated_at",
-                    (mode, body, session_id, time.time()),
+                    (mode, body, session_id or "", time.time()),
                 )
             except Exception:
-                conn.execute(
-                    "INSERT INTO state(mode, body, updated_at)"
-                    " VALUES (?, ?, ?)"
-                    " ON CONFLICT(mode) DO UPDATE SET"
-                    " body=excluded.body, updated_at=excluded.updated_at",
-                    (mode, body, time.time()),
-                )
+                pass
 except Exception as e:
     print(f"warning: MCP state write failed (non-fatal): {e}")
 PYEOF
@@ -519,19 +513,13 @@ try:
                 conn.execute(
                     "INSERT INTO state(mode, body, session_id, updated_at)"
                     " VALUES (?, ?, ?, ?)"
-                    " ON CONFLICT(mode) DO UPDATE SET"
-                    " body=excluded.body, session_id=excluded.session_id,"
+                    " ON CONFLICT(mode, session_id) DO UPDATE SET"
+                    " body=excluded.body,"
                     " updated_at=excluded.updated_at",
-                    (mode, body, session_id, time.time()),
+                    (mode, body, session_id or "", time.time()),
                 )
             except Exception:
-                conn.execute(
-                    "INSERT INTO state(mode, body, updated_at)"
-                    " VALUES (?, ?, ?)"
-                    " ON CONFLICT(mode) DO UPDATE SET"
-                    " body=excluded.body, updated_at=excluded.updated_at",
-                    (mode, body, time.time()),
-                )
+                pass
 except Exception as e:
     print(f"warning: MCP state write failed (non-fatal): {e}")
 print(f"ralplan: converged after {cycle} cycle(s) — consensus.md written")
@@ -637,19 +625,13 @@ try:
                 conn.execute(
                     "INSERT INTO state(mode, body, session_id, updated_at)"
                     " VALUES (?, ?, ?, ?)"
-                    " ON CONFLICT(mode) DO UPDATE SET"
-                    " body=excluded.body, session_id=excluded.session_id,"
+                    " ON CONFLICT(mode, session_id) DO UPDATE SET"
+                    " body=excluded.body,"
                     " updated_at=excluded.updated_at",
-                    (mode, body, session_id, time.time()),
+                    (mode, body, session_id or "", time.time()),
                 )
             except Exception:
-                conn.execute(
-                    "INSERT INTO state(mode, body, updated_at)"
-                    " VALUES (?, ?, ?)"
-                    " ON CONFLICT(mode) DO UPDATE SET"
-                    " body=excluded.body, updated_at=excluded.updated_at",
-                    (mode, body, time.time()),
-                )
+                pass
 except Exception as e:
     print(f"warning: MCP state write failed (non-fatal): {e}")
 

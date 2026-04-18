@@ -49,9 +49,11 @@ def seed_navigation_db(omni_home: Path) -> None:
                 updated_at REAL NOT NULL
             );
             CREATE TABLE state (
-                mode TEXT PRIMARY KEY,
+                mode TEXT NOT NULL,
                 body TEXT NOT NULL,
-                updated_at REAL NOT NULL
+                session_id TEXT NOT NULL DEFAULT '',
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (mode, session_id)
             );
             CREATE TABLE wiki (
                 slug TEXT PRIMARY KEY,
@@ -96,8 +98,9 @@ def seed_navigation_db(omni_home: Path) -> None:
             ),
         )
         conn.execute(
-            "INSERT INTO state(mode, body, updated_at) VALUES (?, ?, ?)",
-            ("router", json.dumps({"decision": "go"}), now),
+            "INSERT INTO state(mode, body, session_id, updated_at)"
+            " VALUES (?, ?, ?, ?)",
+            ("ralph", json.dumps({"decision": "go"}), "", now),
         )
         conn.executemany(
             "INSERT INTO wiki(slug, title, body, tags, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -190,9 +193,9 @@ class TestCliStoreNavigation(unittest.TestCase):
     def test_state_and_wiki_navigation(self):
         out, err, rc = run(["state", "list"], env=self.env)
         self.assertEqual(rc, 0, err)
-        self.assertIn("router", out)
+        self.assertIn("ralph", out)
 
-        out, err, rc = run(["state", "show", "router", "--json"], env=self.env)
+        out, err, rc = run(["state", "show", "ralph", "--json"], env=self.env)
         self.assertEqual(rc, 0, err)
         body = json.loads(out)
         self.assertEqual(body["body"]["decision"], "go")

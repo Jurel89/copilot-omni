@@ -93,7 +93,12 @@ def _slug_from_index(i: int) -> str:
 
 
 def _mcp_write_best_effort(mode: str, body: dict, session_id: Optional[str] = None) -> None:
-    """Write to MCP state table (best-effort, never raises)."""
+    """Write to MCP state table (best-effort, never raises).
+
+    The state table uses composite PK (mode, session_id) since schema v6.
+    session_id is normalized to '' when unset so the ON CONFLICT target
+    always matches a real row.
+    """
     try:
         import sqlite3
         db_path = Path(os.environ.get("OMNI_HOME", str(Path.home() / ".omni"))) / "omni.db"
@@ -101,28 +106,17 @@ def _mcp_write_best_effort(mode: str, body: dict, session_id: Optional[str] = No
             return
         body_str = json.dumps(body)
         now = time.time()
+        sid = session_id or ""
         with sqlite3.connect(str(db_path), timeout=5) as conn:
-            try:
-                conn.execute(
-                    "INSERT INTO state(mode, body, session_id, updated_at)"
-                    " VALUES (?, ?, ?, ?)"
-                    " ON CONFLICT(mode, session_id) DO UPDATE SET"
-                    "  body=excluded.body,"
-                    "  updated_at=excluded.updated_at",
-                    (mode, body_str, session_id or "", now),
-                )
-                conn.commit()
-            except Exception:
-                # Try legacy schema without session_id
-                conn.execute(
-                    "INSERT INTO state(mode, body, updated_at)"
-                    " VALUES (?, ?, ?)"
-                    " ON CONFLICT(mode) DO UPDATE SET"
-                    "  body=excluded.body,"
-                    "  updated_at=excluded.updated_at",
-                    (mode, body_str, now),
-                )
-                conn.commit()
+            conn.execute(
+                "INSERT INTO state(mode, body, session_id, updated_at)"
+                " VALUES (?, ?, ?, ?)"
+                " ON CONFLICT(mode, session_id) DO UPDATE SET"
+                "  body=excluded.body,"
+                "  updated_at=excluded.updated_at",
+                (mode, body_str, sid, now),
+            )
+            conn.commit()
     except Exception:
         pass
 
