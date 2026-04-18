@@ -38,6 +38,7 @@ ADR-0006 §3.
 | `team.<slug>.autopilot`| scripts/omni_team.py        | session       | Inner autopilot run nested under team worker     |
 | `plan`                 | skills/plan/SKILL.md        | session       | Plan skill run state (spec path, cycle)          |
 | `deep-interview`       | skills/deep-interview/SKILL.md | session    | Deep-interview run state (phase, ambiguity score) |
+| `skill-active`         | skills/cancel/SKILL.md      | session       | Marker cleared by cancel to silence stop-hook skill-protection reinforcement |
 
 ## Governance
 

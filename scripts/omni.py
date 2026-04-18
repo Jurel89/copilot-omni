@@ -58,6 +58,73 @@ def _count_mcp_tools(server_py: Path) -> int:
     return len(re.findall(r"^def _tool_[a-z_]+\(", text, re.MULTILINE))
 
 
+_SCRIPT_REF_RE = None  # lazy-compiled in helper
+
+
+def _doctor_broken_script_refs(root: Path) -> list[tuple[str, str]]:
+    """Scan skills/*/SKILL.md and agents/*.md for scripts/<file>.py tokens
+    and return a list of (source-path, missing-target) pairs.
+
+    The audit found flagship skills referencing scripts that were deleted
+    on main (scripts/router_state.py, scripts/state_write.py, ...). Making
+    doctor flag these as FAIL prevents the class of regression where a
+    skill silently drifts past its actually-shipped dependencies.
+    """
+    import re
+
+    pattern = re.compile(r"scripts/([A-Za-z0-9_]+\.py)")
+    out: list[tuple[str, str]] = []
+    scan_dirs = [root / "skills", root / "agents"]
+    for scan_root in scan_dirs:
+        if not scan_root.is_dir():
+            continue
+        for md in scan_root.rglob("*.md"):
+            try:
+                text = md.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            for match in pattern.finditer(text):
+                target = match.group(0)
+                if not (root / target).exists():
+                    rel = md.relative_to(root).as_posix()
+                    out.append((rel, target))
+    return out
+
+
+def _doctor_missing_doc_links(root: Path) -> list[tuple[str, str]]:
+    """Scan README.md, AGENTS.md, docs/README.md, docs/QUICKSTART.md,
+    docs/INSTALL.md, docs/ARCHITECTURE.md for `(docs/...)` Markdown link
+    targets that don't resolve.
+
+    Returns a list of (source-path, missing-target) pairs.
+    """
+    import re
+
+    link_re = re.compile(r"\]\((docs/[^\s)#]+\.md)(?:#[^)]*)?\)")
+    sources = [
+        root / "README.md",
+        root / "AGENTS.md",
+        root / "docs" / "README.md",
+        root / "docs" / "QUICKSTART.md",
+        root / "docs" / "INSTALL.md",
+        root / "docs" / "ARCHITECTURE.md",
+    ]
+    out: list[tuple[str, str]] = []
+    for source in sources:
+        if not source.exists():
+            continue
+        try:
+            text = source.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for match in link_re.finditer(text):
+            target = match.group(1)
+            if not (root / target).exists():
+                rel = source.relative_to(root).as_posix()
+                out.append((rel, target))
+    return out
+
+
 def _cmd_version(_args: argparse.Namespace) -> int:
     print(f"omni {VERSION}")
     return 0
@@ -106,6 +173,28 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         + ("OK" if mcp_tools_count >= 25 else "FAIL")
     )
     ok = ok and (mcp_tools_count >= 25)
+
+    broken_refs = _doctor_broken_script_refs(root)
+    if broken_refs:
+        print(f"broken refs:   {len(broken_refs)} FAIL")
+        for where, target in broken_refs[:10]:
+            print(f"                 {where}: missing {target}")
+        if len(broken_refs) > 10:
+            print(f"                 ... and {len(broken_refs) - 10} more")
+        ok = False
+    else:
+        print("broken refs:   0 OK (no skill or agent references a missing script)")
+
+    missing_docs = _doctor_missing_doc_links(root)
+    if missing_docs:
+        print(f"missing docs:  {len(missing_docs)} FAIL")
+        for where, target in missing_docs[:10]:
+            print(f"                 {where}: missing {target}")
+        if len(missing_docs) > 10:
+            print(f"                 ... and {len(missing_docs) - 10} more")
+        ok = False
+    else:
+        print("missing docs:  0 OK (every linked doc exists)")
 
     print(f"platform:      {platform.system()} {platform.release()}")
     home = Path(os.environ.get("OMNI_HOME") or (Path.home() / ".omni"))
