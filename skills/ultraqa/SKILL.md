@@ -500,5 +500,5 @@ stops this at cycle 3 and surfaces the fundamental issue.
 - [ ] Same-error detection fired at repeat_threshold (stalled exit)
 - [ ] cancel.signal handled cleanly between cycles
 - [ ] Final status.json written with state=converged|stalled|cancelled|cycles_exhausted
-- [ ] No banned Claude primitives in this SKILL.md
+- [ ] No banned host-specific primitives in this SKILL.md
 </Final_Checklist>

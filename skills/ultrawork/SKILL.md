@@ -623,5 +623,5 @@ Why bad: A→B→A is a cycle. Validation will fail BEFORE any spawn with exit c
 - [ ] summary.json written at run-dir root
 - [ ] MCP state row written for mode="ultrawork" with fanout_count, completed, failed
 - [ ] cancel.signal handled cleanly
-- [ ] No banned Claude primitives in this SKILL.md
+- [ ] No banned host-specific primitives in this SKILL.md
 </Final_Checklist>
