@@ -13,12 +13,16 @@ Tests live under `tests/` and are categorized by pytest markers registered in `p
 | `e2e` | End-to-end pipeline recipes parsed from `SKILL.md` | Run by default under FAKE |
 | `tmux` | Requires `tmux` binary on PATH | Skipped if unavailable |
 | `slow` | Exceeds ~2 seconds | Run by default; `-m "not slow"` excludes |
+| `integration_local` | Local-only Copilot CLI installer smoke (`npm i -g @github/copilot` + auth) | **Excluded from default run; opt-in with `pytest -m integration_local`** |
 
 ## Running subsets
 
 ```bash
-# Full suite (what CI runs)
+# Full suite (what CI runs — integration_local auto-excluded via pytest.ini)
 python3 -m pytest -q
+
+# Local Copilot CLI installer smoke (requires npm + auth on this machine)
+python3 -m pytest -m integration_local
 
 # Skip slow + tmux tests for rapid iteration
 python3 -m pytest -q -m "not slow and not tmux"
