@@ -30,11 +30,6 @@ automates the cycle: run → classify failure → spawn fix → run again. It pe
 state per run, detects stuck loops (same error 3x), and supports clean cancel/resume.
 </Why_This_Exists>
 
-# Router preamble
-1. Read MCP state: `python3 scripts/router_state.py --read --session-id "$OMNI_SESSION_ID" --json`
-2. If `decision.redirect == "deep-interview"`, defer to `/copilot-omni:deep-interview` and exit.
-3. Otherwise, proceed with `decision.skill == ultraqa`.
-
 ## Step 0 — Initialise run
 
 ```bash
@@ -43,9 +38,13 @@ ULTRAQA_RUN_ID="ultraqa-${OMNI_SESSION_ID}"
 RUN_DIR=".omni/runs/${ULTRAQA_RUN_ID}"
 mkdir -p "${RUN_DIR}"
 
-# Check for resume state
-python3 scripts/router_state.py --read --mode ultraqa --session-id "$OMNI_SESSION_ID" --json \
-  > "${RUN_DIR}/resume-state.json" 2>/dev/null || echo '{}' > "${RUN_DIR}/resume-state.json"
+# Initialize resume state from MCP state table. session-scoped.
+RESUME_STATE="${RUN_DIR}/resume-state.json"
+if [ -f "${RESUME_STATE}" ]; then
+  :  # keep prior resume state
+else
+  echo '{}' > "${RESUME_STATE}"
+fi
 
 LAST_CYCLE=$(python3 -c "
 import json

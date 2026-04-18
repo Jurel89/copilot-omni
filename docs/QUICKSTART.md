@@ -41,7 +41,7 @@ Idempotent; no-op when already calibrated. Skip on POSIX.
 python3 scripts/omni.py doctor
 ```
 
-Expect `OK` on every line, with `skills: 27`, `agents: 19`, `commands: 10`, `mcp tools: 20`.
+Expect `OK` on every line, with `skills: 28`, `agents: 19`, `mcp tools: 30`.
 
 If `doctor` flags a missing hook file, policy directory, or MCP binding, open an
 issue with the redacted output — it is the most useful single diagnostic we have.
@@ -61,20 +61,22 @@ Creates `.omni/` in the current directory with:
 
 ## 6. Your first Copilot Omni command
 
-Let the front-door [router](ROUTER.md) decide:
+Kick off an autonomous build:
 
 ```bash
 copilot -p "autopilot build a habit-tracker CLI with streaks" --allow-all
 ```
 
-Because the prompt scores concrete (anchors + verbs + constraints), `autopilot`
-fires directly. A vague prompt like `"autopilot build me something cool"` would
-auto-redirect through `deep-interview` until the spec is sharp enough.
-
-Known exactly what you want? Bypass the gate:
+If the request is vague, run it through the Socratic clarifier first:
 
 ```bash
-copilot -p "autopilot refactor scripts/router.py to use dataclasses --skip-interview" --allow-all
+copilot -p "/deep-interview help me scope out a file-sync tool" --allow-all
+```
+
+Already have a spec? Hand it straight to autopilot and skip the interview gate:
+
+```bash
+copilot -p "autopilot refactor scripts/omni_team.py to use dataclasses --skip-interview" --allow-all
 ```
 
 ## 7. Run work in parallel
@@ -103,7 +105,7 @@ orphan worktrees.
 ## Next steps
 
 - Browse the [skill catalog](SKILLS.md) or run `omni list skills`.
-- Read the [architecture](ARCHITECTURE.md) to see how hooks, router, MCP, and
+- Read the [architecture](ARCHITECTURE.md) to see how hooks, MCP, and
   subagents fit together.
 - Tune your [policy profile](../policies/) — `strict`, `standard`, or `permissive`.
 - Upgrading from v1.x? Start at [MIGRATION.md](MIGRATION.md).
@@ -114,7 +116,6 @@ orphan worktrees.
 |---|---|---|
 | MCP fails with `-32000 connection closed` (Windows) | `python3` not on `PATH` | `scripts\omni.cmd doctor --fix-python --fix-python-apply` |
 | `doctor` reports MCP unhealthy | `python3` not on `PATH` or blocked by policy | `which python3` → fix PATH / allow-list, or run `--fix-python` |
-| Prompt always redirects to `deep-interview` | Prompt score < 0.4 | Add anchors (file paths, function names) or use `--skip-interview` |
 | `team` falls back to subprocess on Linux | `tmux` not on `PATH` | `apt install tmux` / `brew install tmux` |
 | Hooks silently stop running | Kill-switch env var set | `env | grep OMNI_SKIP` and unset |
 | `.omni/runs/` fills the working tree | Normal — it's runtime state | `.omni/runs/` is gitignored; purge with `python3 scripts/omni.py clean --runs` |

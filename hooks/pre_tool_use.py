@@ -142,101 +142,6 @@ def _decision(decision: str, reason: str = "") -> Dict[str, Any]:
     return out
 
 
-# ---------------------------------------------------------------------------
-# Phase-C C25: router-decision enforcement (advisory → enforced).
-# ---------------------------------------------------------------------------
-
-# Tools that are exempt from enforcement: these are the ways the user
-# *takes* the redirect or manages the session around it. Without the
-# allowlist a redirect would pin every subsequent action.
-_ROUTER_EXEMPT_TOOLS = frozenset({
-    "",                        # unknown / non-routed tool
-    "deep_interview",
-    "deep-interview",
-    "state_read",
-    "state_write",
-    "state_clear",
-    "health",
-    "doctor",
-    "memory_search",
-    "memory_capture",
-    "notepad_read",
-    "notepad_write",
-    "router",
-})
-
-
-_ROUTER_ENFORCE_MAX_BYTES = 8192
-_ROUTER_ENFORCE_DEFAULT_TTL_S = 300.0  # 5 min — override with OMNI_ROUTER_TTL_S
-
-
-def _router_enforce_deny(event: Dict[str, Any]) -> Dict[str, Any] | None:
-    """Return a deny-decision if the last router verdict was 'redirect'
-    and OMNI_ROUTER_ENFORCE=1 and the current tool isn't exempt.
-
-    Phase-C C34 hardening (Codex + security review):
-    - Read is capped at _ROUTER_ENFORCE_MAX_BYTES so an attacker writing a
-      multi-GB sentinel cannot OOM the hook.
-    - Decision must be a string matching the expected enum.
-    - Sentinel carries a TTL (OMNI_ROUTER_TTL_S, default 300s) so stale
-      redirects from an earlier session can't brick unrelated work.
-    - Sentinel is scoped to a session (Codex P1 finding): when BOTH the
-      caller and the sentinel carry a session_id, the two must match.
-      Absent ids fall back to the legacy behaviour (whole-cwd scope).
-
-    Returns None when enforcement does not apply.
-    """
-    if os.environ.get("OMNI_ROUTER_ENFORCE", "").strip().lower() not in ("1", "true", "yes"):
-        return None
-    sentinel = Path(os.getcwd()) / ".omni" / "cache" / "router-last.json"
-    if not sentinel.exists():
-        return None
-    try:
-        # Size guard: read at most N bytes. Anything larger is treated as
-        # a malformed/hostile sentinel and ignored.
-        raw = sentinel.read_bytes()[:_ROUTER_ENFORCE_MAX_BYTES]
-        data = json.loads(raw.decode("utf-8", errors="replace"))
-    except Exception:
-        return None
-    if not isinstance(data, dict):
-        return None
-    decision = data.get("decision")
-    if not isinstance(decision, str) or decision != "redirect":
-        return None
-
-    # Per-session scope check: if we know both caller + sentinel ids and
-    # they disagree, refuse to bleed enforcement into another session.
-    caller_sid = (
-        event.get("session_id") or event.get("sessionId")
-        or os.environ.get("OMNI_SESSION_ID") or ""
-    )
-    sentinel_sid = data.get("session_id") or ""
-    if caller_sid and sentinel_sid and caller_sid != sentinel_sid:
-        return None
-
-    # TTL guard — avoid stale sentinels bricking unrelated future work.
-    try:
-        ttl_s = float(os.environ.get("OMNI_ROUTER_TTL_S",
-                                      _ROUTER_ENFORCE_DEFAULT_TTL_S))
-    except ValueError:
-        ttl_s = _ROUTER_ENFORCE_DEFAULT_TTL_S
-    try:
-        age = time.time() - float(sentinel.stat().st_mtime)
-    except OSError:
-        age = 0.0
-    if ttl_s > 0 and age > ttl_s:
-        return None
-
-    return {
-        "reason": (
-            "copilot-omni router (OMNI_ROUTER_ENFORCE=1): last prompt was "
-            f"classified vague (score={data.get('score', 0.0)}). Take the "
-            f"{data.get('redirect_to') or 'deep-interview'} redirect or add "
-            "--skip-interview to the prompt."
-        ),
-    }
-
-
 def main() -> int:
     t_start = time.monotonic()
     try:
@@ -267,29 +172,6 @@ def main() -> int:
 
     action = "allow"
     reason = ""
-
-    # Phase-C C25: router enforcement gate. Runs before policy checks so the
-    # operator gets one unambiguous reason back (router, not policy).
-    if tool_name not in _ROUTER_EXEMPT_TOOLS:
-        router_block = _router_enforce_deny(event)
-        if router_block is not None:
-            result = _decision("deny", router_block["reason"])
-            sys.stdout.write(json.dumps(result))
-            _append_audit({
-                "hook": _HOOK_NAME,
-                "event_name": "pre_tool_use",
-                "tool_name": tool_name,
-                "prompt_excerpt": "",
-                "action": "deny",
-                "reason": router_block["reason"],
-            })
-            _write_metric("hook_exit_code", 0,
-                          {"hook": _HOOK_NAME, "action": "deny",
-                           "cause": "router_enforce"})
-            _write_metric("hook_latency_ms",
-                          round((time.monotonic() - t_start) * 1000, 2),
-                          {"hook": _HOOK_NAME})
-            return 0
 
     if tool_name in ("shell", "bash"):
         cmd = str(tool_args.get("command", ""))

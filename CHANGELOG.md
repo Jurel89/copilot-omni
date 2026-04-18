@@ -1,5 +1,41 @@
 # Changelog
 
+## [Unreleased] — v2.1.1 contract reset
+
+Resolves the P0 correctness defects and P1 honesty defects identified in the
+2026-04-18 product-contract audit.
+
+### Fixed
+
+- **State table now actually supports per-session rows.** Added schema
+  migrations v5 (NULL session_id → `''`) and v6 (rebuild `state` with
+  composite `PRIMARY KEY(mode, session_id)`). Two sessions can now hold
+  rows for the same mode without colliding. `scripts/omni_team.py` and
+  `scripts/subagent.py` state-writers no longer try `ON CONFLICT` patterns
+  that never matched the real constraint.
+- **`state_write` / `state_read` / `state_clear` MCP tools** accept an
+  optional `session_id`. Back-compat preserved: callers that never pass
+  `session_id` see the exact legacy shape (default empty-session row).
+  New additive `list=true` flag on `state_read` enumerates all scoped rows.
+
+### Removed
+
+- **Router as a product claim.** `scripts/router.py` and
+  `scripts/router_state.py` were already deleted on main. This PR removes
+  the remaining footprint: router preambles from flagship skills
+  (`autopilot`, `ralph`, `ralplan`, `ultrawork`, `ultraqa`), `docs/ROUTER.md`
+  links across README / AGENTS / docs, router-enforcement dead code in
+  `hooks/pre_tool_use.py`, and the `OMNI_ROUTER_ENFORCE` / `OMNI_ROUTER_TTL_S`
+  env vars. ADR-0005 moved to `docs/ADR/archive/`.
+
+### Changed
+
+- Bumped `mcp/server.py:SERVER_VERSION` to `2.1.1` and `SCHEMA_VERSION` to `6`.
+- `docs/STATE_CONTRACT.md` rewritten to document the schema-v6 composite PK,
+  back-compat guarantees, session-scoping discipline, and cancel contract.
+- `docs/STATE_MODES.md` gained a `session_scope` column and dropped the
+  orphan `router` row.
+
 ## [Unreleased] — v2.1.0 Copilot-CLI-native cleanup
 
 ### Fixed

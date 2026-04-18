@@ -38,9 +38,9 @@
 
 ---
 
-**copilot-omni** turns GitHub Copilot CLI into a spec-first engineering co-worker. Every request flows through a
-concreteness-scored front-door router, gets a named plan, runs on a typed pipeline of specialist agents, and leaves
-behind a durable audit trail under `.omni/runs/`. You keep Copilot; you get planning, parallelism, policy, and proof.
+**copilot-omni** turns GitHub Copilot CLI into a spec-first engineering co-worker. Every request is paired with a
+named plan and runs on a typed pipeline of specialist agents, leaving a durable audit trail under `.omni/runs/`.
+You keep Copilot; you get planning, parallelism, policy, and proof.
 
 ```bash
 # Register the marketplace, then install the plugin by name — the
@@ -71,11 +71,11 @@ python3 scripts/omni.py doctor          # or: scripts/omni.cmd doctor on Windows
 # 5. Scaffold a project — creates .omni/ state directory
 python3 scripts/omni.py init
 
-# 6. Let the router decide — vague prompts are auto-refined by deep-interview
+# 6. Kick off an autonomous build — vague prompts can be pre-refined with `/deep-interview`
 copilot -p "autopilot build a habit-tracker CLI with streaks" --allow-all
 
-# 7. Already know what you want? Bypass the interview gate.
-copilot -p "autopilot refactor scripts/router.py to use dataclasses --skip-interview" --allow-all
+# 7. Already have a spec? Hand it straight to autopilot.
+copilot -p "autopilot refactor scripts/omni_team.py to use dataclasses --skip-interview" --allow-all
 
 # 8. Run the team orchestrator (tmux on POSIX, subprocess fallback elsewhere)
 copilot -p "team run wave-3 plan" --allow-all
@@ -91,10 +91,10 @@ copilot -p "team run wave-3 plan" --allow-all
 | You want to… | copilot-omni gives you… |
 |---|---|
 | Ship production code with Copilot CLI, not just prototypes | An artifact trail — plans, specs, run states — under `.omni/runs/` |
-| Stop Copilot from diving into vague prompts | A scored [front-door router](docs/ROUTER.md) that redirects ambiguity to `deep-interview` |
+| Stop Copilot from diving into vague prompts | An explicit `/deep-interview` skill for Socratic clarification before execution |
 | Parallelise long builds safely | `team` orchestrator with tmux + git worktrees, back-pressured subagents, cancel-cascade |
 | Pass corporate EDR / security review | Pure Python stdlib. No binaries. No pip installs. `file mcp/server.py` → `ASCII text` |
-| Mix fast/deep/ultrabrain reasoning | Semantic [model categories](docs/MODELS.md) resolved per Copilot subscription at runtime |
+| Pick the right model per skill | Model selection delegated to the Copilot CLI host; skills declare intent, host resolves availability |
 | Prove the plugin is sound in CI | 19-check [contract validator](scripts/verify_plugin_contract.py) gates every merge |
 | Roll back cleanly | `scripts/omni_migrate_v1_to_v2.py --rollback` + idempotent forward migration |
 
@@ -194,8 +194,6 @@ Dive deeper: [ARCHITECTURE](docs/ARCHITECTURE.md) · [TEAM](docs/TEAM.md) · [ST
 |---|---|
 | Install paths (RHEL, macOS, Windows, air-gapped) | [docs/INSTALL.md](docs/INSTALL.md) |
 | Plugin internals + data flow | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
-| Front-door router + scoring rubric | [docs/ROUTER.md](docs/ROUTER.md) |
-| Semantic model categories | [docs/MODELS.md](docs/MODELS.md) |
 | Team orchestration (tmux + worktrees) | [docs/TEAM.md](docs/TEAM.md) |
 | `team` on Windows | [docs/TEAM-WINDOWS.md](docs/TEAM-WINDOWS.md) |
 | Hook contract & kill switches | [docs/HOOK_CONTRACT.md](docs/HOOK_CONTRACT.md) |

@@ -56,7 +56,7 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 | `ralplan` | Ralplan consensus: architect + planner + critic in parallel |
 | `team` | Team orchestration — tmux workers + git worktrees + MCP state |
 | `plan` | Lightweight planning skill — produces `.omni/plans/<slug>.md` |
-| `deep-interview` | Turn-based requirements gathering (redirected from router) |
+| `deep-interview` | Turn-based Socratic requirements gathering before execution |
 | `deep-dive` | Deep exploratory analysis of a codebase area |
 | `verify` | Completion verification — runs validator + tests + checks |
 | `debug` | Structured debugging loop with tracer integration |
@@ -139,7 +139,7 @@ Overridable via `.omni/config.json > runtime.max_parallel_subagents`.
 │   ├── runs/<run-id>/{spec.md, plan.json, decisions.md, summary.md}
 │   ├── specs/, plans/, decisions/
 │   ├── audit/hooks.jsonl      # atomic, file-locked audit log
-│   ├── audit/metrics.jsonl    # hook latency + router decision metrics
+│   ├── audit/metrics.jsonl    # hook latency metrics
 │   └── cache/banner.json      # session-start banner cache (keyed by manifest hash)
 ```
 
@@ -147,8 +147,6 @@ Global state: `$OMNI_HOME/omni.db` (default `~/.omni/omni.db`).
 
 ## Further reading
 
-- [docs/ROUTER.md](docs/ROUTER.md) — front-door intent router, ADR-0005 scoring rubric
-- [docs/MODELS.md](docs/MODELS.md) — semantic model categories, config overrides
 - [docs/TEAM.md](docs/TEAM.md) — team orchestration internals
 - [docs/HOOK_CONTRACT.md](docs/HOOK_CONTRACT.md) — hook contract, kill switches, audit schema
 - [docs/STATE_MODES.md](docs/STATE_MODES.md) — mode-key registry, state ownership matrix

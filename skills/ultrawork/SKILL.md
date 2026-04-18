@@ -33,11 +33,6 @@ back-pressure (ADR-0010), and produces a machine-readable summary that outer ski
 can consume. It is designed as a subprocess-composable component per ADR-0006.
 </Why_This_Exists>
 
-# Router preamble
-1. Read MCP state: `python3 scripts/router_state.py --read --session-id "$OMNI_SESSION_ID" --json`
-2. If `decision.redirect == "deep-interview"`, defer to `/copilot-omni:deep-interview` and exit.
-3. Otherwise, proceed with `decision.skill == ultrawork`.
-
 ## Step 0 — Initialise run
 
 ```bash
@@ -47,9 +42,13 @@ ULTRAWORK_RUN_ID="ultrawork-${OMNI_SESSION_ID}"
 RUN_DIR=".omni/runs/${ULTRAWORK_RUN_ID}"
 mkdir -p "${RUN_DIR}"
 
-# Check for resume: read last summary from MCP state
-python3 scripts/router_state.py --read --mode ultrawork --session-id "$OMNI_SESSION_ID" --json \
-  > "${RUN_DIR}/resume-state.json" 2>/dev/null || echo '{}' > "${RUN_DIR}/resume-state.json"
+# Initialize resume state from MCP state table. session-scoped.
+RESUME_STATE="${RUN_DIR}/resume-state.json"
+if [ -f "${RESUME_STATE}" ]; then
+  :  # keep prior resume state
+else
+  echo '{}' > "${RESUME_STATE}"
+fi
 
 echo "ultrawork: run_id=${ULTRAWORK_RUN_ID}"
 ```

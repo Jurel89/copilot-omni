@@ -34,11 +34,6 @@ Autopilot orchestrates all of these phases automatically so the user can describ
 they want and receive working code without managing each step.
 </Why_This_Exists>
 
-# Router preamble
-1. Read MCP state: `python3 scripts/router_state.py --read --session-id "$OMNI_SESSION_ID" --json`
-2. If `decision.redirect == "deep-interview"`, defer to `/copilot-omni:deep-interview` and exit.
-3. Otherwise, proceed with `decision.skill == autopilot`.
-
 <Execution_Policy>
 - Each phase must complete before the next begins
 - Parallel execution is used within phases where possible (Phase 3 and Phase 5)
@@ -58,9 +53,13 @@ AUTOPILOT_RUN_ID="autopilot-${OMNI_SESSION_ID}"
 RUN_DIR=".omni/runs/${AUTOPILOT_RUN_ID}"
 mkdir -p "${RUN_DIR}"
 
-# Check for existing state to support resume.
-python3 scripts/router_state.py --read --mode autopilot --session-id "$OMNI_SESSION_ID" --json \
-  > "${RUN_DIR}/resume-state.json" 2>/dev/null || echo '{}' > "${RUN_DIR}/resume-state.json"
+# Initialize resume state from MCP state table. session-scoped.
+RESUME_STATE="${RUN_DIR}/resume-state.json"
+if [ -f "${RESUME_STATE}" ]; then
+  :  # keep prior resume state
+else
+  echo '{}' > "${RESUME_STATE}"
+fi
 
 LAST_PHASE=$(python3 -c "
 import json, sys

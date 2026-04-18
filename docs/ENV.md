@@ -15,13 +15,6 @@ are additive — every one has a sensible default and nothing is required.
 | `OMNI_POLICY_FILE` | unset | override policy file path (else `.omni/policy-<profile>.json`) |
 | `OMNI_POLICY_PROFILE` | `standard` | selects `policies/<profile>.json` |
 
-## Router (Phase-C C25 + C34)
-
-| Var | Default | Effect |
-|---|---|---|
-| `OMNI_ROUTER_ENFORCE` | unset | when `1`/`true`/`yes`, pre_tool_use blocks tool calls while a fresh `redirect` sentinel is present |
-| `OMNI_ROUTER_TTL_S` | `300` | staleness cutoff (seconds) for the sentinel — beyond TTL the decision is ignored |
-
 ## Subagent back-pressure (C02, C08, C26)
 
 | Var | Default | Effect |

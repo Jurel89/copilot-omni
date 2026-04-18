@@ -11,7 +11,7 @@ All ADRs for the copilot-omni Phase B rewrite. Ordered by number.
 | [ADR-0002](#adr-0002) | Skill deletions — 7 deleted, 1 deferred, 29 kept/rewritten | Accepted | Locked |
 | [ADR-0003](ADR-0003-model-categories.md) | Model category contract — `quick`, `deep`, `ultrabrain` | Accepted | Locked |
 | [ADR-0004](#adr-0004) | Team orchestration = tmux + worktrees + MCP state machine | Accepted | Locked |
-| [ADR-0005](ADR-0005-router-scoring-rubric.md) | Router scoring rubric — concreteness signals + threshold | Accepted | Locked |
+| [ADR-0005](archive/ADR-0005-router-scoring-rubric.md) | Router scoring rubric — concreteness signals + threshold | **Archived** | Historical |
 | [ADR-0006](ADR-0006-mode-composition.md) | Mode composition + cancel cascade semantics | Accepted | Locked |
 | [ADR-0007](ADR-0007-state-store-ownership.md) | State store ownership matrix | Accepted | Living |
 | [ADR-0008](#adr-0008) | Plugin distribution migration — `omni_migrate_v1_to_v2.py` | Accepted | Locked |
@@ -48,10 +48,12 @@ Team = real tmux sessions + git worktrees + MCP state machine. Non-tmux subproce
 is first-class on Linux/macOS/Windows. Windows native tmux gated behind
 `OMNI_EXPERIMENTAL_TEAM=1`. State machine per worker: `created → running → done/failed`.
 
-### ADR-0005 — Router scoring rubric
-Concreteness signals (file refs, code blocks, error keywords, etc.) summed to a score in
-[-1.0, +1.0]. Default threshold 0.4: below → redirect to `deep-interview`; above → proceed.
-`--skip-interview` adds +1.0 (always bypasses). Full signal table in `docs/ROUTER.md`.
+### ADR-0005 — Router scoring rubric — **Archived**
+The concreteness-scored front-door router was retired in the contract-reset PR that
+followed the 2026-04-18 product-contract audit. `scripts/router.py`,
+`scripts/router_state.py`, `docs/ROUTER.md`, and the `OMNI_ROUTER_ENFORCE` hook
+branch are all removed. The ADR is kept under `docs/ADR/archive/` for historical
+context. Use `/deep-interview` directly when you want Socratic clarification.
 
 ### ADR-0006 — Mode composition
 Typed mode-key registry: each autonomous mode (`autopilot`, `ralph`, `ultrawork`,
@@ -84,4 +86,4 @@ to Phase C.
 On Copilot CLI `-p` mode, deep-interview cannot block for synchronous input. Instead:
 questions are emitted in the response; control returns to the CLI; next user turn carries
 answers. State persisted to `.omni/specs/deep-interview-<slug>.md` and resumed on next
-turn. Documented in `docs/ROUTER.md`.
+turn.

@@ -133,12 +133,10 @@ promises to serve.
 | `ask` | Violated decision 7 — wrapped `omc ask <claude\|codex\|gemini>`, which spawns external AI CLI binaries. The wrapper failed on every corporate machine without those CLIs installed. | Use `copilot -p "..."` directly, or `python3 scripts/subagent.py <agent> "..."` for a specialist. |
 | `omni-teams` | Violated decision 7 — spawned N tmux panes running `claude` / `codex` / `gemini` workers. | Use the surviving `team` skill (Copilot-native; `scripts/omni_team.py` remains, but only wired to the surviving `team` skill). |
 
-Two follow-on cleanups landed alongside: the `plan` skill lost its
+A follow-on cleanup landed alongside: the `plan` skill lost its
 `--architect codex` / `--critic codex` delegation flags (dormant dead code
-that only failed under load), and `scripts/router.py` lost its
-`parallel (claude|codex|gemini)` scoring pattern (misleading in a Copilot-only
-environment). `scripts/verify_plugin_contract.py --all` now includes
-`--check-external-cli` to block reintroduction via PR.
+that only failed under load). `scripts/verify_plugin_contract.py --all` now
+includes `--check-external-cli` to block reintroduction via PR.
 
 The local integration test harness (`./scripts/itest` /
 `pytest -m integration_local`) was added in the same cycle so future

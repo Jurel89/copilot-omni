@@ -61,12 +61,6 @@ run_agent("executor", "implement plan in .omni/plans/run-001.md", allow_all=True
 
 runs `copilot -p "…" --agent executor --allow-all`.
 
-### `scripts/router.py`
-
-Front-door intent router (ADR-0005). Scores prompt concreteness on a rubric of anchors, verbs, and
-constraints; prompts scoring below the threshold (default 0.4) are redirected to `deep-interview`
-before any skill fires. Bypass explicitly with `--skip-interview`.
-
 ### `scripts/category_resolver.py`
 
 Passthrough script — model selection is owned by the Copilot CLI host via `/model`. Agent frontmatter has no `category`, `level`, or `disallowedTools` fields.
