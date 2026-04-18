@@ -93,6 +93,14 @@ class TestMcpCodebaseGraph(unittest.TestCase):
         self.assertIn("README.md", body["imported_by"])
         self.assertIn("helper", body["defines"])
 
+    def test_codebase_impact_captures_dynamic_loader_in_repo(self):
+        body = _call(
+            "codebase_impact",
+            {"root": str(ROOT), "path": "scripts/category_resolver.py"},
+            self.env,
+        )
+        self.assertIn("scripts/subagent.py", body["imported_by"])
+
 
 if __name__ == "__main__":
     unittest.main()

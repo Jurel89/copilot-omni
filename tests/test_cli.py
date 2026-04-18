@@ -287,6 +287,21 @@ class TestCliCodebaseGraph(unittest.TestCase):
             self.assertIn("README.md", report["imported_by"])
             self.assertIn("helper", report["defines"])
 
+    def test_codebase_impact_captures_dynamic_local_loader_in_repo(self):
+        out, err, rc = run(
+            [
+                "codebase",
+                "impact",
+                "scripts/category_resolver.py",
+                "--root",
+                str(ROOT),
+                "--json",
+            ]
+        )
+        self.assertEqual(rc, 0, err)
+        report = json.loads(out)
+        self.assertIn("scripts/subagent.py", report["imported_by"])
+
 
 if __name__ == "__main__":
     unittest.main()
