@@ -35,6 +35,28 @@ Resolves the P0 correctness defects and P1 honesty defects identified in the
   back-compat guarantees, session-scoping discipline, and cancel contract.
 - `docs/STATE_MODES.md` gained a `session_scope` column and dropped the
   orphan `router` row.
+- **Honest positioning for memory + code graph + LSP.** README framing for
+  the codebase graph now says "lightweight local code graph" rather than
+  "real codebase knowledge graph" — the implementation is a stdlib-only
+  adjacency walk over Python defs / imports / Markdown links, not a
+  persistent semantic index. LSP tool descriptions now say
+  `EXPERIMENTAL / STUB` so callers know they return `{"status": "stub"}`
+  until a full LSP session lifecycle lands.
+- Feature counts realigned across README, AGENTS, marketplace,
+  copilot-instructions, INSTALL, QUICKSTART, and MIGRATION to the
+  repo-of-record: **27 skills, 19 agents, 30 MCP tools**.
+- `plugin.json`, `marketplace.json`, and `scripts/omni.py` now all advertise
+  **v2.1.1** in step with the MCP server.
+- `omni doctor` now prints the MCP tool count alongside skills/agents, so
+  the number in QUICKSTART and INSTALL is verifiable without reading the
+  source.
+
+### Removed
+
+- **Stale `docs/ROUTER.md` and `docs/MODELS.md` references.** Those files
+  are not in the repo; README / AGENTS / docs index no longer link to
+  them. `OMNI_ROUTER_ENFORCE` and `OMNI_ROUTER_TTL_S` env vars removed
+  from `docs/ENV.md`.
 
 ## [Unreleased] — v2.1.0 Copilot-CLI-native cleanup
 

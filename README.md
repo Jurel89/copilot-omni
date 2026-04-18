@@ -147,16 +147,24 @@ python3 scripts/omni.py state list
 python3 scripts/omni.py trace timeline
 ```
 
-### Inspect the repository knowledge graph
+### Inspect the repository's lightweight code graph
 
-The plugin now exposes a real codebase graph for repository files, local import/reference edges, and immediate refactor impact.
+The plugin ships a **lightweight local code graph** — a stdlib-only walk that
+builds a file/symbol adjacency graph from Python defs, import statements, and
+Markdown link edges in the repo, on demand. It is not a persistent semantic
+knowledge graph; there is no call graph, no type graph, and no cross-language
+symbol resolution. What it is good for: fast, deterministic "what references
+this file?" / "what does this file pull in?" queries from agents that want to
+plan refactors without a heavyweight index.
 
 ```bash
 python3 scripts/omni.py codebase graph --json
 python3 scripts/omni.py codebase impact scripts/omni.py --json
 ```
 
-> The graphical explorer was intentionally deferred. The current priority is a corporate-safe JSON/CLI surface that agents and users can query reliably without adding dependencies or UI infrastructure.
+A richer graph (caching, multi-language, semantic depth) is deferred. The
+current surface is intentionally small so it works on corporate boxes with no
+extra dependencies.
 
 ## 🏗️ Architecture
 
@@ -165,7 +173,8 @@ GitHub Copilot CLI
  ├─ reads plugin.json                        ← plugin manifest (root)
  ├─ discovers skills/ (27), agents/ (19)
  ├─ wires hooks/hooks.json  → python hooks/session_start.py
- │    └─ session_start.py       banner, policy checks, metrics
+ │                             hooks/pre_tool_use.py
+ │    └─ banner + memory context, policy checks, metrics
  └─ wires .mcp.json         → python mcp/server.py
                                  └─ SQLite store at $OMNI_HOME/omni.db
                                      WAL mode · UNIQUE(mode, session_id)

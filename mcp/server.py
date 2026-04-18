@@ -1618,7 +1618,9 @@ TOOLS: Dict[str, Dict[str, Any]] = {
     },
     "lsp_hover": {
         "description": (
-            "Best-effort LSP hover query; skipped when no LSP server on PATH. "
+            "EXPERIMENTAL / STUB. Best-effort LSP hover query; returns "
+            '{"status": "stub"} until a full LSP session lifecycle is '
+            "implemented. No-op when no LSP server is on PATH. "
             "Phase-C C18 knowledge layer."
         ),
         "inputSchema": {
@@ -1635,7 +1637,9 @@ TOOLS: Dict[str, Dict[str, Any]] = {
     },
     "lsp_goto_definition": {
         "description": (
-            "Best-effort LSP go-to-definition; skipped when no LSP server on PATH."
+            "EXPERIMENTAL / STUB. Best-effort LSP go-to-definition; "
+            'returns {"status": "stub"} until a full LSP session '
+            "lifecycle is implemented. No-op when no LSP server is on PATH."
         ),
         "inputSchema": {
             "type": "object",
@@ -1651,7 +1655,9 @@ TOOLS: Dict[str, Dict[str, Any]] = {
     },
     "lsp_find_references": {
         "description": (
-            "Best-effort LSP find-references; skipped when no LSP server on PATH."
+            "EXPERIMENTAL / STUB. Best-effort LSP find-references; "
+            'returns {"status": "stub"} until a full LSP session '
+            "lifecycle is implemented. No-op when no LSP server is on PATH."
         ),
         "inputSchema": {
             "type": "object",
