@@ -49,10 +49,12 @@ class TestConnectionPool(unittest.TestCase):
                 try:
                     with srv._Conn() as conn:
                         conn.execute(
-                            "INSERT INTO state(mode, body, updated_at) VALUES (?, ?, ?)"
-                            " ON CONFLICT(mode) DO UPDATE SET body=excluded.body,"
+                            "INSERT INTO state(mode, body, session_id, updated_at)"
+                            " VALUES (?, ?, ?, ?)"
+                            " ON CONFLICT(mode, session_id) DO UPDATE SET"
+                            " body=excluded.body,"
                             " updated_at=excluded.updated_at",
-                            (f"t{thread_id}-i{i}", '{"x":1}', float(i)),
+                            (f"t{thread_id}-i{i}", '{"x":1}', "", float(i)),
                         )
                     successes.append(1)
                 except Exception as exc:

@@ -58,48 +58,24 @@ Replace `MODE` with the specific mode (e.g. `ralplan`, `ralph`, `ultrawork`, `ul
 `state_write(active=false)` to preserve resume data.
 
 ```bash
-# Fallback: direct file removal when state_clear MCP tool is unavailable
+# Fallback: use scripts/subagent.py to invoke state_clear when the MCP tool is unavailable
 SESSION_ID="${OMNI_SESSION_ID:-}"
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || { d="$PWD"; while [ "$d" != "/" ] && [ ! -d "$d/.omni" ]; do d="$(dirname "$d")"; done; echo "$d"; })"
-
-# Resolve state directory (OMNI_PLUGIN_ROOT primary)
-PLUGIN_ROOT="${OMNI_PLUGIN_ROOT:-}"
-if [ -n "${OMNI_STATE_DIR:-}" ]; then
-  OMNI_STATE="$OMNI_STATE_DIR/state"
-  [ ! -d "$OMNI_STATE" ] && { echo "ERROR: State dir not found at $OMNI_STATE" >&2; exit 1; }
-elif [ "$REPO_ROOT" != "/" ] && [ -d "$REPO_ROOT/.omni" ]; then
-  OMNI_STATE="$REPO_ROOT/.omni/state"
-else
-  echo "ERROR: Could not locate .omni state directory" >&2
-  exit 1
-fi
 MODE="ralplan"  # <-- replace with the target mode
 
-# Clear session-scoped state for the specific mode
-if [ -n "$SESSION_ID" ] && [ -d "$OMNI_STATE/sessions/$SESSION_ID" ]; then
-  rm -f "$OMNI_STATE/sessions/$SESSION_ID/${MODE}-state.json"
-  rm -f "$OMNI_STATE/sessions/$SESSION_ID/${MODE}-stop-breaker.json"
-  rm -f "$OMNI_STATE/sessions/$SESSION_ID/skill-active-state.json"
-  # Write cancel signal so stop hook detects cancellation in progress
-  NOW_ISO="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  EXPIRES_ISO="$(date -u -d "+30 seconds" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || python3 - <<'PY'\nfrom datetime import datetime, timedelta, timezone\nprint((datetime.now(timezone.utc) + timedelta(seconds=30)).strftime('%Y-%m-%dT%H:%M:%SZ'))\nPY\n)"
-  printf '{"active":true,"requested_at":"%s","expires_at":"%s","mode":"%s","source":"bash_fallback"}' \
-    "$NOW_ISO" "$EXPIRES_ISO" "$MODE" > "$OMNI_STATE/sessions/$SESSION_ID/cancel-signal-state.json"
-fi
+# Clear session-scoped state for the specific mode via MCP state tool
+python3 scripts/subagent.py state_clear "{\"mode\": \"$MODE\", \"session_id\": \"$SESSION_ID\"}"
 
-# Clear legacy state only if no session ID (avoid clearing another session's state)
-if [ -z "$SESSION_ID" ]; then
-  rm -f "$OMNI_STATE/${MODE}-state.json"
-fi
+# Also write the process-level cancel signal so the stop hook detects cancellation in progress
+python3 scripts/cancel_signal.py --session-id "$SESSION_ID" --mode "$MODE"
 ```
 
 ## Auto-Detection
 
 `/copilot-omni:cancel` follows the session-aware state contract:
-- By default the command inspects the current session via `state_read`, navigating `.omni/state/sessions/{sessionId}/…` to discover which mode is active.
-- When a session id is provided or already known, that session-scoped path is authoritative. Legacy files in `.omni/state/*.json` are consulted only as a compatibility fallback if the session id is missing or empty.
-- Swarm is a shared SQLite/marker mode (`.omni/state/swarm.db` / `.omni/state/swarm-active.marker`) and is not session-scoped.
-- The default cleanup flow calls `state_clear` with the session id to remove only the matching session files; modes stay bound to their originating session.
+- By default the command inspects the current session via `state_read(list=true)`, filtering rows by `session_id` to discover which mode is active.
+- When a session id is provided or already known, that session-scoped row is authoritative. The empty-session (`session_id=""`) slot is consulted only as a compatibility fallback if the session id is missing or empty.
+- Swarm is a shared SQLite/marker mode and is not session-scoped.
+- The default cleanup flow calls `state_clear(mode=..., session_id=$OMNI_SESSION_ID)` to remove only the matching session row; modes stay bound to their originating session.
 
 Active modes are still cancelled in dependency order:
 1. Autopilot (includes linked ralph/ultraqa/ cleanup)
@@ -126,37 +102,12 @@ Use `--force` or `--all` when you need to erase every session plus legacy artifa
 ```
 
 Steps under the hood:
-1. `state_read` enumerates `.omni/state/sessions/{sessionId}/…` to find every known session.
-2. `state_clear` runs once per session to drop that session’s files.
-3. A global `state_clear` without `session_id` removes legacy files under `.omni/state/*.json`, `.omni/state/swarm*.db`, and compatibility artifacts (see list).
-4. Team artifacts (`.omni/state/team-state.json`, `.omni/runs/team-*`) are best-effort cleared as part of the legacy fallback.
+1. `state_read(list=true)` enumerates every `(mode, session_id)` row to find all known sessions.
+2. `state_clear(session_id=<id>)` runs once per session to drop all rows for that session.
+3. `state_clear(all=true)` removes every remaining row (global/empty-session rows and any stragglers).
+4. Team run directories (`.omni/runs/team-*`) are best-effort removed via `python3 scripts/omni_team.py cleanup`.
 
-Every `state_clear` command honors the `session_id` argument, so even force mode still uses the session-aware paths first before deleting legacy files.
-
-Legacy compatibility list (removed only under `--force`/`--all`):
-- `.omni/state/autopilot-state.json`
-- `.omni/state/ralph-state.json`
-- `.omni/state/ralph-plan-state.json`
-- `.omni/state/ralph-verification.json`
-- `.omni/state/ultrawork-state.json`
-- `.omni/state/ultraqa-state.json`
-- `.omni/state/swarm.db`
-- `.omni/state/swarm.db-wal`
-- `.omni/state/swarm.db-shm`
-- `.omni/state/swarm-active.marker`
-- `.omni/state/swarm-tasks.db`
-- `.omni/state/ultrapilot-state.json`
-- `.omni/state/ultrapilot-ownership.json`
-- `.omni/state/pipeline-state.json`
-- `.omni/state/plan-consensus.json`
-- `.omni/state/ralplan-state.json`
-- `.omni/state/boulder.json`
-- `.omni/state/subagent-tracking.json`
-- `.omni/state/subagent-tracker.lock`
-- `.omni/state/rate-limit-daemon.pid`
-- `.omni/state/rate-limit-daemon.log`
-- `.omni/state/checkpoints/` (directory)
-- `.omni/state/sessions/` (empty directory cleanup after clearing sessions)
+Every `state_clear` call uses the MCP state table; no direct file removal is needed for state rows.
 
 ## Implementation Steps
 
@@ -174,10 +125,10 @@ fi
 
 ### 2. Detect Active Modes
 
-The skill now relies on the session-aware state contract rather than hard-coded file paths:
-1. Call `state_read` to enumerate `.omni/state/sessions/{sessionId}/…` and discover every active session.
-2. For each session id, call `state_read` to learn which mode is running (`autopilot`, `ralph`, `ultrawork`, etc.) and whether dependent modes exist.
-3. If a `session_id` was supplied to `/copilot-omni:cancel`, skip legacy fallback entirely and operate solely within that session path; otherwise, consult legacy files in `.omni/state/*.json` only if the state tools report no active session. Swarm remains a shared SQLite/marker mode outside session scoping.
+The skill relies on the MCP state table rather than hard-coded file paths:
+1. Call `state_read(list=true)` to enumerate every `(mode, session_id)` row and discover all active sessions.
+2. Filter rows by `session_id=$OMNI_SESSION_ID` to learn which mode is running (`autopilot`, `ralph`, `ultrawork`, etc.) and whether dependent modes exist.
+3. If a `session_id` was supplied to `/copilot-omni:cancel`, operate solely within that session's rows; otherwise, also check the empty-session (`session_id=""`) slot as a compatibility fallback if no session-scoped rows are found. Swarm remains a global mode outside session scoping.
 4. Any cancellation logic in this doc mirrors the dependency order discovered via state tools (autopilot → ralph → …).
 
 ### 3A. Force Mode (if --force or --all)
@@ -293,14 +244,14 @@ Report: "No active copilot-omni modes detected. Use --force to clear all state f
 The cancel skill runs as follows:
 1. Parse the `--force` / `--all` flags, tracking whether cleanup should span every session or stay scoped to the current session id.
 2. Use `state_read` to enumerate known session ids and learn the active mode (`autopilot`, `ralph`, `ultrawork`, etc.) for each session.
-3. When operating in default mode, call `state_clear` with that session_id to remove only the session’s files, then run mode-specific cleanup (autopilot → ralph → …) based on the state tool signals.
-4. In force mode, iterate every active session, call `state_clear` per session, then run a global `state_clear` without `session_id` to drop legacy files (`.omni/state/*.json`, compatibility artifacts) and report success. Swarm remains a shared SQLite/marker mode outside session scoping.
-5. Team artifacts (`.omni/state/team-state.json`, `.omni/runs/team-*`) remain best-effort cleanup items invoked during the legacy/global pass.
+3. When operating in default mode, call `state_clear(mode=..., session_id=$OMNI_SESSION_ID)` to remove only that session’s rows, then run mode-specific cleanup (autopilot → ralph → …) based on the state tool signals.
+4. In force mode, call `state_clear(session_id=<id>)` for every active session, then run `state_clear(all=true)` to drop any remaining global/empty-session rows and report success. Swarm remains a global mode outside session scoping.
+5. Team run directories (`.omni/runs/team-*`) remain best-effort cleanup items invoked during the global pass via `python3 scripts/omni_team.py cleanup`.
 6. **Always** clear skill-active state as the final step, regardless of which mode was active or whether `--force` was used:
    ```
-   state_clear(mode="skill-active", session_id)
+   state_clear(mode="skill-active", session_id="$OMNI_SESSION_ID")
    ```
-   This ensures the stop hook does not keep firing skill-protection reinforcements after cancel due to a stale `skill-active-state.json`. See issue #2118.
+   This ensures the stop hook does not keep firing skill-protection reinforcements after cancel due to a stale skill-active row in the state table. See issue #2118.
 
 State tools always honor the `session_id` argument, so even force mode still clears the session-scoped paths before deleting compatibility-only legacy state.
 

@@ -1,90 +1,109 @@
 # STATE_CONTRACT.md — MCP State Table Contract
 
-This document defines the contract for the MCP `state` table and all mode slots used by Copilot Omni skills and agents.
+Canonical contract for the MCP `state` table and the `state_write` /
+`state_read` / `state_clear` tools that operate on it.
 
-## Overview
+---
 
-The `state` table in `$OMNI_HOME/omni.db` is the canonical store for runtime mode state. Each row represents one named mode slot. Writes are via `state_write`, reads via `state_read`, and clears via `state_clear`.
+## 1. Schema
 
-**Schema (SCHEMA_VERSION=2):**
+**Current version:** `SCHEMA_VERSION = 6`.
 
 ```sql
 CREATE TABLE state (
-    mode       TEXT PRIMARY KEY,
-    body       TEXT NOT NULL,       -- JSON payload
-    updated_at REAL NOT NULL,       -- Unix timestamp
-    session_id TEXT                 -- nullable; links state to a session
+    mode       TEXT NOT NULL,
+    body       TEXT NOT NULL,             -- JSON payload
+    session_id TEXT NOT NULL DEFAULT '',  -- '' for session-agnostic rows
+    updated_at REAL NOT NULL,             -- Unix timestamp
+    PRIMARY KEY (mode, session_id)
 );
+CREATE UNIQUE INDEX idx_state_mode_session ON state(mode, session_id);
 ```
+
+Each `(mode, session_id)` combination addresses exactly one row. The
+empty-string session slot (`session_id = ''`) is the default, legacy,
+"global-by-mode" row.
+
+### Migrations that shaped this
+
+| Version | Change |
+|---------|--------|
+| 1       | Initial `state(mode PRIMARY KEY, body, updated_at)` |
+| 2       | Add nullable `session_id` column |
+| 3       | Add expression index `UNIQUE(mode, COALESCE(session_id, ''))` |
+| 5       | Normalize NULL session_id rows to `''` |
+| 6       | Rebuild table with composite `PRIMARY KEY(mode, session_id)`, plain `UNIQUE(mode, session_id)` index |
 
 ---
 
-## Mode Slots
+## 2. Tool contract
 
-### Existing Modes
+### `state_write(mode, body, session_id?)`
 
-| Mode | Owner skill/agent | Body schema |
-|---|---|---|
-| `autopilot` | skills/autopilot | `{active: bool, phase: string, ts: float}` |
-| `ralph` | skills/ralph | `{active: bool, task: string, ts: float}` |
-| `ultrawork` | skills/ultrawork | `{active: bool, task: string, ts: float}` |
-| `team` | skills/team | `{active: bool, team_id: string, ts: float}` |
+- Upserts a row keyed by `(mode, session_id or '')`.
+- `session_id` is optional. When omitted, writes the default empty-session row.
 
-### mode=router (WS3 Router Decision Slot)
+### `state_read(mode?, session_id?, list?)`
 
-**Purpose:** WS3's router skill writes its classification/decision artifact here so downstream skills can inspect the routing decision without re-running the classifier.
+Back-compat preserved so pre-schema-v6 callers see no shape change:
 
-**Mode value:** `"router"`
+| Args                         | Result shape |
+|------------------------------|--------------|
+| `mode` only                  | the default empty-session row: `{mode, session_id:"", body, updated_at}` |
+| `mode + session_id`          | that specific row |
+| neither `mode` nor `list`    | `{modes: [{mode, updated_at}, ...]}` — only empty-session rows (legacy listing; per-session rows are **deliberately** excluded to prevent cross-session bleed) |
+| `list=true`                  | `{rows: [{mode, session_id, updated_at}, ...]}` — full enumeration; the supported discovery path for per-session rows |
 
-**Body schema:**
+### `state_clear(mode?, session_id?, all?)`
 
-```json
-{
-  "prompt_excerpt": "<string: first 200 chars of the user prompt>",
-  "classifier_score": "<number: 0.0–1.0, confidence of the selected route>",
-  "decision": "<string: the selected route name, e.g. 'autopilot', 'ralph', 'direct'>",
-  "redirect_to": "<string | null: target skill or agent if decision=redirect, else null>",
-  "ts": "<number: Unix timestamp of the decision>"
-}
-```
+| Args                         | Effect |
+|------------------------------|--------|
+| `mode + session_id`          | delete one row |
+| `mode` only                  | delete all rows for that mode across sessions |
+| `session_id` only            | delete all rows for that session across modes |
+| `all=true`                   | wipe every row |
 
-**Example:**
-
-```json
-{
-  "prompt_excerpt": "Run autopilot on this task",
-  "classifier_score": 0.92,
-  "decision": "autopilot",
-  "redirect_to": null,
-  "ts": 1713225600.0
-}
-```
-
-**Lifecycle:**
-- Written by WS3 router at the start of each routing decision.
-- Read by orchestrators and skills to avoid re-routing.
-- Cleared by `state_clear` with `mode="router"` at session end or on explicit reset.
-
-**Handoff for WS3:**
-- WS3 router skill should call `state_write` with `mode="router"` and the body above.
-- Downstream skills call `state_read` with `mode="router"` to inspect the decision before proceeding.
+At least one of `mode`, `session_id`, or `all=true` must be set.
 
 ---
 
-## session_id Column
+## 3. Session scoping discipline
 
-`state.session_id` (added in SCHEMA_VERSION=2) is an optional nullable field that links a state row to a session in the `sessions` table. It is populated by WS5b's session-threading logic.
+Each registered mode is either **session-scoped** or **global**:
 
-**Handoff for WS5a:**
-- `scripts/subagent.py` should populate `session_id` when calling `state_write` so that state rows can be scoped to a session lifecycle.
-- The value should be the current session ID from the `sessions` table.
+- **Session-scoped** modes should always receive the current
+  `OMNI_SESSION_ID`. Example: `ralph`, `ultrawork`, `team` — each worker
+  run is distinct from another on a shared machine.
+- **Global** modes intentionally omit `session_id` (empty string) so the
+  value is shared across sessions. Example: `subagent` (per-job key is
+  embedded in the mode string, so there is no cross-session conflict).
+
+`docs/STATE_MODES.md` marks each registered mode with its session scope.
+Callers that mix scopes get unpredictable overlap; the validator warns.
 
 ---
 
-## Invariants
+## 4. Invariants
 
-1. `mode` is the primary key — each mode has exactly one row.
-2. `body` is always a valid JSON object (never a bare scalar).
-3. `updated_at` is always a Unix float timestamp set by `state_write`.
-4. `session_id` may be NULL — callers that don't use session threading omit it.
-5. No FK constraint is declared in Phase B (Phase C TODO).
+1. `session_id` is never NULL in schema v6+; callers pass `""` for global rows.
+2. `(mode, session_id)` is unique per row.
+3. `body` is always a valid JSON object.
+4. `updated_at` is a Unix float timestamp set at write time.
+5. `state_clear` always reports the number of rows deleted.
+6. External MCP consumers that followed the pre-v6 contract (no `session_id`, `mode`-keyed reads) continue to work unchanged against the empty-session slot.
+
+---
+
+## 5. Cancel contract
+
+Cancellation for a running skill uses two layers:
+
+1. **Process signal:** `scripts/cancel_signal.py` writes `.omni/runs/<run-id>/cancel.signal`.
+2. **State invalidation:** orchestrators call
+   `state_clear(session_id="$OMNI_SESSION_ID")` to wipe all session-scoped
+   state rows in one pass, or target a specific mode with
+   `state_clear(mode="ralph", session_id="$OMNI_SESSION_ID")`.
+
+Skills that want to discover which modes are active for the current
+session before clearing should call
+`state_read(list=true)` and filter by `session_id`.

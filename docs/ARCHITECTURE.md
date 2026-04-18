@@ -14,10 +14,11 @@ Copilot Omni is a **Copilot CLI plugin** — a directory with a manifest. Copilo
 ┌─────────────────────────────────────────────────────────┐
 │ copilot-omni plugin                                      │
 │                                                          │
-│  skills/       27 SKILL.md files (LLM instructions)      │
+│  skills/       28 SKILL.md files (LLM instructions)      │
 │  agents/       19 agent prompts                          │
 │                                                          │
 │  hooks.json ──▶ hooks/session_start.py (sessionStart)    │
+│             ──▶ hooks/pre_tool_use.py  (preToolUse)      │
 │  .mcp.json  ──▶ python mcp/server.py (stdio JSON-RPC)    │
 │                                                          │
 └─────────────────────────┬────────────────────────────────┘
@@ -32,17 +33,22 @@ Copilot Omni is a **Copilot CLI plugin** — a directory with a manifest. Copilo
 
 ### `mcp/server.py`
 
-Single-file stdio MCP 2024-11-05 server. Registers 28 tools across 9 families. Persists to a SQLite database opened in WAL mode with `UNIQUE(mode, session_id)` constraint on the state table. Every `tools/call` is schema-validated. No imports outside the Python standard library.
+Single-file stdio MCP 2024-11-05 server. Registers 30 tools across 9 families. Persists to a SQLite database opened in WAL mode. The state table uses a composite `PRIMARY KEY(mode, session_id)` so two sessions can hold rows for the same mode without colliding. Every `tools/call` is schema-validated. No imports outside the Python standard library.
 
 Protocol transport is newline-delimited JSON (one JSON-RPC message per line on stdin → one response per line on stdout). That's what Copilot CLI sends by default.
 
 ### `hooks/*.py`
 
-- `session_start.py` — returns an informational banner to the session.
+Two lifecycle hooks ship:
 
-`pre_tool_use.py`, `post_tool_use.py`, and `user_prompt_submit.py` were removed in v2.1.0 — these lifecycle events are not emitted by GitHub Copilot CLI. Policy enforcement is via the MCP `policy_check` tool.
+- `session_start.py` — emits an informational banner + recent project/subagent memory context; warns on policy files with overly permissive modes.
+- `pre_tool_use.py` — shlex-safe shell parse + deny-commands + protected-path enforcement using the active policy profile in `policies/`.
 
-The hook accepts its event payload on stdin and returns JSON on stdout. Budget: < 500 ms on Windows (no large imports, minimal file I/O).
+Each accepts its event payload on stdin and returns JSON on stdout. Budget: < 500 ms on Windows (no large imports, minimal file I/O). Both fail open — any unhandled exception emits `{}` and exits 0 so the plugin can never block a session. If a Copilot CLI version stops emitting one of these events, the corresponding hook simply never runs.
+
+`postToolUse`, `userPromptSubmitted`, `errorOccurred`, and `sessionEnd` are allowed events, but no handler ships. Policy enforcement for tool calls lives in `pre_tool_use.py`; the MCP `policy_check` tool is available for skills that want to pre-flight a command.
+
+The doc at `docs/HOOK_CONTRACT.md` carries the full event-shape reference; `tests/test_hook_contract_alignment.py` keeps the config and doc in sync.
 
 ### `scripts/omni.py`
 
@@ -60,12 +66,6 @@ run_agent("executor", "implement plan in .omni/plans/run-001.md", allow_all=True
 ```
 
 runs `copilot -p "…" --agent executor --allow-all`.
-
-### `scripts/router.py`
-
-Front-door intent router (ADR-0005). Scores prompt concreteness on a rubric of anchors, verbs, and
-constraints; prompts scoring below the threshold (default 0.4) are redirected to `deep-interview`
-before any skill fires. Bypass explicitly with `--skip-interview`.
 
 ### `scripts/category_resolver.py`
 

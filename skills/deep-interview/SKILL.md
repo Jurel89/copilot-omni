@@ -70,7 +70,7 @@ When arguments include `--autoresearch`, Deep Interview becomes the zero-learnin
    - If source files exist AND the user's idea references modifying/extending something: **brownfield**
    - Otherwise: **greenfield**
 3. **For brownfield**: Run `explore` agent to map relevant codebase areas, then capture a repository map with `codebase_graph` (or `omni codebase graph --json`) and store the result as `codebase_context`
-4. **Initialize state** via `state_write(mode="deep-interview")`:
+4. **Initialize state** via `state_write(mode="deep-interview", session_id=$OMNI_SESSION_ID, body={...})`:
 
 ```json
 {
@@ -559,7 +559,7 @@ Optional settings in `.omni/config.json`:
 
 ## Resume
 
-If interrupted, run `/deep-interview` again. The skill reads state from `.omni/state/deep-interview-state.json` and resumes from the last completed round.
+If interrupted, run `/deep-interview` again. The skill reads state via `state_read(mode="deep-interview", session_id=$OMNI_SESSION_ID)` and resumes from the last completed round.
 
 ## Integration with Autopilot
 

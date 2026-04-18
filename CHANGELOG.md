@@ -1,5 +1,63 @@
 # Changelog
 
+## [Unreleased] — v2.1.1 contract reset
+
+Resolves the P0 correctness defects and P1 honesty defects identified in the
+2026-04-18 product-contract audit.
+
+### Fixed
+
+- **State table now actually supports per-session rows.** Added schema
+  migrations v5 (NULL session_id → `''`) and v6 (rebuild `state` with
+  composite `PRIMARY KEY(mode, session_id)`). Two sessions can now hold
+  rows for the same mode without colliding. `scripts/omni_team.py` and
+  `scripts/subagent.py` state-writers no longer try `ON CONFLICT` patterns
+  that never matched the real constraint.
+- **`state_write` / `state_read` / `state_clear` MCP tools** accept an
+  optional `session_id`. Back-compat preserved: callers that never pass
+  `session_id` see the exact legacy shape (default empty-session row).
+  New additive `list=true` flag on `state_read` enumerates all scoped rows.
+
+### Removed
+
+- **Router as a product claim.** `scripts/router.py` and
+  `scripts/router_state.py` were already deleted on main. This PR removes
+  the remaining footprint: router preambles from flagship skills
+  (`autopilot`, `ralph`, `ralplan`, `ultrawork`, `ultraqa`), `docs/ROUTER.md`
+  links across README / AGENTS / docs, router-enforcement dead code in
+  `hooks/pre_tool_use.py`, and the `OMNI_ROUTER_ENFORCE` / `OMNI_ROUTER_TTL_S`
+  env vars. ADR-0005 moved to `docs/ADR/archive/`.
+
+### Changed
+
+- Bumped `mcp/server.py:SERVER_VERSION` to `2.1.1` and `SCHEMA_VERSION` to `6`.
+- `docs/STATE_CONTRACT.md` rewritten to document the schema-v6 composite PK,
+  back-compat guarantees, session-scoping discipline, and cancel contract.
+- `docs/STATE_MODES.md` gained a `session_scope` column and dropped the
+  orphan `router` row.
+- **Honest positioning for memory + code graph + LSP.** README framing for
+  the codebase graph now says "lightweight local code graph" rather than
+  "real codebase knowledge graph" — the implementation is a stdlib-only
+  adjacency walk over Python defs / imports / Markdown links, not a
+  persistent semantic index. LSP tool descriptions now say
+  `EXPERIMENTAL / STUB` so callers know they return `{"status": "stub"}`
+  until a full LSP session lifecycle lands.
+- Feature counts realigned across README, AGENTS, marketplace,
+  copilot-instructions, INSTALL, QUICKSTART, and MIGRATION to the
+  repo-of-record: **27 skills, 19 agents, 30 MCP tools**.
+- `plugin.json`, `marketplace.json`, and `scripts/omni.py` now all advertise
+  **v2.1.1** in step with the MCP server.
+- `omni doctor` now prints the MCP tool count alongside skills/agents, so
+  the number in QUICKSTART and INSTALL is verifiable without reading the
+  source.
+
+### Removed
+
+- **Stale `docs/ROUTER.md` and `docs/MODELS.md` references.** Those files
+  are not in the repo; README / AGENTS / docs index no longer link to
+  them. `OMNI_ROUTER_ENFORCE` and `OMNI_ROUTER_TTL_S` env vars removed
+  from `docs/ENV.md`.
+
 ## [Unreleased] — v2.1.0 Copilot-CLI-native cleanup
 
 ### Fixed
@@ -145,7 +203,7 @@
 - 27 skills: autopilot, ralph, ultrawork, team, ralplan, plan, deep-interview, deep-dive, verify, ultraqa, debug, trace, remember, wiki, external-context, ai-slop-cleaner, skill, skillify, setup, omni-setup, omni-doctor, mcp-setup, release, cancel, deepinit, configure-notifications, omni-reference.
 - 19 agents (up from 5): analyst, architect, planner, critic, executor, explore, debugger, tracer, verifier, qa-tester, test-engineer, code-reviewer, security-reviewer, code-simplifier, document-specialist, writer, git-master, designer, scientist.
 - Slash commands removed in v2.1.0 — use skills directly via Copilot CLI prompts.
-- 28 MCP tools across memory, wiki, notepad, state, shared_memory, trace, policy, health, doctor, lsp, ast-grep.
+- 30 MCP tools across memory, wiki, notepad, state, shared_memory, trace, policy, health, doctor, lsp, ast-grep, codebase.
 - 1 lifecycle hook (`session_start`) as pure Python script.
 - Three-profile policy engine: `strict`, `standard`, `permissive`.
 - Windows, macOS, and Linux CI matrix on Python 3.9 / 3.11 / 3.12.

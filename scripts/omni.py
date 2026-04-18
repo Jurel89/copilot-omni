@@ -34,12 +34,95 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-VERSION = "1.0.0"
+VERSION = "2.1.1"
 
 
 def _plugin_root() -> Path:
     here = Path(__file__).resolve().parent
     return here.parent
+
+
+def _count_mcp_tools(server_py: Path) -> int:
+    """Count registered MCP tools by counting _tool_<name> function defs.
+
+    Pure static analysis — does not import the module. Reads the source
+    and returns 0 if the file is missing so doctor can still advertise a
+    meaningful value.
+    """
+    try:
+        text = server_py.read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    import re
+
+    return len(re.findall(r"^def _tool_[a-z_]+\(", text, re.MULTILINE))
+
+
+_SCRIPT_REF_RE = None  # lazy-compiled in helper
+
+
+def _doctor_broken_script_refs(root: Path) -> list[tuple[str, str]]:
+    """Scan skills/*/SKILL.md and agents/*.md for scripts/<file>.py tokens
+    and return a list of (source-path, missing-target) pairs.
+
+    The audit found flagship skills referencing scripts that were deleted
+    on main (scripts/router_state.py, scripts/state_write.py, ...). Making
+    doctor flag these as FAIL prevents the class of regression where a
+    skill silently drifts past its actually-shipped dependencies.
+    """
+    import re
+
+    pattern = re.compile(r"scripts/([A-Za-z0-9_]+\.py)")
+    out: list[tuple[str, str]] = []
+    scan_dirs = [root / "skills", root / "agents"]
+    for scan_root in scan_dirs:
+        if not scan_root.is_dir():
+            continue
+        for md in scan_root.rglob("*.md"):
+            try:
+                text = md.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            for match in pattern.finditer(text):
+                target = match.group(0)
+                if not (root / target).exists():
+                    rel = md.relative_to(root).as_posix()
+                    out.append((rel, target))
+    return out
+
+
+def _doctor_missing_doc_links(root: Path) -> list[tuple[str, str]]:
+    """Scan README.md, AGENTS.md, docs/README.md, docs/QUICKSTART.md,
+    docs/INSTALL.md, docs/ARCHITECTURE.md for `(docs/...)` Markdown link
+    targets that don't resolve.
+
+    Returns a list of (source-path, missing-target) pairs.
+    """
+    import re
+
+    link_re = re.compile(r"\]\((docs/[^\s)#]+\.md)(?:#[^)]*)?\)")
+    sources = [
+        root / "README.md",
+        root / "AGENTS.md",
+        root / "docs" / "README.md",
+        root / "docs" / "QUICKSTART.md",
+        root / "docs" / "INSTALL.md",
+        root / "docs" / "ARCHITECTURE.md",
+    ]
+    out: list[tuple[str, str]] = []
+    for source in sources:
+        if not source.exists():
+            continue
+        try:
+            text = source.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for match in link_re.finditer(text):
+            target = match.group(1)
+            if not (root / target).exists():
+                rel = source.relative_to(root).as_posix()
+                out.append((rel, target))
+    return out
 
 
 def _cmd_version(_args: argparse.Namespace) -> int:
@@ -83,6 +166,35 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     agents = list((root / "agents").glob("*.md"))
     print(f"agents:        {len(agents)} " + ("OK" if len(agents) >= 15 else "FAIL"))
     ok = ok and (len(agents) >= 15)
+
+    mcp_tools_count = _count_mcp_tools(root / "mcp" / "server.py")
+    print(
+        f"mcp tools:     {mcp_tools_count} "
+        + ("OK" if mcp_tools_count >= 25 else "FAIL")
+    )
+    ok = ok and (mcp_tools_count >= 25)
+
+    broken_refs = _doctor_broken_script_refs(root)
+    if broken_refs:
+        print(f"broken refs:   {len(broken_refs)} FAIL")
+        for where, target in broken_refs[:10]:
+            print(f"                 {where}: missing {target}")
+        if len(broken_refs) > 10:
+            print(f"                 ... and {len(broken_refs) - 10} more")
+        ok = False
+    else:
+        print("broken refs:   0 OK (no skill or agent references a missing script)")
+
+    missing_docs = _doctor_missing_doc_links(root)
+    if missing_docs:
+        print(f"missing docs:  {len(missing_docs)} FAIL")
+        for where, target in missing_docs[:10]:
+            print(f"                 {where}: missing {target}")
+        if len(missing_docs) > 10:
+            print(f"                 ... and {len(missing_docs) - 10} more")
+        ok = False
+    else:
+        print("missing docs:  0 OK (every linked doc exists)")
 
     print(f"platform:      {platform.system()} {platform.release()}")
     home = Path(os.environ.get("OMNI_HOME") or (Path.home() / ".omni"))
@@ -1577,11 +1689,21 @@ def _cmd_state_list(args: argparse.Namespace) -> int:
         print("Omni database not found. Run `omni init` first.", file=sys.stderr)
         return 1
     try:
-        rows = _query_all(
-            conn,
-            "SELECT mode, updated_at FROM state ORDER BY updated_at DESC LIMIT ?",
-            (getattr(args, "limit", 20),),
-        )
+        has_session_col = _state_has_session_column(conn)
+        if has_session_col:
+            rows = _query_all(
+                conn,
+                "SELECT mode, COALESCE(session_id,'') AS session_id, updated_at "
+                "FROM state ORDER BY updated_at DESC LIMIT ?",
+                (getattr(args, "limit", 20),),
+            )
+        else:
+            rows = _query_all(
+                conn,
+                "SELECT mode, '' AS session_id, updated_at FROM state "
+                "ORDER BY updated_at DESC LIMIT ?",
+                (getattr(args, "limit", 20),),
+            )
         entries = [dict(row) for row in rows]
         if getattr(args, "json", False):
             _dump_json({"modes": entries, "count": len(entries)})
@@ -1590,12 +1712,27 @@ def _cmd_state_list(args: argparse.Namespace) -> int:
             print("No state entries.")
             return 0
         _print_table(
-            ["Mode", "Updated"],
-            [[entry["mode"], _format_timestamp(entry["updated_at"])] for entry in entries],
+            ["Mode", "Session", "Updated"],
+            [
+                [
+                    entry["mode"],
+                    entry["session_id"] or "(default)",
+                    _format_timestamp(entry["updated_at"]),
+                ]
+                for entry in entries
+            ],
         )
         return 0
     finally:
         conn.close()
+
+
+def _state_has_session_column(conn) -> bool:
+    try:
+        info = _query_all(conn, "PRAGMA table_info(state)", ())
+    except Exception:
+        return False
+    return any(r["name"] == "session_id" for r in info)
 
 
 def _cmd_state_show(args: argparse.Namespace) -> int:
@@ -1604,19 +1741,37 @@ def _cmd_state_show(args: argparse.Namespace) -> int:
         print("Omni database not found. Run `omni init` first.", file=sys.stderr)
         return 1
     try:
-        row = _query_one(
-            conn,
-            "SELECT mode, body, updated_at FROM state WHERE mode=?",
-            (args.mode,),
-        )
+        session_id = getattr(args, "session_id", None) or ""
+        has_session_col = _state_has_session_column(conn)
+        if has_session_col:
+            row = _query_one(
+                conn,
+                "SELECT mode, body, COALESCE(session_id,'') AS session_id, updated_at "
+                "FROM state WHERE mode=? AND COALESCE(session_id,'')=?",
+                (args.mode, session_id),
+            )
+        else:
+            row = _query_one(
+                conn,
+                "SELECT mode, body, '' AS session_id, updated_at "
+                "FROM state WHERE mode=?",
+                (args.mode,),
+            )
         if row is None:
             if getattr(args, "json", False):
-                _dump_json({"error": "not found", "mode": args.mode})
+                _dump_json(
+                    {"error": "not found", "mode": args.mode, "session_id": session_id}
+                )
             else:
-                print(f"No state entry for mode '{args.mode}'.", file=sys.stderr)
+                label = session_id or "(default)"
+                print(
+                    f"No state entry for mode '{args.mode}' session '{label}'.",
+                    file=sys.stderr,
+                )
             return 1
         payload = {
             "mode": row["mode"],
+            "session_id": row["session_id"],
             "body": _parse_json_text(row["body"]),
             "updated_at": row["updated_at"],
         }
@@ -2286,6 +2441,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     state_show = state_sub.add_parser("show", help="Show a stored state body")
     state_show.add_argument("mode", help="State mode to inspect")
+    state_show.add_argument(
+        "--session-id",
+        default=None,
+        help="Session id scope (defaults to the empty-session row)",
+    )
     state_show.add_argument("--json", action="store_true", help="JSON output")
     state_show.set_defaults(func=_cmd_state_show)
 

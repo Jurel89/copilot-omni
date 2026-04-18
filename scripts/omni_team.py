@@ -93,7 +93,20 @@ def _slug_from_index(i: int) -> str:
 
 
 def _mcp_write_best_effort(mode: str, body: dict, session_id: Optional[str] = None) -> None:
-    """Write to MCP state table (best-effort, never raises)."""
+    """Write to MCP state table (best-effort, never raises).
+
+    Handles two schema shapes so upgrades from a pre-v6 DB do not lose
+    writes before the MCP server has had a chance to run _migrate():
+
+      v6+: composite PRIMARY KEY(mode, session_id); conflict target is
+           ON CONFLICT(mode, session_id).
+      v1-v5: scalar PRIMARY KEY(mode); conflict target is ON CONFLICT(mode).
+             session_id column is present from v2 onward and is populated
+             by this path regardless.
+
+    session_id is normalized to '' when unset so the v6 conflict target
+    always matches a real row.
+    """
     try:
         import sqlite3
         db_path = Path(os.environ.get("OMNI_HOME", str(Path.home() / ".omni"))) / "omni.db"
@@ -101,6 +114,7 @@ def _mcp_write_best_effort(mode: str, body: dict, session_id: Optional[str] = No
             return
         body_str = json.dumps(body)
         now = time.time()
+        sid = session_id or ""
         with sqlite3.connect(str(db_path), timeout=5) as conn:
             try:
                 conn.execute(
@@ -109,20 +123,34 @@ def _mcp_write_best_effort(mode: str, body: dict, session_id: Optional[str] = No
                     " ON CONFLICT(mode, session_id) DO UPDATE SET"
                     "  body=excluded.body,"
                     "  updated_at=excluded.updated_at",
-                    (mode, body_str, session_id or "", now),
+                    (mode, body_str, sid, now),
                 )
-                conn.commit()
-            except Exception:
-                # Try legacy schema without session_id
-                conn.execute(
-                    "INSERT INTO state(mode, body, updated_at)"
-                    " VALUES (?, ?, ?)"
-                    " ON CONFLICT(mode) DO UPDATE SET"
-                    "  body=excluded.body,"
-                    "  updated_at=excluded.updated_at",
-                    (mode, body_str, now),
-                )
-                conn.commit()
+            except sqlite3.OperationalError:
+                # Legacy schema (v1-v5): scalar PK on mode, so the v6
+                # composite conflict target does not resolve. Retry with
+                # the legacy upsert. session_id is still written when the
+                # column exists (v2+).
+                try:
+                    conn.execute(
+                        "INSERT INTO state(mode, body, session_id, updated_at)"
+                        " VALUES (?, ?, ?, ?)"
+                        " ON CONFLICT(mode) DO UPDATE SET"
+                        "  body=excluded.body,"
+                        "  session_id=excluded.session_id,"
+                        "  updated_at=excluded.updated_at",
+                        (mode, body_str, sid, now),
+                    )
+                except sqlite3.OperationalError:
+                    # Pre-v2 schema has no session_id column — drop it.
+                    conn.execute(
+                        "INSERT INTO state(mode, body, updated_at)"
+                        " VALUES (?, ?, ?)"
+                        " ON CONFLICT(mode) DO UPDATE SET"
+                        "  body=excluded.body,"
+                        "  updated_at=excluded.updated_at",
+                        (mode, body_str, now),
+                    )
+            conn.commit()
     except Exception:
         pass
 

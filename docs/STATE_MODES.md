@@ -1,37 +1,50 @@
 # State Mode Registry
 
-Canonical list of all `mode` values written to the MCP `state` table.
-Every literal `mode=` string in SKILL.md recipes and `*.py` files MUST
-appear here.  The `check_mode_key_registry` validator (T1) enforces this.
+Canonical list of `mode` values written to the MCP `state` table.
+Every literal `mode=` string in `skills/**/SKILL.md`, `agents/**/*.md`,
+and `scripts/**/*.py` MUST appear here. The
+`check_mode_key_registry` validator in
+`scripts/verify_plugin_contract.py` enforces this.
 
 ## Naming convention
 
-Dotted notation `<outer>.<inner>` identifies nested mode keys per ADR-0006 §3.
+Dotted notation `<outer>.<inner>` identifies nested mode keys per
+ADR-0006 §3.
+
+## Session scopes
+
+- **session**: row is keyed by `(mode, $OMNI_SESSION_ID)`; multiple
+  sessions on the same host do not collide.
+- **global**: row is keyed by `(mode, "")`; shared across sessions by
+  design (the mode string itself already encodes any per-job identity).
 
 ## Registered modes
 
-| Mode key               | Owner skill / file          | Description                                      |
-|------------------------|-----------------------------|--------------------------------------------------|
-| `router`               | scripts/router.py           | WS3 router decision (concreteness score etc.)    |
-| `subagent`             | scripts/subagent.py         | Per-job subagent run status (key: subagent:<id>) |
-| `autopilot`            | skills/autopilot/SKILL.md   | Autopilot outer run state (phase, status)        |
-| `autopilot.ralplan`    | skills/autopilot/SKILL.md   | Inner ralplan run nested under autopilot         |
-| `autopilot.ralph`      | skills/autopilot/SKILL.md   | Inner ralph run nested under autopilot           |
-| `ralph`                | skills/ralph/SKILL.md       | Ralph stand-alone run state                      |
-| `ralplan`              | skills/ralplan/SKILL.md     | Ralplan stand-alone consensus run state          |
-| `ralplan.architect`    | skills/ralplan/SKILL.md     | Inner architect review run under ralplan         |
-| `ralplan.critic`       | skills/ralplan/SKILL.md     | Inner critic review run under ralplan            |
-| `ultrawork`            | skills/ultrawork/SKILL.md   | Ultrawork parallel task execution state          |
-| `ultraqa`              | skills/ultraqa/SKILL.md     | Ultraqa QA convergence run state                 |
-| `team`                 | skills/team/SKILL.md        | Team orchestration run state (WS6 orchestrator)  |
-| `team.<worker-slug>`   | scripts/omni_team.py        | Per-worker team state (dynamic key per ADR-0006) |
-| `team.<slug>.ralph`    | scripts/omni_team.py        | Inner ralph run nested under team worker         |
-| `team.<slug>.autopilot`| scripts/omni_team.py        | Inner autopilot run nested under team worker     |
+| Mode key               | Owner                       | Session scope | Description                                      |
+|------------------------|-----------------------------|---------------|--------------------------------------------------|
+| `subagent`             | scripts/subagent.py         | global        | Per-job subagent run status (key embeds `subagent:<id>`) |
+| `autopilot`            | skills/autopilot/SKILL.md   | session       | Autopilot outer run state (phase, status)        |
+| `autopilot.ralplan`    | skills/autopilot/SKILL.md   | session       | Inner ralplan run nested under autopilot         |
+| `autopilot.ralph`      | skills/autopilot/SKILL.md   | session       | Inner ralph run nested under autopilot           |
+| `ralph`                | skills/ralph/SKILL.md       | session       | Ralph stand-alone run state                      |
+| `ralplan`              | skills/ralplan/SKILL.md     | session       | Ralplan stand-alone consensus run state          |
+| `ralplan.architect`    | skills/ralplan/SKILL.md     | session       | Inner architect review run under ralplan         |
+| `ralplan.critic`       | skills/ralplan/SKILL.md     | session       | Inner critic review run under ralplan            |
+| `ultrawork`            | skills/ultrawork/SKILL.md   | session       | Ultrawork parallel task execution state          |
+| `ultraqa`              | skills/ultraqa/SKILL.md     | session       | Ultraqa QA convergence run state                 |
+| `team`                 | skills/team/SKILL.md        | session       | Team orchestration run state (WS6 orchestrator)  |
+| `team.<worker-slug>`   | scripts/omni_team.py        | session       | Per-worker team state (dynamic key per ADR-0006) |
+| `team.<slug>.ralph`    | scripts/omni_team.py        | session       | Inner ralph run nested under team worker         |
+| `team.<slug>.autopilot`| scripts/omni_team.py        | session       | Inner autopilot run nested under team worker     |
+| `plan`                 | skills/plan/SKILL.md        | session       | Plan skill run state (spec path, cycle)          |
+| `deep-interview`       | skills/deep-interview/SKILL.md | session    | Deep-interview run state (phase, ambiguity score) |
+| `skill-active`         | skills/cancel/SKILL.md      | session       | Marker cleared by cancel to silence stop-hook skill-protection reinforcement |
 
 ## Governance
 
-- Add new rows before shipping any new `state_write(mode="...")` call.
-- Remove rows only when the associated code is deleted.
-- The `check_mode_key_registry` validator in `scripts/verify_plugin_contract.py`
-  scans `scripts/`, `mcp/`, and `skills/**/*.md` for literal `mode=` strings
+- Add a new row before shipping any new `state_write(mode="...")` call.
+- Remove a row only when the associated code is deleted.
+- The `check_mode_key_registry` validator in
+  `scripts/verify_plugin_contract.py` scans `scripts/`, `mcp/`, and
+  `skills/**/*.md` for literal `mode=` strings (positional and keyword)
   and cross-references this table.

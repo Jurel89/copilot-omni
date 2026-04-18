@@ -56,7 +56,7 @@ No Go, no npm beyond the CLI, no compiled binaries. Ships as a clone-and-go repo
 | `ralplan` | Ralplan consensus: architect + planner + critic in parallel |
 | `team` | Team orchestration — tmux workers + git worktrees + MCP state |
 | `plan` | Lightweight planning skill — produces `.omni/plans/<slug>.md` |
-| `deep-interview` | Turn-based requirements gathering (redirected from router) |
+| `deep-interview` | Turn-based Socratic requirements gathering before execution |
 | `deep-dive` | Deep exploratory analysis of a codebase area |
 | `verify` | Completion verification — runs validator + tests + checks |
 | `debug` | Structured debugging loop with tracer integration |
@@ -97,18 +97,25 @@ See `docs/STATE_MODES.md` for the full mode-key registry and ownership matrix (A
 
 ## Hook contract
 
-One lifecycle hook is active:
+Two lifecycle hooks are active:
 
-| Hook | Script | Key responsibilities |
-|------|--------|---------------------|
-| `sessionStart` | `hooks/session_start.py` | Banner, policy permission checks, metrics |
+| Hook           | Script                       | Key responsibilities                                              |
+|----------------|------------------------------|-------------------------------------------------------------------|
+| `sessionStart` | `hooks/session_start.py`     | Banner + project memory context, policy permission checks, metrics|
+| `preToolUse`   | `hooks/pre_tool_use.py`      | shlex-safe command parse, deny-commands + protected-path policy   |
 
-`preToolUse`, `postToolUse`, and `userPromptSubmit` were removed in v2.1.0 — these lifecycle events are not emitted by GitHub Copilot CLI. Policy enforcement is via the MCP `policy_check` tool.
+Both hooks fail open: any unhandled error exits 0 with `{}` so the plugin can
+never block a Copilot session. `postToolUse`, `userPromptSubmitted`,
+`errorOccurred`, and `sessionEnd` are allowed events but no handler ships; add
+one under `hooks/` and register it in `hooks/hooks.json` if needed.
 
-Kill switches: `OMNI_SKIP_HOOKS=1`, `DISABLE_OMNI=1`, `OMNI_SKIP_SESSION_START=1`.
+Kill switches: `OMNI_SKIP_HOOKS=1`, `DISABLE_OMNI=1`,
+`OMNI_SKIP_SESSION_START=1`, `OMNI_SKIP_PRE_TOOL_USE=1`.
 Deprecated aliases (removed in v3.0.0): `OMC_SKIP_HOOKS=1`, `DISABLE_OMC=1`. <!-- omni-rename-allow: OMC legacy env var names documented here -->
 
 Full event shapes, audit schema, and metrics schema: `docs/HOOK_CONTRACT.md`.
+A regression test (`tests/test_hook_contract_alignment.py`) keeps the shipped
+`hooks/hooks.json` and the doc in sync.
 
 ## How skills invoke subagents
 
@@ -139,7 +146,7 @@ Overridable via `.omni/config.json > runtime.max_parallel_subagents`.
 │   ├── runs/<run-id>/{spec.md, plan.json, decisions.md, summary.md}
 │   ├── specs/, plans/, decisions/
 │   ├── audit/hooks.jsonl      # atomic, file-locked audit log
-│   ├── audit/metrics.jsonl    # hook latency + router decision metrics
+│   ├── audit/metrics.jsonl    # hook latency metrics
 │   └── cache/banner.json      # session-start banner cache (keyed by manifest hash)
 ```
 
@@ -147,8 +154,6 @@ Global state: `$OMNI_HOME/omni.db` (default `~/.omni/omni.db`).
 
 ## Further reading
 
-- [docs/ROUTER.md](docs/ROUTER.md) — front-door intent router, ADR-0005 scoring rubric
-- [docs/MODELS.md](docs/MODELS.md) — semantic model categories, config overrides
 - [docs/TEAM.md](docs/TEAM.md) — team orchestration internals
 - [docs/HOOK_CONTRACT.md](docs/HOOK_CONTRACT.md) — hook contract, kill switches, audit schema
 - [docs/STATE_MODES.md](docs/STATE_MODES.md) — mode-key registry, state ownership matrix

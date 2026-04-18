@@ -29,8 +29,9 @@ class TestDefaultTargets(unittest.TestCase):
     def test_targets_are_high_value(self):
         """The scope must include the remaining hot-path modules.
 
-        v2.1.0 removed ``scripts/router.py`` (Claude-Code-only classifier),
-        so the target set narrows to the two surviving high-value modules.
+        v2.1.0 removed ``scripts/router.py`` (the front-door classifier was
+        retired as a product claim in the contract-reset PR), so the target
+        set narrows to the two surviving high-value modules.
         """
         mod = _load()
         scoped = set(mod.DEFAULT_TARGETS)

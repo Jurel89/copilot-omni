@@ -35,11 +35,6 @@ get skipped, edge cases get forgotten. Ralph prevents this by:
 4. Requiring fresh reviewer verification against specific acceptance criteria before completion
 </Why_This_Exists>
 
-# Router preamble
-1. Read MCP state: `python3 scripts/router_state.py --read --session-id "$OMNI_SESSION_ID" --json`
-2. If `decision.redirect == "deep-interview"`, defer to `/copilot-omni:deep-interview` and exit.
-3. Otherwise, proceed with `decision.skill == ralph`.
-
 <Execution_Policy>
 - Fire independent agent calls simultaneously via `subagent.py --background` + `wait_for_jobs.py`
 - Per ADR-0006: all agent calls are subprocess-only via `scripts/subagent.py`
@@ -70,9 +65,13 @@ SECURITY_RELEVANT=0
 PRD_FILE="${RUN_DIR}/prd.json"
 PROGRESS_FILE="${RUN_DIR}/progress.txt"
 
-# Resume: read last completed iteration from MCP state
-python3 scripts/router_state.py --read --mode ralph --session-id "$OMNI_SESSION_ID" --json \
-  > "${RUN_DIR}/resume-state.json" 2>/dev/null || echo '{}' > "${RUN_DIR}/resume-state.json"
+# Initialize resume state from MCP state table. session-scoped.
+RESUME_STATE="${RUN_DIR}/resume-state.json"
+if [ -f "${RESUME_STATE}" ]; then
+  :  # keep prior resume state
+else
+  echo '{}' > "${RESUME_STATE}"
+fi
 
 LAST_ITERATION=$(python3 -c "
 import json

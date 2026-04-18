@@ -15,16 +15,16 @@ runs in an isolated git worktree with its own branch. Workers are dispatched via
 `scripts/subagent.py --background` (with tmux windows on Linux/macOS when available). <!-- omni-ref-allow: example -->
 Back-pressure is enforced via `scripts/subagent_pool.py` (cap = `min(8, cpu_count)`).
 
-## Router preamble
+## Resume preamble
 
-Before running, load the session state and check for an active team run:
+Before running, load the session-scoped state and check for an active team run:
 
 ```bash
-state_read(mode="team")
+state_read(mode="team", session_id="$OMNI_SESSION_ID")
 ```
 
-If `state.active == true` and `run_id` is present → **Resume** the existing run instead
-of creating a new one (see Resume section below).
+If `body.active == true` and a `run_id` is present → **Resume** the existing run
+instead of creating a new one (see Resume section below).
 
 ## Usage
 
@@ -155,9 +155,10 @@ python3 scripts/omni_team.py create "fix-ts-errors" --plan /tmp/plan.json --sess
 # -> {"run_id": "team-abc123", "manifest_path": "...", "status_path": "...", "created_at": "..."}
 ```
 
-Write state:
+Write state (session-scoped per ADR-0006):
 ```
-state_write(mode="team", active=true, session_id=<id>, state={
+state_write(mode="team", session_id="$OMNI_SESSION_ID", body={
+  "active": true,
   "run_id": "team-abc123",
   "name": "fix-ts-errors",
   "phase": "created",
@@ -172,11 +173,14 @@ python3 scripts/omni_team.py dispatch team-abc123
 # -> [{"slug": "worker-1", "pid": 12345, "status_path": "...", ...}, ...]
 ```
 
-State update:
+State update (session-scoped):
 ```
-state_write(mode="team", state={"phase": "dispatched"})
-state_write(mode="team.worker-1", active=true, state={"run_id": "team-abc123", "skill": "ralph"})
-state_write(mode="team.worker-2", active=true, state={"run_id": "team-abc123", "skill": "ralph"})
+state_write(mode="team", session_id="$OMNI_SESSION_ID",
+            body={"phase": "dispatched"})
+state_write(mode="team.worker-1", session_id="$OMNI_SESSION_ID",
+            body={"active": true, "run_id": "team-abc123", "skill": "ralph"})
+state_write(mode="team.worker-2", session_id="$OMNI_SESSION_ID",
+            body={"active": true, "run_id": "team-abc123", "skill": "ralph"})
 ```
 
 ### Phase 4: Collect Results
@@ -247,7 +251,7 @@ python3 scripts/omni_team.py cancel team-abc123 --reason "user"
 
 ## Resume
 
-If `state_read(mode="team")` returns `active=true` with a `run_id`:
+If `state_read(mode="team", session_id="$OMNI_SESSION_ID")` returns `body.active == true` with a `run_id`:
 
 1. Check `omni_team.py status <run_id>` for current phase.
 2. If `state: "created"` → jump to dispatch phase.
@@ -273,7 +277,8 @@ Each worker's `status.json` schema:
 ## State Schema
 
 ```
-state_write(mode="team", active=true, session_id=<id>, state={
+state_write(mode="team", session_id="$OMNI_SESSION_ID", body={
+  "active": true,
   "run_id": "team-abc123",
   "name": "<team-name>",
   "phase": "created|dispatched|collecting|done|failed|cancelled",
@@ -284,7 +289,8 @@ state_write(mode="team", active=true, session_id=<id>, state={
 
 Per-worker state:
 ```
-state_write(mode="team.<slug>", active=true, session_id=<id>, state={
+state_write(mode="team.<slug>", session_id="$OMNI_SESSION_ID", body={
+  "active": true,
   "run_id": "team-abc123",
   "slug": "<slug>",
   "skill": "ralph|autopilot",

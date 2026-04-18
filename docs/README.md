@@ -12,8 +12,6 @@ GitHub without the rendered plugin pages.
 ## Concepts
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — plugin internals, data flow, runtime components.
-- [ROUTER.md](ROUTER.md) — front-door intent router and concreteness scoring rubric.
-- [MODELS.md](MODELS.md) — semantic model categories (`quick` / `deep` / `ultrabrain`).
 - [STATE-MACHINE.md](STATE-MACHINE.md) — four-gate lifecycle (discuss → plan → execute → verify).
 - [STATE_MODES.md](STATE_MODES.md) — MCP state mode registry.
 - [STATE_CONTRACT.md](STATE_CONTRACT.md) — state-store ownership matrix.

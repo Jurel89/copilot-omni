@@ -35,11 +35,6 @@ before any code is written. The turn-based design (no blocking, no AskUserQuesti
 the skill exit cleanly mid-flow and resume on the next user turn.
 </Why_This_Exists>
 
-# Router preamble
-1. Read MCP state: `python3 scripts/router_state.py --read --session-id "$OMNI_SESSION_ID" --json`
-2. If `decision.redirect == "deep-interview"`, defer to `/copilot-omni:deep-interview` and exit.
-3. Otherwise, proceed with `decision.skill == ralplan`.
-
 <Execution_Policy>
 - Per ADR-0006: all agent calls are subprocess-only via `scripts/subagent.py`
 - Turn-based: if user input is needed mid-flow, persist question and exit cleanly with state="awaiting-input"
@@ -352,19 +347,13 @@ try:
                 conn.execute(
                     "INSERT INTO state(mode, body, session_id, updated_at)"
                     " VALUES (?, ?, ?, ?)"
-                    " ON CONFLICT(mode) DO UPDATE SET"
-                    " body=excluded.body, session_id=excluded.session_id,"
+                    " ON CONFLICT(mode, session_id) DO UPDATE SET"
+                    " body=excluded.body,"
                     " updated_at=excluded.updated_at",
-                    (mode, body, session_id, time.time()),
+                    (mode, body, session_id or "", time.time()),
                 )
             except Exception:
-                conn.execute(
-                    "INSERT INTO state(mode, body, updated_at)"
-                    " VALUES (?, ?, ?)"
-                    " ON CONFLICT(mode) DO UPDATE SET"
-                    " body=excluded.body, updated_at=excluded.updated_at",
-                    (mode, body, time.time()),
-                )
+                pass
 except Exception as e:
     print(f"warning: MCP state write failed (non-fatal): {e}")
 PYEOF
@@ -519,19 +508,13 @@ try:
                 conn.execute(
                     "INSERT INTO state(mode, body, session_id, updated_at)"
                     " VALUES (?, ?, ?, ?)"
-                    " ON CONFLICT(mode) DO UPDATE SET"
-                    " body=excluded.body, session_id=excluded.session_id,"
+                    " ON CONFLICT(mode, session_id) DO UPDATE SET"
+                    " body=excluded.body,"
                     " updated_at=excluded.updated_at",
-                    (mode, body, session_id, time.time()),
+                    (mode, body, session_id or "", time.time()),
                 )
             except Exception:
-                conn.execute(
-                    "INSERT INTO state(mode, body, updated_at)"
-                    " VALUES (?, ?, ?)"
-                    " ON CONFLICT(mode) DO UPDATE SET"
-                    " body=excluded.body, updated_at=excluded.updated_at",
-                    (mode, body, time.time()),
-                )
+                pass
 except Exception as e:
     print(f"warning: MCP state write failed (non-fatal): {e}")
 print(f"ralplan: converged after {cycle} cycle(s) — consensus.md written")
@@ -637,19 +620,13 @@ try:
                 conn.execute(
                     "INSERT INTO state(mode, body, session_id, updated_at)"
                     " VALUES (?, ?, ?, ?)"
-                    " ON CONFLICT(mode) DO UPDATE SET"
-                    " body=excluded.body, session_id=excluded.session_id,"
+                    " ON CONFLICT(mode, session_id) DO UPDATE SET"
+                    " body=excluded.body,"
                     " updated_at=excluded.updated_at",
-                    (mode, body, session_id, time.time()),
+                    (mode, body, session_id or "", time.time()),
                 )
             except Exception:
-                conn.execute(
-                    "INSERT INTO state(mode, body, updated_at)"
-                    " VALUES (?, ?, ?)"
-                    " ON CONFLICT(mode) DO UPDATE SET"
-                    " body=excluded.body, updated_at=excluded.updated_at",
-                    (mode, body, time.time()),
-                )
+                pass
 except Exception as e:
     print(f"warning: MCP state write failed (non-fatal): {e}")
 

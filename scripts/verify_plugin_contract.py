@@ -1873,10 +1873,16 @@ def check_cancel_signal_pairing(root: Path = ROOT) -> CheckResult:
 # Path to the canonical mode registry
 _STATE_MODES_DOC = ROOT / "docs" / "STATE_MODES.md"
 
-# Patterns that identify a literal mode string in Python source or SKILL.md
-# Matches: state_write(mode="foo"), _mcp_write_best_effort('foo', ...), mode="foo"
+# Patterns that identify a literal mode string in Python source or SKILL.md.
+# Catches both positional and keyword calls:
+#   state_write("foo", ...)
+#   state_write(mode="foo", ...)
+#   state_read(mode='foo')
+#   state_clear(mode="foo", session_id=...)
+#   _mcp_write_best_effort("foo", ...)
 _MODE_LITERAL_RE = re.compile(
-    r"""(?:state_write|state_read|_mcp_write_best_effort)\s*\(\s*['"]([^'"]+)['"]""",
+    r"""(?:state_write|state_read|state_clear|_mcp_write_best_effort)\s*\(\s*"""
+    r"""(?:mode\s*=\s*)?['"]([^'"]+)['"]""",
     re.IGNORECASE,
 )
 
@@ -1884,8 +1890,8 @@ _MODE_LITERAL_RE = re.compile(
 _MODE_SCAN_DIRS = ("scripts", "mcp", "skills")
 _MODE_SCAN_EXTENSIONS = (".py", ".md")
 
-# Mode prefixes that are dynamic (contain {var}) — skip these
-_DYNAMIC_MODE_PREFIX = re.compile(r"[\{\}]")
+# Mode prefixes that are dynamic (contain {var} or <placeholder>) — skip these
+_DYNAMIC_MODE_PREFIX = re.compile(r"[\{\}<>]")
 
 
 def _parse_registered_modes(doc_path: Path) -> set[str]:
@@ -1943,21 +1949,39 @@ def check_mode_key_registry(root: Path = ROOT) -> CheckResult:
             except Exception:
                 continue
             scanned += 1
+            # Build a list of registry patterns with placeholders → regex
+            placeholder_patterns: list[tuple[str, re.Pattern]] = []
+            for reg in registered:
+                if "<" in reg and ">" in reg:
+                    # Turn 'team.<worker-slug>' into 'team\.[^.<>]+'
+                    regex_src = re.sub(r"<[^>]+>", r"[^.<>]+", re.escape(reg))
+                    # re.escape escapes the angle brackets; put them back after sub
+                    regex_src = regex_src.replace(r"\<", "<").replace(r"\>", ">")
+                    # Now strip the angle-bracketed placeholders themselves
+                    regex_src = re.sub(r"<[^>]+>", r"[^.<>]+", regex_src)
+                    placeholder_patterns.append((reg, re.compile(rf"^{regex_src}$")))
             for line_idx, line in enumerate(content.splitlines()):
                 for m in _MODE_LITERAL_RE.finditer(line):
                     mode_val = m.group(1)
-                    # Skip dynamic strings
+                    # Skip template placeholders like team.<slug>
                     if _DYNAMIC_MODE_PREFIX.search(mode_val):
                         continue
                     # 'subagent:<id>' patterns are covered by 'subagent' in registry
                     if mode_val.startswith("subagent:"):
                         if "subagent" in registered:
                             continue
-                    if mode_val not in registered:
-                        violations.append(
-                            f"  {rel}:{line_idx + 1}: unregistered mode "
-                            f"'{mode_val}' — add to docs/STATE_MODES.md"
-                        )
+                    if mode_val in registered:
+                        continue
+                    # Match concrete values against placeholder patterns
+                    # (e.g. 'team.worker-1' matches 'team.<worker-slug>').
+                    if any(
+                        pat.match(mode_val) for _, pat in placeholder_patterns
+                    ):
+                        continue
+                    violations.append(
+                        f"  {rel}:{line_idx + 1}: unregistered mode "
+                        f"'{mode_val}' — add to docs/STATE_MODES.md"
+                    )
 
     ok = len(violations) == 0
     if ok:
@@ -2382,6 +2406,76 @@ def check_external_cli(root: Path = ROOT) -> CheckResult:
     return True, messages
 
 
+def check_broken_script_refs(root: Path = ROOT) -> CheckResult:
+    """Every scripts/<file>.py token inside skills/*/SKILL.md or agents/*.md
+    must point at a file that actually exists.
+
+    The contract-reset audit caught flagship skills invoking
+    scripts/router_state.py (removed) and scripts/state_write.py (never
+    shipped). This check prevents that class of regression from
+    re-entering the repo.
+    """
+    pattern = re.compile(r"scripts/([A-Za-z0-9_]+\.py)")
+    violations: list[str] = []
+    for scan_root in (root / "skills", root / "agents"):
+        if not scan_root.is_dir():
+            continue
+        for md in scan_root.rglob("*.md"):
+            try:
+                text = md.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            for m in pattern.finditer(text):
+                target = m.group(0)
+                if not (root / target).exists():
+                    rel = md.relative_to(root).as_posix()
+                    violations.append(f"{rel}: references missing {target}")
+    if violations:
+        messages = [
+            f"FAIL: {len(violations)} skill/agent file(s) reference scripts that do not exist:"
+        ]
+        messages.extend(violations)
+        return False, messages
+    return True, ["OK: every scripts/<file>.py referenced by a skill or agent exists"]
+
+
+def check_missing_doc_links(root: Path = ROOT) -> CheckResult:
+    """Every docs/<file>.md Markdown link inside README.md, AGENTS.md,
+    docs/README.md, docs/QUICKSTART.md, docs/INSTALL.md, and
+    docs/ARCHITECTURE.md must resolve. Fragments (#anchor) are stripped
+    before existence check.
+    """
+    link_re = re.compile(r"\]\((docs/[^\s)#]+\.md)(?:#[^)]*)?\)")
+    sources = [
+        root / "README.md",
+        root / "AGENTS.md",
+        root / "docs" / "README.md",
+        root / "docs" / "QUICKSTART.md",
+        root / "docs" / "INSTALL.md",
+        root / "docs" / "ARCHITECTURE.md",
+    ]
+    violations: list[str] = []
+    for source in sources:
+        if not source.exists():
+            continue
+        try:
+            text = source.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for m in link_re.finditer(text):
+            target = m.group(1)
+            if not (root / target).exists():
+                rel = source.relative_to(root).as_posix()
+                violations.append(f"{rel}: broken link -> {target}")
+    if violations:
+        messages = [
+            f"FAIL: {len(violations)} broken docs/ link(s) in headline documentation:"
+        ]
+        messages.extend(violations)
+        return False, messages
+    return True, ["OK: every docs/<file>.md link in headline docs resolves"]
+
+
 CHECKS: dict = {
     "rename": check_rename,
     "rename-stub": check_rename_stub,
@@ -2402,6 +2496,8 @@ CHECKS: dict = {
     "worktree-hygiene": check_worktree_hygiene,
     "skill-catalog-consistency": check_skill_catalog_consistency,
     "external-cli": check_external_cli,
+    "broken-script-refs": check_broken_script_refs,
+    "missing-doc-links": check_missing_doc_links,
 }
 
 

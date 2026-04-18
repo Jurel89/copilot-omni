@@ -41,9 +41,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 SERVER_NAME = "copilot-omni"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "2.1.1"
 PROTOCOL_VERSION = "2024-11-05"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
 
 
 # ------------------------------------------------------------------ storage
@@ -80,8 +80,16 @@ def _current_project() -> str:
 # ------------------------------------------------------------------ migration framework
 
 # Each entry: (target_version: int, sql_statements: str)
-# Migrations MUST be additive-only: no DROP COLUMN, no rename, no destructive ALTER.
-# New columns must be NULLable or have defaults.
+# Default rule: migrations are additive-only (no DROP COLUMN, no rename, no
+# destructive ALTER); new columns must be NULLable or have defaults.
+# Exception: v6 is a one-time structural rebuild of the state table to swap
+# the scalar-mode PRIMARY KEY for a composite PRIMARY KEY(mode, session_id).
+# The rebuild is wrapped in its own BEGIN/COMMIT inside the SQL so the
+# DROP TABLE state + ALTER TABLE state_new RENAME pair is atomic — a crash
+# mid-rebuild rolls back and leaves the old table intact. The schema_version
+# bump happens right after the rebuild in a separate autocommit statement;
+# on a crash between those two steps the DB is still consistent (table
+# state exists) and the migration is simply re-run next startup.
 MIGRATIONS: List[Tuple[int, str]] = [
     (
         1,
@@ -181,6 +189,40 @@ MIGRATIONS: List[Tuple[int, str]] = [
         UPDATE memory SET project = '' WHERE project = '';
     """,
     ),
+    (
+        5,
+        """
+        UPDATE state SET session_id = '' WHERE session_id IS NULL;
+    """,
+    ),
+    (
+        6,
+        """
+        -- Rebuild state with a composite PRIMARY KEY(mode, session_id).
+        -- The original table had mode as a scalar PK, which blocked
+        -- per-session rows even after session_id was added. This rebuild is
+        -- data-preserving: every existing row is copied with its (normalized)
+        -- session_id intact. The whole block is wrapped in BEGIN/COMMIT so a
+        -- crash between DROP TABLE state and ALTER TABLE state_new RENAME
+        -- cannot leave the database missing its state table.
+        BEGIN;
+        DROP INDEX IF EXISTS idx_state_mode_session;
+        CREATE TABLE state_new (
+            mode TEXT NOT NULL,
+            body TEXT NOT NULL,
+            session_id TEXT NOT NULL DEFAULT '',
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (mode, session_id)
+        );
+        INSERT INTO state_new(mode, body, session_id, updated_at)
+            SELECT mode, body, COALESCE(session_id, ''), updated_at FROM state;
+        DROP TABLE state;
+        ALTER TABLE state_new RENAME TO state;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_state_mode_session
+            ON state(mode, session_id);
+        COMMIT;
+    """,
+    ),
 ]
 
 # Serialize migrations across all threads in this process.
@@ -204,6 +246,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
         for target_version, sql in MIGRATIONS:
             if current < target_version:
+                # Each migration step either:
+                #   - wraps its own BEGIN/COMMIT inside the SQL (destructive
+                #     rebuilds — e.g. v6), or
+                #   - runs additive statements that SQLite can atomically
+                #     autocommit one at a time.
+                # In both cases we record the version bump only after the
+                # migration SQL succeeds, so a crash mid-step leaves
+                # schema_version pointing at the last fully-applied version.
                 try:
                     conn.executescript(sql)
                 except sqlite3.OperationalError as exc:
@@ -789,42 +839,98 @@ def _tool_policy_check(args: Dict[str, Any]) -> Dict[str, Any]:
 def _tool_state_write(args: Dict[str, Any]) -> Dict[str, Any]:
     mode = args["mode"]
     body = args.get("body", {})
+    session_id = args.get("session_id") or ""
     with _Conn() as conn:
         conn.execute(
-            "INSERT INTO state(mode, body, updated_at) VALUES (?, ?, ?)"
-            " ON CONFLICT(mode) DO UPDATE SET body=excluded.body, updated_at=excluded.updated_at",
-            (mode, json.dumps(body), _now()),
+            "INSERT INTO state(mode, body, session_id, updated_at) VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(mode, session_id) DO UPDATE SET"
+            " body=excluded.body, updated_at=excluded.updated_at",
+            (mode, json.dumps(body), session_id, _now()),
         )
-    return _json_result({"mode": mode, "ok": True})
+    return _json_result({"mode": mode, "session_id": session_id, "ok": True})
 
 
 def _tool_state_read(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Read state rows.
+
+    Back-compat shapes preserved:
+    - mode only:                → row keyed (mode, session_id="") [legacy default]
+    - mode + session_id:        → that specific row
+    - no mode, no list:         → {"modes": [{mode, updated_at}, ...]} across empty-session rows [legacy]
+    - list=true (additive new): → {"rows": [{mode, session_id, updated_at}, ...]} across all rows
+    """
     mode = args.get("mode")
+    session_id = args.get("session_id")
+    want_list = bool(args.get("list"))
     with _Conn() as conn:
-        if mode:
-            row = conn.execute("SELECT * FROM state WHERE mode=?", (mode,)).fetchone()
+        if mode is not None:
+            sid = session_id if session_id is not None else ""
+            row = conn.execute(
+                "SELECT * FROM state WHERE mode=? AND COALESCE(session_id,'')=?",
+                (mode, sid),
+            ).fetchone()
             if not row:
-                return _json_result({"mode": mode, "body": None})
+                return _json_result(
+                    {"mode": mode, "session_id": sid, "body": None}
+                )
             return _json_result(
                 {
                     "mode": row["mode"],
+                    "session_id": row["session_id"] or "",
                     "body": json.loads(row["body"]),
                     "updated_at": row["updated_at"],
                 }
             )
-        rows = conn.execute("SELECT mode, updated_at FROM state").fetchall()
+        if want_list:
+            rows = conn.execute(
+                "SELECT mode, session_id, updated_at FROM state"
+            ).fetchall()
+            return _json_result(
+                {
+                    "rows": [
+                        {
+                            "mode": r["mode"],
+                            "session_id": r["session_id"] or "",
+                            "updated_at": r["updated_at"],
+                        }
+                        for r in rows
+                    ]
+                }
+            )
+        # Legacy "list modes" shape: aggregate from the default empty-session set.
+        rows = conn.execute(
+            "SELECT mode, updated_at FROM state WHERE COALESCE(session_id,'')=''"
+        ).fetchall()
     return _json_result({"modes": [dict(r) for r in rows]})
 
 
 def _tool_state_clear(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Clear state rows.
+
+    Accepted combos:
+    - mode + session_id → delete that single row
+    - mode only         → delete all rows for that mode across sessions [legacy default]
+    - session_id only   → delete all rows for that session across modes
+    - all=true          → delete every row
+    """
     mode = args.get("mode")
+    session_id = args.get("session_id")
     with _Conn() as conn:
-        if mode:
+        if mode is not None and session_id is not None:
+            cur = conn.execute(
+                "DELETE FROM state WHERE mode=? AND COALESCE(session_id,'')=?",
+                (mode, session_id),
+            )
+        elif mode is not None:
             cur = conn.execute("DELETE FROM state WHERE mode=?", (mode,))
+        elif session_id is not None:
+            cur = conn.execute(
+                "DELETE FROM state WHERE COALESCE(session_id,'')=?", (session_id,)
+            )
         elif args.get("all"):
             cur = conn.execute("DELETE FROM state")
         else:
-            raise ValueError("mode or all=true required")
+            raise ValueError("mode, session_id, or all=true required")
         deleted = cur.rowcount
     return _json_result({"deleted": deleted})
 
@@ -1532,7 +1638,9 @@ TOOLS: Dict[str, Dict[str, Any]] = {
     },
     "lsp_hover": {
         "description": (
-            "Best-effort LSP hover query; skipped when no LSP server on PATH. "
+            "EXPERIMENTAL / STUB. Best-effort LSP hover query; returns "
+            '{"status": "stub"} until a full LSP session lifecycle is '
+            "implemented. No-op when no LSP server is on PATH. "
             "Phase-C C18 knowledge layer."
         ),
         "inputSchema": {
@@ -1549,7 +1657,9 @@ TOOLS: Dict[str, Dict[str, Any]] = {
     },
     "lsp_goto_definition": {
         "description": (
-            "Best-effort LSP go-to-definition; skipped when no LSP server on PATH."
+            "EXPERIMENTAL / STUB. Best-effort LSP go-to-definition; "
+            'returns {"status": "stub"} until a full LSP session '
+            "lifecycle is implemented. No-op when no LSP server is on PATH."
         ),
         "inputSchema": {
             "type": "object",
@@ -1565,7 +1675,9 @@ TOOLS: Dict[str, Dict[str, Any]] = {
     },
     "lsp_find_references": {
         "description": (
-            "Best-effort LSP find-references; skipped when no LSP server on PATH."
+            "EXPERIMENTAL / STUB. Best-effort LSP find-references; "
+            'returns {"status": "stub"} until a full LSP session '
+            "lifecycle is implemented. No-op when no LSP server is on PATH."
         ),
         "inputSchema": {
             "type": "object",
@@ -1625,27 +1737,52 @@ TOOLS: Dict[str, Dict[str, Any]] = {
         "handler": _tool_policy_check,
     },
     "state_write": {
-        "description": "Persist mode state (autopilot, ralph, ultrawork, team, router, etc.).",
+        "description": (
+            "Persist mode state (autopilot, ralph, ultrawork, team, etc.). "
+            "Optional session_id scopes the row; omitting it writes the default "
+            "empty-session row (back-compatible with legacy single-row-per-mode)."
+        ),
         "inputSchema": {
             "type": "object",
             "required": ["mode"],
-            "properties": {"mode": {"type": "string"}, "body": {"type": "object"}},
+            "properties": {
+                "mode": {"type": "string"},
+                "body": {"type": "object"},
+                "session_id": {"type": "string"},
+            },
         },
         "handler": _tool_state_write,
     },
     "state_read": {
-        "description": "Read mode state, or list all persisted modes.",
+        "description": (
+            "Read mode state. Legacy shape preserved: mode-only reads the default "
+            "empty-session row; no-mode returns the legacy list of modes. Pass "
+            "session_id to target a scoped row, or list=true to enumerate all "
+            "(mode, session_id) rows."
+        ),
         "inputSchema": {
             "type": "object",
-            "properties": {"mode": {"type": "string"}},
+            "properties": {
+                "mode": {"type": "string"},
+                "session_id": {"type": "string"},
+                "list": {"type": "boolean"},
+            },
         },
         "handler": _tool_state_read,
     },
     "state_clear": {
-        "description": "Clear mode state (one mode or all).",
+        "description": (
+            "Clear mode state. Combos: (mode+session_id)=one row, "
+            "(mode only)=all sessions for that mode, "
+            "(session_id only)=all modes for that session, (all=true)=nuke."
+        ),
         "inputSchema": {
             "type": "object",
-            "properties": {"mode": {"type": "string"}, "all": {"type": "boolean"}},
+            "properties": {
+                "mode": {"type": "string"},
+                "session_id": {"type": "string"},
+                "all": {"type": "boolean"},
+            },
         },
         "handler": _tool_state_clear,
     },
