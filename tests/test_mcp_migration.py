@@ -95,7 +95,7 @@ class TestMigrationV1ToV2(unittest.TestCase):
                 # Version must be current SCHEMA_VERSION (3).
                 row = conn2.execute("SELECT version FROM schema_version").fetchone()
                 self.assertEqual(row["version"], srv.SCHEMA_VERSION)
-                self.assertEqual(srv.SCHEMA_VERSION, 4)
+                self.assertEqual(srv.SCHEMA_VERSION, 6)
 
                 # session_id column must exist on state table.
                 cols = {
@@ -138,7 +138,7 @@ class TestMigrationV1ToV2(unittest.TestCase):
 
                 row = conn.execute("SELECT version FROM schema_version").fetchone()
                 self.assertEqual(row["version"], srv.SCHEMA_VERSION)
-                self.assertEqual(srv.SCHEMA_VERSION, 4)
+                self.assertEqual(srv.SCHEMA_VERSION, 6)
                 conn.close()
             finally:
                 os.environ.pop("OMNI_HOME", None)
@@ -149,10 +149,10 @@ class TestNewerDbGuard(unittest.TestCase):
         """If DB schema_version > SCHEMA_VERSION, _migrate must raise RuntimeError."""
         with tempfile.TemporaryDirectory() as td:
             db_path = str(Path(td) / "omni.db")
-            # Synthesize a v5 DB (one version ahead of current SCHEMA_VERSION=4).
+            # Synthesize a DB one version ahead of current SCHEMA_VERSION.
             conn = sqlite3.connect(db_path, isolation_level=None)
             conn.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)")
-            conn.execute("INSERT INTO schema_version(version) VALUES (5)")
+            conn.execute("INSERT INTO schema_version(version) VALUES (7)")
             conn.close()
 
             import os
@@ -194,9 +194,9 @@ class TestMigrationV2ToV3(unittest.TestCase):
                 conn2.execute("PRAGMA foreign_keys=ON")
                 srv._migrate(conn2)
 
-                # Version must be 4 (v2 -> v3 -> v4).
+                # Version must reach current SCHEMA_VERSION (v2 -> ... -> v6).
                 row = conn2.execute("SELECT version FROM schema_version").fetchone()
-                self.assertEqual(row["version"], 4)
+                self.assertEqual(row["version"], srv.SCHEMA_VERSION)
 
                 # The unique index must exist.
                 indexes = {
