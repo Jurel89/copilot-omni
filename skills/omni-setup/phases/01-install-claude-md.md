@@ -1,96 +1,81 @@
-# Phase 1: Install CLAUDE.md
+# Phase 1: Initialize Project
 
 ## Determine Configuration Target
 
 If `--local` flag was passed, set `CONFIG_TARGET=local`.
-If `--global` flag was passed, set `CONFIG_TARGET=global`.
 
 Otherwise (initial setup wizard), emit as plain chat and wait for the user's reply:
 
 **Question:** "Where should I configure copilot-omni?"
 
 **Options:**
-1. **Local (this project)** - Creates `.claude/CLAUDE.md` in current project directory. Best for project-specific configurations.
-2. **Global (all projects)** - Creates `~/.claude/CLAUDE.md` for all Claude Code sessions. Best for consistent behavior everywhere.
+1. **Local (this project)** - Creates `.omni/` in the current project directory. Best for project-specific configurations.
 
-Set `CONFIG_TARGET` to `local` or `global` based on user's choice.
+Set `CONFIG_TARGET` to `local` based on user's choice.
 
-If `CONFIG_TARGET=global` and `~/.claude/CLAUDE.md` already exists without copilot-omni markers, ask a second explicit question before running setup:
+## Create .omni/ Directory Structure
 
-**Question:** "Global setup will change your base Claude config. Which behavior do you want?"
-
-**Options (default first):**
-1. **Overwrite base CLAUDE.md (Recommended)** - plain `claude` and `omc` both use copilot-omni globally.
-2. **Keep base CLAUDE.md; use copilot-omni only through `omc`** - preserve the user's base file, install copilot-omni into `CLAUDE-omc.md`, and let `omc` force-load that companion config at launch.
-
-Set `GLOBAL_INSTALL_STYLE=overwrite` or `preserve` based on the user's choice. If you did not ask this question, default `GLOBAL_INSTALL_STYLE=overwrite`.
-
-## Download and Install CLAUDE.md
-
-**MANDATORY**: Always run this command. Do NOT skip. Do NOT use the Write tool. Let the setup script choose the safest canonical source (bundled `docs/CLAUDE.md` first, GitHub fallback only if needed).
+**MANDATORY**: Always run this step. Do NOT skip.
 
 ```bash
-bash "${OMNI_PLUGIN_ROOT}/scripts/setup-claude-md.sh" <CONFIG_TARGET> [GLOBAL_INSTALL_STYLE]
+# Create .omni/ directory structure
+mkdir -p .omni/{runs,plans,specs,decisions,state,sessions,audit,cache}
+
+# Create default config if it doesn't exist
+if [ ! -f ".omni/config.json" ]; then
+  cat > .omni/config.json << 'CONFIG_EOF'
+{
+  "schema_version": 1,
+  "runtime": {
+    "max_parallel_subagents": 8
+  }
+}
+CONFIG_EOF
+  echo "Created default .omni/config.json"
+fi
+
+# Seed .git/info/exclude with copilot-omni ignore rules
+if [ -d ".git" ]; then
+  if ! grep -q "copilot-omni" .git/info/exclude 2>/dev/null; then
+    cat >> .git/info/exclude << 'GIT_EOF'
+
+# copilot-omni local artifacts
+.omni/runs/*
+.omni/state/*
+.omni/sessions/*
+.omni/cache/*
+GIT_EOF
+    echo "Added .omni/ ignore rules to .git/info/exclude"
+  fi
+fi
+
+echo "Project initialization complete."
 ```
-
-Replace `<CONFIG_TARGET>` with `local` or `global`. For local installs, omit the optional style argument. For global installs, pass `overwrite` or `preserve` when you know the user's choice; otherwise let the script default to `overwrite`.
-
-The script must install the canonical `docs/CLAUDE.md` content and preserve the required
-`<!-- copilot-omni:START -->` / `<!-- copilot-omni:END -->` markers. Do **not** hand-write, summarize, or
-partially reconstruct CLAUDE.md.
-
-After running the script, verify the target file contains both markers. If marker validation
-fails, stop and report the failure instead of writing CLAUDE.md manually.
-
-For `local` installs inside a git repository, the script also seeds `.git/info/exclude` with an copilot-omni block that ignores local `.omni/*` artifacts by default while preserving `.omni/skills/` for version-controlled project skills.
-
-**FALLBACK** if curl fails:
-Tell user to manually download from:
-https://raw.githubusercontent.com/Yeachan-Heo/copilot-omni/main/docs/CLAUDE.md
-
-**Note**: The downloaded CLAUDE.md includes Context Persistence instructions with `<remember>` tags for surviving conversation compaction.
-
-**Note**: Preserve mode installs copilot-omni into a companion `CLAUDE-omc.md` with a small managed import block, and `omc` launch force-loads that companion config without changing plain `claude`.
 
 ## Report Success
 
-If `CONFIG_TARGET` is `local`:
 ```
 copilot-omni Project Configuration Complete
-- CLAUDE.md: Updated with latest configuration from GitHub at ./.claude/CLAUDE.md
-- Git excludes: Added local `.omni/*` ignore rules to `.git/info/exclude` (keeps `.omni/skills/` trackable)
-- Backup: Previous CLAUDE.md backed up (if existed)
+- .omni/ directory: Initialized with runs, plans, specs, state, sessions, audit, cache
+- Git excludes: Added local `.omni/*` ignore rules to `.git/info/exclude`
+- Config: .omni/config.json created (if missing)
 - Scope: PROJECT - applies only to this project
 - Hooks: Provided by plugin (no manual installation needed)
-- Agents: 28+ available (base + tiered variants)
-- Model routing: Haiku/Sonnet/Opus based on task complexity
+- Agents: 19 specialist agents available
+- Skills: 27 workflow skills available
 
-Note: This configuration is project-specific and won't affect other projects or global settings.
-```
-
-If `CONFIG_TARGET` is `global`:
-```
-copilot-omni Global Configuration Complete
-- CLAUDE.md: Updated at ~/.claude/CLAUDE.md, or preserved with explicit preserve mode
-- Companion: May install ~/.claude/CLAUDE-omc.md when preserve mode is chosen
-- Backup: Previous CLAUDE.md backed up (if existed)
-- Scope: GLOBAL - applies to all Claude Code sessions
-- Hooks: Provided by plugin (no manual installation needed)
-- Agents: 28+ available (base + tiered variants)
-- Model routing: Haiku/Sonnet/Opus based on task complexity
-
-Note: Hooks are now managed by the plugin system automatically. No manual hook installation required.
+Note: This configuration is project-specific and won't affect other projects.
 ```
 
 ## Save Progress
 
 ```bash
-bash "${OMNI_PLUGIN_ROOT}/scripts/setup-progress.sh" save 2 <CONFIG_TARGET>
+bash "${OMNI_PLUGIN_ROOT}/scripts/setup-progress.sh" save 2 "$CONFIG_TARGET"
 ```
 
 ## Early Exit for Flag Mode
 
-If `--local` or `--global` flag was used, clear state and **STOP HERE**:
+If `--local` flag was used, clear state and **STOP HERE**:
 ```bash
 bash "${OMNI_PLUGIN_ROOT}/scripts/setup-progress.sh" clear
 ```
