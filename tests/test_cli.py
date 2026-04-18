@@ -254,5 +254,39 @@ class TestCliStoreNavigation(unittest.TestCase):
         self.assertEqual(body["timeline"][0]["id"], "trace-2")
 
 
+class TestCliCodebaseGraph(unittest.TestCase):
+    def test_codebase_graph_and_impact(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "pkg").mkdir()
+            (root / "pkg" / "helper.py").write_text(
+                "def helper():\n    return 1\n", encoding="utf-8"
+            )
+            (root / "pkg" / "main.py").write_text(
+                "from pkg.helper import helper\n\n\ndef run():\n    return helper()\n",
+                encoding="utf-8",
+            )
+            (root / "README.md").write_text(
+                "See [helper](./pkg/helper.py).\n", encoding="utf-8"
+            )
+
+            out, err, rc = run(["codebase", "graph", "--root", td, "--json"])
+            self.assertEqual(rc, 0, err)
+            body = json.loads(out)
+            self.assertEqual(body["file_count"], 3)
+            edge_types = {(edge["source"], edge["target"], edge["type"]) for edge in body["edges"]}
+            self.assertIn(("pkg/main.py", "pkg/helper.py", "imports"), edge_types)
+            self.assertIn(("README.md", "pkg/helper.py", "references"), edge_types)
+
+            out, err, rc = run(
+                ["codebase", "impact", "pkg/helper.py", "--root", td, "--json"]
+            )
+            self.assertEqual(rc, 0, err)
+            report = json.loads(out)
+            self.assertIn("pkg/main.py", report["imported_by"])
+            self.assertIn("README.md", report["imported_by"])
+            self.assertIn("helper", report["defines"])
+
+
 if __name__ == "__main__":
     unittest.main()
