@@ -909,25 +909,38 @@ def _tool_state_clear(args: Dict[str, Any]) -> Dict[str, Any]:
 
     Accepted combos:
     - mode + session_id → delete that single row
-    - mode only         → delete all rows for that mode across sessions [legacy default]
+    - mode only         → delete the default empty-session row (back-compat)
+    - mode + all=true   → delete every row for that mode across sessions
     - session_id only   → delete all rows for that session across modes
     - all=true          → delete every row
+
+    The mode-only behaviour is deliberately scoped to the empty-session row so
+    a legacy caller (pre-v6) cannot accidentally wipe another active session's
+    state. The broader "all sessions for this mode" case is opt-in via
+    `mode=...` + `all=true`.
     """
     mode = args.get("mode")
     session_id = args.get("session_id")
+    all_flag = bool(args.get("all"))
     with _Conn() as conn:
         if mode is not None and session_id is not None:
             cur = conn.execute(
                 "DELETE FROM state WHERE mode=? AND COALESCE(session_id,'')=?",
                 (mode, session_id),
             )
-        elif mode is not None:
+        elif mode is not None and all_flag:
             cur = conn.execute("DELETE FROM state WHERE mode=?", (mode,))
+        elif mode is not None:
+            # Legacy default: empty-session row only.
+            cur = conn.execute(
+                "DELETE FROM state WHERE mode=? AND COALESCE(session_id,'')=''",
+                (mode,),
+            )
         elif session_id is not None:
             cur = conn.execute(
                 "DELETE FROM state WHERE COALESCE(session_id,'')=?", (session_id,)
             )
-        elif args.get("all"):
+        elif all_flag:
             cur = conn.execute("DELETE FROM state")
         else:
             raise ValueError("mode, session_id, or all=true required")
@@ -1772,9 +1785,11 @@ TOOLS: Dict[str, Dict[str, Any]] = {
     },
     "state_clear": {
         "description": (
-            "Clear mode state. Combos: (mode+session_id)=one row, "
-            "(mode only)=all sessions for that mode, "
-            "(session_id only)=all modes for that session, (all=true)=nuke."
+            "Clear mode state. Combos: (mode+session_id)=one row; "
+            "(mode only)=default empty-session row only [back-compat]; "
+            "(mode+all=true)=every session's row for that mode; "
+            "(session_id only)=all modes for that session; "
+            "(all=true)=nuke everything."
         ),
         "inputSchema": {
             "type": "object",

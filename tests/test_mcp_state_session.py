@@ -97,6 +97,63 @@ def test_clear_scoped_to_single_row(tmp_path, monkeypatch):
     assert b["body"] == {"x": 2}
 
 
+def test_clear_mode_only_targets_empty_session_row(tmp_path, monkeypatch):
+    """Legacy `state_clear({"mode": "ralph"})` must scope to the default
+    empty-session row. Per-session rows for the same mode must be left
+    intact — otherwise a pre-v6 caller can silently wipe an active
+    session's state. Codex P1.
+    """
+    srv = _load_server(tmp_path, monkeypatch)
+    # Default empty-session row
+    srv._tool_state_write({"mode": "ralph", "body": {"x": "default"}})
+    # Per-session rows for the same mode — must survive the legacy clear.
+    srv._tool_state_write(
+        {"mode": "ralph", "body": {"x": 1}, "session_id": "s1"}
+    )
+    srv._tool_state_write(
+        {"mode": "ralph", "body": {"x": 2}, "session_id": "s2"}
+    )
+
+    out = _body_of(srv._tool_state_clear({"mode": "ralph"}))
+    assert out["deleted"] == 1, (
+        "mode-only clear must remove exactly the default row, not all sessions"
+    )
+
+    # Default row gone
+    default = _body_of(srv._tool_state_read({"mode": "ralph"}))
+    assert default["body"] is None
+
+    # Per-session rows still present
+    s1 = _body_of(srv._tool_state_read({"mode": "ralph", "session_id": "s1"}))
+    s2 = _body_of(srv._tool_state_read({"mode": "ralph", "session_id": "s2"}))
+    assert s1["body"] == {"x": 1}
+    assert s2["body"] == {"x": 2}
+
+
+def test_clear_mode_plus_all_purges_every_session(tmp_path, monkeypatch):
+    """Opt-in broad purge: `state_clear({"mode": "ralph", "all": True})`
+    wipes every session's row for that mode, including the default one.
+    """
+    srv = _load_server(tmp_path, monkeypatch)
+    srv._tool_state_write({"mode": "ralph", "body": {"x": "default"}})
+    srv._tool_state_write(
+        {"mode": "ralph", "body": {"x": 1}, "session_id": "s1"}
+    )
+    srv._tool_state_write(
+        {"mode": "ralph", "body": {"x": 2}, "session_id": "s2"}
+    )
+    srv._tool_state_write(
+        {"mode": "team", "body": {"y": 1}, "session_id": "s1"}
+    )
+
+    out = _body_of(srv._tool_state_clear({"mode": "ralph", "all": True}))
+    assert out["deleted"] == 3  # default + s1 + s2
+
+    # Unrelated mode row untouched
+    team = _body_of(srv._tool_state_read({"mode": "team", "session_id": "s1"}))
+    assert team["body"] == {"y": 1}
+
+
 def test_clear_by_session_removes_all_modes_for_that_session(tmp_path, monkeypatch):
     srv = _load_server(tmp_path, monkeypatch)
     srv._tool_state_write(

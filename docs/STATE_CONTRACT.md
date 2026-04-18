@@ -59,7 +59,8 @@ Back-compat preserved so pre-schema-v6 callers see no shape change:
 | Args                         | Effect |
 |------------------------------|--------|
 | `mode + session_id`          | delete one row |
-| `mode` only                  | delete all rows for that mode across sessions |
+| `mode` only                  | delete the default empty-session row for that mode (back-compat; legacy callers cannot accidentally wipe another session's state) |
+| `mode + all=true`            | delete every session's row for that mode (opt-in broad purge) |
 | `session_id` only            | delete all rows for that session across modes |
 | `all=true`                   | wipe every row |
 
