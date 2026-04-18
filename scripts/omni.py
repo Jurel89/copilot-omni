@@ -1023,6 +1023,7 @@ _CODEBASE_SKIP_DIRS = {
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _WIKI_LINK_RE = re.compile(r"\[\[\s*(?:[^\]|]*\|)?\s*([^\]|]+?)\s*\]\]")
 _MD_LINK_RE = re.compile(r"\[[^\]]*?\]\(\s*([^)\s]+?)\s*\)")
+_PY_FILE_LITERAL_RE = re.compile(r"['\"]([^'\"]+\.py)['\"]")
 
 
 def _slugify(text: str) -> str:
@@ -1127,7 +1128,8 @@ def _extract_python_graph(
     rel_path = path.relative_to(root).as_posix()
     current_module = _module_name_for(path, root)
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=rel_path)
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=rel_path)
     except (SyntaxError, UnicodeDecodeError, OSError):
         return [], []
     symbols: list[str] = []
@@ -1157,6 +1159,17 @@ def _extract_python_graph(
             if target and target != rel_path and target not in seen_imports:
                 seen_imports.add(target)
                 imports.append(target)
+    for match in _PY_FILE_LITERAL_RE.finditer(source):
+        candidate = (path.parent / match.group(1)).resolve()
+        if not candidate.exists() or not candidate.is_file():
+            continue
+        try:
+            rel = candidate.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if rel != rel_path and rel not in seen_imports:
+            seen_imports.add(rel)
+            imports.append(rel)
     return symbols, imports
 
 
